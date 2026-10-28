@@ -13,7 +13,7 @@ Branch: `feat/canvas-minimap-variants-export`, after the queued canvas features 
 
 ## Tasks
 
-- [ ] T1 S1 — minimap. Route: gentle-ai-worker. Commit: —
+- [x] T1 S1 — minimap. Route: gentle-ai-worker. Commit: 3ee74e483
 - [ ] T2 S2, S3 — artboard menu, variant dialog, server route, extension wiring, capability flag. Risk: item 2 (new write route) → independent verify. Route: gentle-ai-worker. Commit: —
 - [ ] T3 S4 — tab-capture export. Route: gentle-ai-worker. Commit: —
 - [ ] T4 S5 — docs, skill, full suite, visual check, handoff implemented with a preview canvas URL. Route: inline. Commit: —
@@ -24,3 +24,4 @@ Branch: `feat/canvas-minimap-variants-export`, after the queued canvas features 
 - L2 (user choice, verbatim option): "Captura de pestaña del navegador (recomendado)" — export through getDisplayMedia, 1× and 2×, no "Export all", no new dependency; Firefox needs picking the tab by hand.
 - L3: Queue order: screen sizes → token inspector → version history → compare overlay → minimap/variants/export → language.
 - L4: Started on feat/canvas-minimap-variants-export from feat/canvas-compare-overlay (80babb8d6). T1-T3 share canvas.js/css/index.html and the asset tests, so one writer at a time. Run tests/design-canvas-assets.test.ts only under a memory cap (canvas-version-history L6).
+- L5: T1 by gentle-ai-worker, committed 3ee74e483 (564 lines, 331 of them tests; 19 of 26 new tests RED first). Parent re-ran design-canvas-assets 209, design-canvas-server 82, gentle-design 81: all pass. Worker decisions accepted: visible by default, M not persisted; T2 hook = any #gd-world child with class gd-placeholder, then renderMinimap(); the mode chip narrows beside the minimap (may still overlap under ~630px viewport, chip has no pointer events); a click centers on the point. Not yet seen in a browser: checked in T4.
