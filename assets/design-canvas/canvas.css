@@ -1304,6 +1304,20 @@ button:disabled { opacity: 0.5; cursor: default; }
 .gd-badge-detached { color: var(--error); }
 .gd-badge-sent { color: var(--success); }
 
+/* The agent's note on a resolved comment: the same reply look as in History. */
+.gd-comment-reply {
+	margin: 0 12px 4px;
+	padding: 8px 10px;
+	border-left: 2px solid var(--success);
+	border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+	background: var(--wash);
+	font-size: 12px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.gd-comment-reply-label { margin-right: 4px; color: var(--success); font-weight: 700; }
+
 .gd-comment-actions {
 	display: flex;
 	justify-content: flex-end;

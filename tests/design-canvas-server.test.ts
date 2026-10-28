@@ -497,6 +497,34 @@ test("an excerpt of astral characters is truncated to the store limit without a 
 	assert.ok(second.isWellFormed());
 });
 
+// S5: the agent's resolution reaches the canvas through the comments route.
+
+test("S5: the comments route lists a comment's resolution, the status route clears it on reopen, and a malformed one is a 422", async (t) => {
+	const { port, root, base } = await start(t);
+	await postComment(port, { ...VALID, mode: "collect" });
+	await postComment(port, { ...VALID, mode: "collect" });
+	const path = join(root, "alpha", "comments.json");
+	const document = JSON.parse(readFileSync(path, "utf8"));
+	document.comments[0].status = "resolved";
+	document.comments[0].resolvedAt = "2026-10-28T10:00:00.000Z";
+	document.comments[0].resolution = "Made the title 32px.";
+	writeFileSync(path, JSON.stringify(document));
+	const listed = JSON.parse((await rawRequest(port, `${base}api/designs/alpha/comments`)).body).comments;
+	assert.equal(listed[0].resolution, "Made the title 32px.");
+	assert.equal("resolution" in listed[1], false);
+	const id = document.comments[0].id;
+	const reopened = await postJson(port, `api/designs/alpha/comments/${id}/status`, { status: "open" });
+	assert.equal(reopened.status, 200);
+	assert.equal("resolution" in JSON.parse(reopened.body).comment, false);
+	assert.equal("resolution" in storedComments(root)[0], false);
+	document.comments[1].resolution = 7;
+	writeFileSync(path, JSON.stringify(document));
+	const broken = await rawRequest(port, `${base}api/designs/alpha/comments`);
+	assert.equal(broken.status, 422);
+	assert.equal(JSON.parse(broken.body).error, "invalid-comments");
+	assert.match(JSON.parse(broken.body).reason, /resolution/);
+});
+
 test("the status route resolves and reopens one comment", async (t) => {
 	const { port, root } = await start(t);
 	await postComment(port, { ...VALID, mode: "collect" });
@@ -950,7 +978,7 @@ test("formatDesignComment builds the exact session message with the comment id",
 		"Make the headline shorter.",
 		"",
 		"Edit only the artboard design/landing/02-bold.html, following the gentle-design skill.",
-		"When it is applied, mark it resolved with the gentle_design_comments tool (action \"resolve\", slug \"landing\", ids [\"k3x9p2\"]), or set its status to \"resolved\" in design/landing/comments.json.",
+		"When it is applied, mark it resolved with the gentle_design_comments tool (action \"resolve\", slug \"landing\", ids [\"k3x9p2\"], note \"<one line on what you changed>\"), or set its status to \"resolved\" in design/landing/comments.json.",
 	].join("\n"));
 	assert.match(formatDesignComment({ ...VALID, id: "a1", excerpt: "" }), /\nExcerpt: \(none\)\n/);
 });
@@ -979,7 +1007,7 @@ test("formatDesignCommentBatch builds one exact message listing every comment", 
 		"   And bolder.",
 		"",
 		"Apply each comment following the gentle-design skill, editing only the artboard it names.",
-		"When a comment is applied, mark it resolved with the gentle_design_comments tool (action \"resolve\", slug \"landing\", ids [\"aaa111\", \"bbb222\"]), or set its status to \"resolved\" in design/landing/comments.json.",
+		"When a comment is applied, mark it resolved with the gentle_design_comments tool (action \"resolve\", slug \"landing\", ids [\"aaa111\", \"bbb222\"], note \"<one line on what you changed>\"), or set its status to \"resolved\" in design/landing/comments.json.",
 	].join("\n"));
 });
 
@@ -1071,7 +1099,7 @@ test("formatDesignComment names the screenshot, and the session content attaches
 		"The button jumps mid-animation.",
 		"",
 		"Edit only the artboard design/landing/02-bold.html, following the gentle-design skill.",
-		"When it is applied, mark it resolved with the gentle_design_comments tool (action \"resolve\", slug \"landing\", ids [\"k3x9p2\"]), or set its status to \"resolved\" in design/landing/comments.json.",
+		"When it is applied, mark it resolved with the gentle_design_comments tool (action \"resolve\", slug \"landing\", ids [\"k3x9p2\"], note \"<one line on what you changed>\"), or set its status to \"resolved\" in design/landing/comments.json.",
 	].join("\n");
 	assert.equal(formatDesignComment(comment), text);
 	assert.deepEqual(designCommentContent(comment), [{ type: "text", text }, { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }]);

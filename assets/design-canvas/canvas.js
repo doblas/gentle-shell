@@ -2970,7 +2970,15 @@
 			toggle.setAttribute("aria-label", `${toggle.textContent} comment ${commentNumber(comment)}`);
 			toggle.addEventListener("click", () => setCommentStatus(comment.id, next));
 			actions.append(toggle);
-			item.append(show, actions);
+			item.append(show);
+			// What the agent did, from the note it gave when resolving; a reopened comment has none.
+			if (comment.status === "resolved" && typeof comment.resolution === "string" && comment.resolution) {
+				const reply = document.createElement("div");
+				reply.className = "gd-comment-reply";
+				reply.append(chip("gd-comment-reply-label", "Agent:"), chip("gd-comment-reply-text", comment.resolution));
+				item.append(reply);
+			}
+			item.append(actions);
 			if (state.cardErrors.has(comment.id)) {
 				const alert = createAlert();
 				showAlert(alert, state.cardErrors.get(comment.id));

@@ -2241,6 +2241,46 @@ test("S7: canvas.css styles the viewport chip with tokens", () => {
 	assert.match(read("canvas.css"), /\.gd-comment-viewport\s*{[^}]*font:[^}]*var\(--font-mono\)/);
 });
 
+// S5: the Resolved tab shows what the agent did for a comment.
+
+test("S5: a resolved comment with a resolution shows Agent: and the note as text in the Resolved tab, and nowhere else", async () => {
+	const note = "Made the title <b>32px</b> & bolder.";
+	const canvas = await loadRail(300, commentsDoc(
+		comment("a1", "01-a.html", "resolved", { resolution: note }),
+		comment("a2", "01-a.html", "resolved"),
+		comment("a3", "01-a.html", "open", { resolution: "stale" }),
+	));
+	const list = canvas.document.getElementById("gd-comment-list");
+	assert.equal(list.children.length, 1, "the Open tab lists only a3");
+	assert.equal(withClass(list, "gd-comment-reply").length, 0, "an open comment never shows a reply");
+	canvas.document.getElementById("gd-filter-resolved").dispatch("click");
+	const [first, second] = list.children;
+	assert.equal(list.children.length, 2);
+	assert.equal(withClass(first, "gd-comment-reply").length, 1);
+	assert.deepEqual(texts(first, "gd-comment-reply-label"), ["Agent:"]);
+	assert.deepEqual(texts(first, "gd-comment-reply-text"), [note]);
+	assert.equal(withClass(second, "gd-comment-reply").length, 0, "no resolution, no reply");
+});
+
+test("S5: the reply follows the comment when it is resolved with a note and disappears when it is reopened", async () => {
+	const canvas = await loadRail(300, commentsDoc(comment("a1", "01-a.html", "resolved")));
+	canvas.document.getElementById("gd-filter-resolved").dispatch("click");
+	const list = canvas.document.getElementById("gd-comment-list");
+	assert.equal(withClass(list, "gd-comment-reply").length, 0);
+	await setComments(canvas, comment("a1", "01-a.html", "resolved", { resolution: "Shortened the headline" }));
+	assert.deepEqual(texts(list, "gd-comment-reply-text"), ["Shortened the headline"]);
+	await setComments(canvas, comment("a1", "01-a.html", "open"));
+	assert.equal(withClass(list, "gd-comment-reply").length, 0);
+});
+
+test("S5: canvas.css styles the comment reply like the version reply, with tokens", () => {
+	const css = read("canvas.css");
+	assert.match(css, /\.gd-comment-reply\s*{[^}]*border-left:[^}]*var\(--success\)/);
+	assert.match(css, /\.gd-comment-reply-label\s*{[^}]*var\(--success\)/);
+	const block = css.match(/\.gd-comment-reply\s*{[^}]*}/)![0];
+	assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(block), "tokens only");
+});
+
 // Token inspector (T1): the page loads the project's tokens and reloads them when design/system.md changes.
 
 const TOKENS_URL = "/t/api/system/tokens";

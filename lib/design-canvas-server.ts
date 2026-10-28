@@ -171,7 +171,7 @@ function handoffFailure(error: unknown): never {
 
 function resolveInstruction(slug: string, ids: readonly string[]): string {
 	const list = ids.map((id) => JSON.stringify(id)).join(", ");
-	return `mark it resolved with the gentle_design_comments tool (action "resolve", slug "${slug}", ids [${list}]), or set its status to "resolved" in design/${slug}/${DESIGN_COMMENTS_FILE}.`;
+	return `mark it resolved with the gentle_design_comments tool (action "resolve", slug "${slug}", ids [${list}], note "<one line on what you changed>"), or set its status to "resolved" in design/${slug}/${DESIGN_COMMENTS_FILE}.`;
 }
 
 function excerptLine(excerpt: string): string {

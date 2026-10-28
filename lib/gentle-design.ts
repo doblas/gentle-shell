@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { designCommentBatchContent, designCommentContent, hasSystemTokens, listDesignEntries, readDesignManifest, resolveSystemBoard, startDesignCanvasServer, type DesignArtboard, type DesignCanvasServer, type DesignCanvasServerOptions, type DesignSessionContent } from "./design-canvas-server.ts";
-import { createDesignCommentStore, DesignCommentsError, describeViewport, type StoredDesignComment } from "./design-comments.ts";
+import { createDesignCommentStore, DesignCommentsError, describeViewport, normalizeNote, noteProblem, type StoredDesignComment } from "./design-comments.ts";
+import { createDesignHistoryStore, type DesignHistoryStore } from "./design-history.ts";
 import { createDesignHandoffStore, DesignHandoffsError, sendDesignHandoff, type DesignHandoff, type DesignHandoffDelivery, type DesignHandoffStatus } from "./design-handoffs.ts";
 import { openInBrowser, type OpenInBrowserResult } from "./design-open-browser.ts";
 import { detectDesignSources, staleDesignSources } from "./design-sources.ts";
@@ -107,7 +108,7 @@ export function designImplementMessage(input: DesignImplementInput): string {
 			);
 		});
 		const ids = input.comments.map((comment) => JSON.stringify(comment.id)).join(", ");
-		lines.push(`When they are applied, resolve them with the ${DESIGN_COMMENTS_TOOL_NAME} tool (action "resolve", slug "${input.slug}", ids [${ids}]).`);
+		lines.push(`When they are applied, resolve them with the ${DESIGN_COMMENTS_TOOL_NAME} tool (action "resolve", slug "${input.slug}", ids [${ids}], note "<one line on what you changed>").`);
 	}
 	lines.push(
 		"",
@@ -312,7 +313,7 @@ export function createDesignCanvas(deliver: (message: DesignSessionContent) => D
 
 export const DESIGN_COMMENTS_TOOL_NAME = "gentle_design_comments";
 
-export type DesignCommentsToolParams = { action: "list" | "resolve"; slug?: string; file?: string; ids?: string[] };
+export type DesignCommentsToolParams = { action: "list" | "resolve"; slug?: string; file?: string; ids?: string[]; note?: string };
 export type DesignCommentsToolResult = { text: string; details: { comments: Array<StoredDesignComment & { slug: string }> } | { slug: string; resolved: string[]; unknown: string[] } };
 
 function describeComment(slug: string, comment: StoredDesignComment): string[] {
@@ -326,6 +327,28 @@ function describeComment(slug: string, comment: StoredDesignComment): string[] {
 	];
 }
 
+/**
+ * Tags the history version of a resolved comment's artboard with the agent's reply (S5). The agent's edit is
+ * snapshotted first (or the latest version is used when the canvas already saw it); a version already tagged with
+ * another comment, or made by a restore, is left alone. Returns a warning line instead of failing the resolve.
+ */
+async function tagResolvedVersion(history: DesignHistoryStore, slug: string, comment: StoredDesignComment, note: string | undefined, listed: ReadonlySet<string>): Promise<string | undefined> {
+	const warn = (reason: string) => `Warning: the version history of ${comment.file} was not updated: ${reason}`;
+	if (!listed.has(comment.file)) return warn(`${comment.file} is not an artboard of design/${slug}/design.json.`);
+	try {
+		const seen = await history.observe(slug, comment.file, { source: "agent" });
+		if (seen.status === "missing") return warn(`${comment.file} does not exist.`);
+		if (seen.status === "skipped") return warn(seen.message);
+		const version = seen.status === "created" ? seen.version : (await history.read(slug)).artboards[comment.file]?.versions.at(-1);
+		if (!version) return warn(`${comment.file} has no stored version.`);
+		if (version.source === "restore" || (version.comment !== undefined && version.comment !== comment.id)) return undefined;
+		await history.annotate(slug, comment.file, version.n, { source: "agent", comment: comment.id, ...(note === undefined ? {} : { note }) });
+		return undefined;
+	} catch (error) {
+		return warn(error instanceof Error ? error.message : String(error));
+	}
+}
+
 /** list: open comments (all designs, or one design and artboard); resolve: mark ids of one design resolved. */
 export async function runDesignCommentsTool(cwd: string, params: DesignCommentsToolParams): Promise<DesignCommentsToolResult> {
 	const store = createDesignCommentStore(join(cwd, "design"));
@@ -336,10 +359,32 @@ export async function runDesignCommentsTool(cwd: string, params: DesignCommentsT
 		if (typeof params.slug !== "string" || !params.slug) throw new Error("resolve needs the design slug.");
 		const ids = params.ids ?? [];
 		if (ids.length === 0) throw new Error("resolve needs at least one comment id in ids.");
-		const { updated, unknown } = await store.setStatus(params.slug, ids, "resolved").catch((error: unknown) => { throw failure(params.slug!, error); });
+		if (params.note !== undefined) {
+			const problem = noteProblem(params.note);
+			if (problem) throw new Error(problem);
+		}
+		const { updated, unknown } = await store.setStatus(params.slug, ids, "resolved", params.note === undefined ? undefined : { note: params.note }).catch((error: unknown) => { throw failure(params.slug!, error); });
 		const resolved = updated.map((comment) => comment.id);
 		const lines = [`Resolved ${resolved.length} comment${resolved.length === 1 ? "" : "s"} in design/${params.slug}${resolved.length ? `: ${resolved.join(", ")}` : ""}.`];
 		if (unknown.length) lines.push(`Unknown ids: ${unknown.join(", ")}.`);
+		// The matching versions show what the agent did; none of this may fail a resolve that already happened.
+		if (updated.length) {
+			const designRoot = join(cwd, "design");
+			let listed: Set<string> | undefined;
+			try {
+				listed = new Set(readDesignManifest(designRoot, params.slug).artboards.map((artboard) => artboard.file));
+			} catch (error) {
+				lines.push(`Warning: the version history was not updated: ${error instanceof Error ? error.message : String(error)}`);
+			}
+			if (listed) {
+				const history = createDesignHistoryStore(designRoot);
+				const note = params.note === undefined ? undefined : normalizeNote(params.note);
+				for (const comment of updated) {
+					const warning = await tagResolvedVersion(history, params.slug, comment, note, listed);
+					if (warning) lines.push(warning);
+				}
+			}
+		}
 		return { text: lines.join("\n"), details: { slug: params.slug, resolved, unknown } };
 	}
 	const slugs = params.slug ? [params.slug] : listDesigns(cwd).map((design) => design.slug);
@@ -357,7 +402,7 @@ export async function runDesignCommentsTool(cwd: string, params: DesignCommentsT
 	const scope = params.slug ? `design/${params.slug}${params.file ? `/${params.file}` : ""}` : "design/";
 	const lines = found.length === 0
 		? [`No open comments in ${scope}.`]
-		: [`Open design comments in ${scope} (${found.length}):`, ...found.flatMap((comment) => describeComment(comment.slug, comment)), "", `After applying a comment, resolve it with ${DESIGN_COMMENTS_TOOL_NAME} (action "resolve", slug, ids).`];
+		: [`Open design comments in ${scope} (${found.length}):`, ...found.flatMap((comment) => describeComment(comment.slug, comment)), "", `After applying a comment, resolve it with ${DESIGN_COMMENTS_TOOL_NAME} (action "resolve", slug, ids, note); the note is one line on what you changed, shown next to the comment and its version.`];
 	if (problems.length) lines.push("", "Unreadable comment files:", ...problems.map((problem) => `- ${problem}`));
 	return { text: lines.join("\n"), details: { comments: found } };
 }

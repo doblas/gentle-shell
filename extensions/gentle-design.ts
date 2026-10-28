@@ -29,6 +29,7 @@ const DesignCommentsParams = Type.Object({
 	slug: Type.Optional(Type.String({ description: "Design slug (directory under design/); required for resolve" })),
 	file: Type.Optional(Type.String({ description: "Artboard file within the design, such as 01-calm.html (list only)" })),
 	ids: Type.Optional(Type.Array(Type.String(), { maxItems: 500, description: "Comment ids to resolve" })),
+	note: Type.Optional(Type.String({ maxLength: 500, description: "resolve only: one line on what you changed, at most 500 characters; shown next to the comment and on the matching version in the canvas History" })),
 });
 
 const DesignParams = Type.Object({
@@ -120,7 +121,7 @@ export default function gentleDesign(pi: ExtensionAPI, deps: GentleDesignDeps = 
 	pi.registerTool({
 		name: DESIGN_COMMENTS_TOOL_NAME,
 		label: "Design comments",
-		description: "List the open canvas comments stored in design/<slug>/comments.json, or mark comments resolved once you have applied them.",
+		description: "List the open canvas comments stored in design/<slug>/comments.json, or mark comments resolved once you have applied them, with a one-line note on what you changed (shown on the canvas next to the comment and its version).",
 		promptSnippet: "List open gentle-design canvas comments and resolve them after applying them.",
 		parameters: DesignCommentsParams,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

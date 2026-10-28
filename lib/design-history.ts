@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { chmod, lstat, mkdir, open, rename, unlink } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { dirname, join, sep } from "node:path";
-import { isArtboardPath, isDesignCommentId, locateDesignFile, readDesignFile, replaceDesignFile, serializeDesignWrite } from "./design-comments.ts";
+import { DESIGN_NOTE_LIMIT, isArtboardPath, isDesignCommentId, locateDesignFile, noteProblem, normalizeNote, readDesignFile, replaceDesignFile, serializeDesignWrite } from "./design-comments.ts";
 
 // The single owner of design/<slug>/.history/: earlier versions of each artboard (S1). Version content lives in
 // `.history/<artboard-file>/<n>.html` and `.history/index.json` lists them. The canvas server snapshots an
@@ -21,7 +21,7 @@ export const MAX_DESIGN_VERSIONS = 50;
  * on purpose: 50 versions of one artboard would otherwise keep up to 1.6 GB.
  */
 export const MAX_DESIGN_VERSION_BYTES = 8 * 1024 * 1024;
-export const DESIGN_VERSION_NOTE_LIMIT = 500;
+export const DESIGN_VERSION_NOTE_LIMIT = DESIGN_NOTE_LIMIT;
 const MAX_ARTBOARDS = 256;
 const MAX_INDEX_BYTES = 4 * 1024 * 1024;
 
@@ -109,12 +109,6 @@ function sha256(data: Buffer): string {
 
 function isTimestamp(value: unknown): value is string {
 	return typeof value === "string" && value.length > 0 && value.length <= 64;
-}
-
-function noteProblem(value: unknown): string | undefined {
-	if (typeof value !== "string") return "note must be a string";
-	if (value.length > DESIGN_VERSION_NOTE_LIMIT) return `note must have at most ${DESIGN_VERSION_NOTE_LIMIT} characters`;
-	return undefined;
 }
 
 /** The version with its keys in a stable order and no absent optional keys. */
@@ -462,7 +456,7 @@ export function createDesignHistoryStore(designRoot: string, deps: DesignHistory
 				const current = entry.versions[index];
 				// A restore version stays a restore; only an edit's attribution can be refined.
 				const source = current.source === "restore" || patch.source === undefined ? current.source : patch.source;
-				const note = patch.note === undefined ? current.note : patch.note.replace(/\r\n?/g, "\n").trim() || undefined;
+				const note = patch.note === undefined ? current.note : normalizeNote(patch.note);
 				entry.versions[index] = versionOf({ ...current, source, comment: patch.comment ?? current.comment, note });
 				await saveIndex(dir, document);
 				return entry.versions[index];
