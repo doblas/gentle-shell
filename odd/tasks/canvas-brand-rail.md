@@ -23,7 +23,7 @@ Source: L1. The artboard is the visual spec; map it to the existing canvas code,
 
 - [x] T1 S1-S5, S10, S11 — shell: tokens, grid layout, icon sprite, rail tools, shortcuts + dialog, mode chip. Route: gentle-ai-worker (context backstop). Commit: 10c21837a
 - [x] T2 S6-S9, S11 — navigator, top bar Compare, review side tabs/Brief/footer, handoff timeline. Route: gentle-ai-worker (slice 2). Commit: 278595509
-- [x] T3 S1-S11 — docs touch-up, full suite, headless visual check against the artboard, handoff implemented. Route: inline. Commit: (docs slice)
+- [x] T3 S1-S11 — docs touch-up, full suite, headless visual check against the artboard, handoff implemented. Route: inline. Commit: 43286cd2a
 
 ## Log
 
