@@ -14,7 +14,7 @@ Branch: `feat/canvas-compare-overlay`, started after the queued canvas features 
 ## Tasks
 
 - [x] T1 S1-S5 — modes, overlay opacity, slider, docs, tests. Route: gentle-ai-worker. Commit: 0fa66c113
-- [ ] T2 S1-S5 — full suite, visual check, handoff implemented with a preview canvas URL. Route: inline. Commit: —
+- [x] T2 S1-S5 — full suite, visual check, handoff implemented with a preview canvas URL. Route: inline. Commit: (this record)
 
 ## Log
 
@@ -23,3 +23,4 @@ Branch: `feat/canvas-compare-overlay`, started after the queued canvas features 
 - L3: Queue order: screen sizes → token inspector → version history → compare overlay.
 - L4: Started on feat/canvas-compare-overlay from feat/canvas-version-history (3fbcbbe5c) after version history closed. Run tests/design-canvas-assets.test.ts only under a memory cap (see canvas-version-history L6). The review tab row now scrolls (e3a47ed91).
 - L5: T1 by gentle-ai-worker, committed 0fa66c113 (548 lines, 339 of them tests; 14 of 15 new tests RED first, the S4 ones made to fail by asserting the switch). Parent re-ran design-canvas-assets 184, design-canvas-server 82, gentle-design 81: all pass. Worker decisions accepted: opacity and split reset to 50% on each Compare (only the mode is remembered); opacity uses a native range input (browser keys); Overlay keeps the app frame interactive (no shield), only Slider shields; shared split helpers extracted from the version comparison with its tests unchanged.
+- L6: T2 — full suite 7982 pass, 4 fail (the env-dependent agent-home tests). Live check on a demo copy of canvas-chrome with a loopback "app" (the artboard shifted 6px/4px): Overlay at 50% shows the shift as ghosting, opacity control only in Overlay; Slider Shift+ArrowLeft 50→40 announced "40%: Design on the left, App on the right", the split shows the mismatch; frames keep allow-scripts / PREVIEW_SANDBOX and no-referrer. Same session applied the user's tab row choice (canvas-version-history L10, A2): f189295f8, and fixed its missing fade on first layout found live (40af981f4, ResizeObserver on the row, RED first). Demo servers stopped, so the handoff carries no preview URL. Feature complete; push/PR remain the user's decision.
