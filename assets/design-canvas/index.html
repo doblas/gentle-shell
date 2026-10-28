@@ -26,6 +26,7 @@
 		<symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></symbol>
 		<symbol id="i-tablet" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M11 18h2"/></symbol>
 		<symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+		<symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/></symbol>
 		<symbol id="i-palette" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="8" cy="10" r="1"/><circle cx="12" cy="7" r="1"/><circle cx="16" cy="10" r="1"/><path d="M12 21a3 3 0 0 1 0-6h2"/></symbol>
 	</svg>
 	<nav class="gd-rail" aria-label="Tools">
@@ -71,12 +72,26 @@
 			<p id="gd-empty" class="gd-empty" hidden></p>
 			<button type="button" id="gd-back" class="gd-back" aria-keyshortcuts="Shift+Escape" title="Back to canvas (Shift+Esc)" hidden>Back to canvas</button>
 			<p id="gd-nav-mode" class="gd-nav-mode" role="status" aria-live="polite">Navigating</p>
+			<section id="gd-inspector" class="gd-inspector" aria-labelledby="gd-inspector-title" hidden>
+				<header class="gd-inspector-head">
+					<svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-target"/></svg>
+					<h2 id="gd-inspector-title" class="gd-inspector-title"></h2>
+					<code id="gd-inspector-selector" class="gd-inspector-selector"></code>
+				</header>
+				<dl id="gd-inspector-list" class="gd-inspector-list"></dl>
+				<p id="gd-inspector-note" class="gd-inspector-note" hidden></p>
+				<div class="gd-inspector-actions">
+					<button type="button" id="gd-inspector-fix" class="gd-primary gd-small"><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-comment"/></svg>Ask the agent to fix</button>
+					<button type="button" id="gd-inspector-copy" class="gd-small">Copy</button>
+				</div>
+			</section>
 		</main>
 		<aside id="gd-panel" class="gd-panel" aria-labelledby="gd-panel-title">
 			<h2 id="gd-panel-title" class="gd-visually-hidden">Review</h2>
 			<div id="gd-tabs" class="gd-tabs" role="tablist" aria-label="Review">
 				<button type="button" role="tab" id="gd-filter-open" class="gd-tab" aria-selected="true" aria-controls="gd-tabpanel">Comments <span id="gd-count-open" class="gd-count">0</span></button>
 				<button type="button" role="tab" id="gd-filter-resolved" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1">Resolved <span id="gd-count-resolved" class="gd-count">0</span></button>
+				<button type="button" role="tab" id="gd-tab-checks" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1">Checks <span id="gd-count-checks" class="gd-count">0</span></button>
 				<button type="button" role="tab" id="gd-tab-brief" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1">Brief</button>
 			</div>
 			<div id="gd-tabpanel" class="gd-panel-body" role="tabpanel" aria-labelledby="gd-filter-open">
@@ -87,6 +102,7 @@
 					<p id="gd-brief-text" class="gd-brief-text"></p>
 					<code id="gd-brief-feature" class="gd-feature" title="Feature document" hidden></code>
 				</div>
+				<div id="gd-checks" class="gd-checks" hidden></div>
 				<section id="gd-handoff-panel" class="gd-handoff-panel" aria-labelledby="gd-handoff-title" hidden>
 					<h3 id="gd-handoff-title" class="gd-handoff-title"></h3>
 					<ol id="gd-timeline" class="gd-timeline"></ol>

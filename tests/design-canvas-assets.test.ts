@@ -159,11 +159,14 @@ class FakeDocument {
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknown> = {}, config: Record<string, unknown> = {}) {
+async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknown> = {}, config: Record<string, unknown> = {}, extraContext: Record<string, unknown> = {}) {
 	const document = new FakeDocument();
 	document.getElementById("gd-config").textContent = JSON.stringify({ base: "/t/", slug: "alpha", ...config });
 	// Hidden in index.html until a delivery problem is shown.
-	for (const id of ["gd-send-note", "gd-send-alert"]) document.getElementById(id).hidden = true;
+	for (const id of ["gd-send-note", "gd-send-alert", "gd-inspector"]) document.getElementById(id).hidden = true;
+	// index.html nests the inspector panel's parts; the fake DOM does not parse it, so nest them here.
+	const inspectorPanel = document.getElementById("gd-inspector");
+	for (const id of ["gd-inspector-title", "gd-inspector-selector", "gd-inspector-list", "gd-inspector-note", "gd-inspector-fix", "gd-inspector-copy"]) inspectorPanel.append(document.getElementById(id));
 	const viewport = document.getElementById("gd-viewport");
 	const world = document.getElementById("gd-world");
 	viewport.append(world);
@@ -228,6 +231,7 @@ async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknow
 		addEventListener(type: string, listener: Listener) {
 			windowListeners.set(type, [...(windowListeners.get(type) ?? []), listener]);
 		},
+		...extraContext,
 	};
 	context.window = context;
 	vm.runInNewContext(read("canvas.js"), context);
@@ -441,6 +445,8 @@ function loadInspector() {
 	const posted: any[] = [];
 	// requestAnimationFrame callbacks wait here until a test runs them.
 	const frames: Array<() => void> = [];
+	// setTimeout callbacks wait here too, with the delay they asked for.
+	const timeouts: Array<{ run: () => void; ms: number }> = [];
 	const listeners = new Map<string, Listener[]>();
 	class Element {}
 	const style = () => ({ cursor: "" });
@@ -478,6 +484,8 @@ function loadInspector() {
 		CSS: { escape: (value: string) => value },
 		getComputedStyle: () => ({ overflowX: "hidden", overflowY: "hidden" }),
 		requestAnimationFrame: (callback: () => void) => frames.push(callback),
+		setTimeout: (run: () => void, ms = 0) => timeouts.push({ run, ms }),
+		clearTimeout: (id: number) => { if (id > 0 && id <= timeouts.length) timeouts[id - 1] = { run: () => {}, ms: 0 }; },
 		MutationObserver: class { observe() {} },
 		innerWidth: 400,
 		parent,
@@ -494,7 +502,8 @@ function loadInspector() {
 	};
 	const fromParent = (data: unknown) => fire("message", { source: parent, data });
 	const runFrames = () => { while (frames.length > 0) frames.shift()!(); };
-	return { posted, fire, fromParent, document, context, runFrames };
+	const runTimeouts = () => { while (timeouts.length > 0) timeouts.shift()!.run(); runFrames(); };
+	return { posted, fire, fromParent, document, context, runFrames, runTimeouts, timeouts, button, Element };
 }
 
 test("the inspector posts gd:exit-focus on Shift+Esc and keeps plain Esc for the design", () => {
@@ -736,8 +745,8 @@ test("an [::1] preview says browsers refuse to frame it, and keeps Open in new t
 type Canvas = Awaited<ReturnType<typeof loadCanvas>>;
 
 /** The fake DOM starts every element visible; index.html starts the popover hidden. */
-async function loadRail(firstHeight = 300, extraReplies: Record<string, unknown> = {}, config: Record<string, unknown> = {}) {
-	const canvas = await loadCanvas(firstHeight, extraReplies, config);
+async function loadRail(firstHeight = 300, extraReplies: Record<string, unknown> = {}, config: Record<string, unknown> = {}, extraContext: Record<string, unknown> = {}) {
+	const canvas = await loadCanvas(firstHeight, extraReplies, config, extraContext);
 	canvas.document.getElementById("gd-popover").hidden = true;
 	return canvas;
 }
@@ -1166,25 +1175,25 @@ test("Compare with app shows only for the chosen artboard when implemented with 
 	assert.equal(button(canvas).disabled, false);
 });
 
-test("the review side has Comments, Resolved and Brief tabs that drive the list", async () => {
+test("the review side has Comments, Resolved, Checks and Brief tabs that drive the list", async () => {
 	const canvas = await loadRail(300, { ...commentsDoc(comment("a1", "01-a.html"), comment("a2", "02-b.html", "resolved", { sentAt: "2026-10-26T10:00:00.000Z" })), "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "Make a checkout.", feature: "odd/tasks/checkout.md", artboards: [{ file: "01-a.html", title: "First", tradeoff: "", width: 400, height: 300 }, { file: "02-b.html", title: "Second", tradeoff: "", width: 400, height: 300 }] } });
 	const doc = canvas.document;
-	const tabs = ["gd-filter-open", "gd-filter-resolved", "gd-tab-brief"];
+	const tabs = ["gd-filter-open", "gd-filter-resolved", "gd-tab-checks", "gd-tab-brief"];
 	const selected = () => tabs.map((id) => doc.getElementById(id).getAttribute("aria-selected"));
 	const list = doc.getElementById("gd-comment-list");
 	const brief = doc.getElementById("gd-brief");
-	assert.deepEqual(selected(), ["true", "false", "false"]);
+	assert.deepEqual(selected(), ["true", "false", "false", "false"]);
 	assert.equal(doc.getElementById("gd-count-open").textContent, "1");
 	assert.equal(doc.getElementById("gd-count-resolved").textContent, "1");
 	assert.equal(brief.hidden, true);
 	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a1"]);
 
 	doc.getElementById("gd-filter-resolved").dispatch("click");
-	assert.deepEqual(selected(), ["false", "true", "false"]);
+	assert.deepEqual(selected(), ["false", "true", "false", "false"]);
 	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a2"]);
 
 	doc.getElementById("gd-tab-brief").dispatch("click");
-	assert.deepEqual(selected(), ["false", "false", "true"]);
+	assert.deepEqual(selected(), ["false", "false", "false", "true"]);
 	assert.equal(brief.hidden, false);
 	assert.equal(list.hidden, true);
 	assert.equal(doc.getElementById("gd-panel-empty").hidden, true);
@@ -1197,15 +1206,16 @@ test("the review side has Comments, Resolved and Brief tabs that drive the list"
 	// Arrow keys move between tabs (roving tabindex), wrapping around.
 	const tablist = doc.getElementById("gd-tabs");
 	tablist.dispatch("keydown", { key: "ArrowRight" });
-	assert.deepEqual(selected(), ["true", "false", "false"]);
+	assert.deepEqual(selected(), ["true", "false", "false", "false"]);
 	assert.equal(doc.activeElement, doc.getElementById("gd-filter-open"));
 	assert.equal(doc.getElementById("gd-filter-open").getAttribute("tabindex"), "0");
 	assert.equal(doc.getElementById("gd-tab-brief").getAttribute("tabindex"), "-1");
 	tablist.dispatch("keydown", { key: "End" });
-	assert.deepEqual(selected(), ["false", "false", "true"]);
+	assert.deepEqual(selected(), ["false", "false", "false", "true"]);
 	tablist.dispatch("keydown", { key: "ArrowLeft" });
-	assert.deepEqual(selected(), ["false", "true", "false"]);
+	assert.deepEqual(selected(), ["false", "false", "true", "false"], "Checks sits between Resolved and Brief");
 	assert.equal(brief.hidden, true);
+	assert.equal(doc.getElementById("gd-checks").hidden, false);
 });
 
 test("the Brief tab says so when the design has no brief, and keeps the Send footer", async () => {
@@ -1312,10 +1322,10 @@ test("the focused artboard header shows its number, title and handoff state chip
 	assert.equal(chip.dataset.status, "implemented");
 });
 
-test("the T2 markup: tablist with three tabs, tabpanel, timeline region, Compare with app and the navigator note", () => {
+test("the T2 markup: tablist with four tabs, tabpanel, timeline region, Compare with app and the navigator note", () => {
 	const html = read("index.html");
 	assert.match(html, /role="tablist"/);
-	assert.equal([...html.matchAll(/role="tab"/g)].length, 3);
+	assert.equal([...html.matchAll(/role="tab"/g)].length, 4);
 	assert.match(html, /id="gd-filter-open"[^>]*role="tab"|role="tab"[^>]*id="gd-filter-open"/);
 	assert.match(html, /role="tabpanel"/);
 	assert.match(html, /<section id="gd-handoff-panel"[^>]*aria-labelledby="gd-handoff-title"/);
@@ -2225,4 +2235,1036 @@ test("S7: the comment card shows the size it was made at: Phone, Tablet or width
 
 test("S7: canvas.css styles the viewport chip with tokens", () => {
 	assert.match(read("canvas.css"), /\.gd-comment-viewport\s*{[^}]*font:[^}]*var\(--font-mono\)/);
+});
+
+// Token inspector (T1): the page loads the project's tokens and reloads them when design/system.md changes.
+
+const TOKENS_URL = "/t/api/system/tokens";
+
+test("S1: the canvas loads the tokens at start and again when design/system.md changes, in a design or the system-only view", async () => {
+	const tokens = { exists: true, tokens: [{ name: "--bg", value: "#1a1218", section: "Colors", group: "color" }] };
+	const canvas = await loadRail(300, { [TOKENS_URL]: tokens });
+	assert.equal(canvas.fetched.filter((url) => url === TOKENS_URL).length, 1, "loaded once at start");
+	await canvas.serverEvent("change", { slug: null, file: "system.md" });
+	assert.equal(canvas.fetched.filter((url) => url === TOKENS_URL).length, 2, "and again when system.md changes");
+	await canvas.serverEvent("change", { slug: null, file: "system.html" });
+	assert.equal(canvas.fetched.filter((url) => url === TOKENS_URL).length, 2, "system.html is the board, not the tokens");
+	await canvas.serverEvent("change", { slug: "alpha", file: "system.md" });
+	assert.equal(canvas.fetched.filter((url) => url === TOKENS_URL).length, 2, "only the root file");
+});
+
+test("S1: a missing, failing or malformed tokens reply never shows an error or breaks the canvas", async () => {
+	for (const reply of [undefined, { __http: 500 }, { __throw: "down" }, { exists: true, tokens: "nope" }, { exists: true, tokens: [{ name: 3 }, null, { name: "--a", value: "#fff" }] }]) {
+		const canvas = await loadRail(300, reply === undefined ? {} : { [TOKENS_URL]: reply });
+		assert.equal(canvas.document.getElementById("gd-status").textContent, "", JSON.stringify(reply));
+		assert.equal(canvas.boards.length, 2);
+		await canvas.serverEvent("change", { slug: null, file: "system.md" });
+		assert.equal(canvas.document.getElementById("gd-status").textContent, "");
+	}
+});
+
+// Token inspector (T2): the inspector measures the hovered element, the canvas compares and renders.
+
+/** Style values the inspector reads, as a browser reports them (computed: rgb() colors, px lengths). */
+function styles(extra: Record<string, string> = {}) {
+	return {
+		color: "rgb(118, 97, 107)", backgroundColor: "rgba(0, 0, 0, 0)", backgroundImage: "none",
+		fontFamily: 'Inter, "SF Pro Text", system-ui, sans-serif', fontSize: "11px", fontWeight: "400", lineHeight: "15.4px",
+		marginTop: "10px", marginRight: "0px", marginBottom: "10px", marginLeft: "0px",
+		paddingTop: "0px", paddingRight: "0px", paddingBottom: "0px", paddingLeft: "0px",
+		borderTopLeftRadius: "0px", borderTopRightRadius: "0px", borderBottomRightRadius: "0px", borderBottomLeftRadius: "0px",
+		overflowX: "hidden", overflowY: "hidden", display: "block", visibility: "visible", opacity: "1",
+		...extra,
+	};
+}
+
+/** A parent element of the fake inspector page. */
+function fakeAncestor(inspector: ReturnType<typeof loadInspector>, computed: Record<string, string>) {
+	const parent: any = { localName: "main", parentElement: null, hasAttribute: () => false, getAttribute: () => null, childNodes: [], getBoundingClientRect: () => ({ left: 0, top: 0, width: 300, height: 300 }) };
+	Object.setPrototypeOf(parent, inspector.button.constructor.prototype);
+	inspector.button.parentElement = parent;
+	return { parent, computed };
+}
+
+function hoverInspector(computedFor: (element: any) => Record<string, string>) {
+	const inspector = loadInspector();
+	const button: any = inspector.button;
+	button.childNodes = [{ nodeType: 3, textContent: "Buy now" }];
+	inspector.context.getComputedStyle = computedFor;
+	inspector.fromParent({ type: "gd:mode", enabled: true });
+	return inspector;
+}
+
+test("S2: hovering a routed point posts the element's measured styles once, in Comment mode only", () => {
+	const inspector = hoverInspector(() => styles({ backgroundColor: "rgb(255, 255, 255)", fontSize: "11px", borderTopLeftRadius: "8px", borderTopRightRadius: "8px", borderBottomRightRadius: "8px", borderBottomLeftRadius: "8px", paddingTop: "4px", paddingBottom: "4px" }));
+	inspector.fromParent({ type: "gd:hover-at", x: 5, y: 9 });
+	assert.deepEqual(inspector.posted, [{
+		type: "gd:inspect",
+		element: {
+			selector: "#cta", label: "button#cta", text: "Buy now", hasText: true,
+			rect: { x: 4, y: 8, width: 60, height: 20 },
+			color: { r: 118, g: 97, b: 107, a: 1 }, background: { r: 255, g: 255, b: 255 },
+			fontFamily: 'Inter, "SF Pro Text", system-ui, sans-serif', fontSize: 11, fontWeight: 400, lineHeight: 15.4,
+			margin: [10, 0, 10, 0], padding: [4, 0, 4, 0], radius: [8, 8, 8, 8],
+		},
+	}]);
+	inspector.fromParent({ type: "gd:hover-at", x: 6, y: 9 });
+	assert.equal(inspector.posted.length, 1, "the same element is not reported again");
+	inspector.fromParent({ type: "gd:hover-at", x: null, y: null });
+	assert.deepEqual(inspector.posted.at(-1), { type: "gd:inspect", element: null }, "leaving says so");
+	inspector.fromParent({ type: "gd:hover-at", x: 5, y: 9 });
+	assert.equal(inspector.posted.length, 3);
+	inspector.fromParent({ type: "gd:mode", enabled: false });
+	assert.deepEqual(inspector.posted.at(-1), { type: "gd:inspect", element: null }, "leaving Comment mode clears it");
+
+	const idle = loadInspector();
+	idle.fromParent({ type: "gd:hover-at", x: 5, y: 9 });
+	idle.fire("pointerover", { target: idle.button });
+	assert.deepEqual(idle.posted, [], "nothing is measured outside Comment mode");
+});
+
+test("S2: a pointer over the artboard itself (focus mode) is measured too, and leaving the window clears it", () => {
+	const inspector = hoverInspector(() => styles());
+	inspector.fire("pointerover", { target: inspector.button });
+	assert.equal(inspector.posted.length, 1);
+	assert.equal((inspector.posted[0].element as any).selector, "#cta");
+	inspector.fire("pointerout", { target: inspector.button, relatedTarget: inspector.button });
+	assert.equal(inspector.posted.length, 1, "moving between elements of the page is not leaving");
+	inspector.fire("pointerout", { target: inspector.button, relatedTarget: null });
+	assert.deepEqual(inspector.posted.at(-1), { type: "gd:inspect", element: null });
+});
+
+test("S2: the background is the first opaque ancestor's, translucent layers are composited, an image makes it unknown, text color alpha is kept", () => {
+	const inspector = loadInspector();
+	const button: any = inspector.button;
+	button.childNodes = [{ nodeType: 3, textContent: "Buy" }];
+	const { parent } = fakeAncestor(inspector, {});
+	const layers = new Map<any, Record<string, string>>([
+		[button, styles({ color: "rgba(0, 0, 0, 0.5)", backgroundColor: "rgba(0, 0, 0, 0.5)" })],
+		[parent, styles({ backgroundColor: "rgb(200, 100, 0)" })],
+	]);
+	inspector.context.getComputedStyle = (element: any) => layers.get(element) ?? styles();
+	inspector.fromParent({ type: "gd:mode", enabled: true });
+	inspector.fromParent({ type: "gd:hover-at", x: 5, y: 9 });
+	let element = inspector.posted.at(-1).element;
+	assert.deepEqual(element.background, { r: 100, g: 50, b: 0 }, "50% black over rgb(200, 100, 0)");
+	assert.deepEqual(element.color, { r: 0, g: 0, b: 0, a: 0.5 });
+
+	layers.set(parent, styles({ backgroundColor: "rgba(0, 0, 0, 0)" }));
+	inspector.fromParent({ type: "gd:hover-at", x: null, y: null });
+	inspector.fromParent({ type: "gd:hover-at", x: 5, y: 9 });
+	element = inspector.posted.at(-1).element;
+	assert.deepEqual(element.background, { r: 128, g: 128, b: 128 }, "no opaque ancestor: the white page");
+
+	layers.set(parent, styles({ backgroundColor: "rgb(10, 10, 10)", backgroundImage: "linear-gradient(red, blue)" }));
+	inspector.fromParent({ type: "gd:hover-at", x: null, y: null });
+	inspector.fromParent({ type: "gd:hover-at", x: 5, y: 9 });
+	assert.equal(inspector.posted.at(-1).element.background, null, "a background image: unknown");
+});
+
+test("S2: the inspector measures defensively: line-height normal, percent radius, odd colors, no text", () => {
+	const inspector = hoverInspector(() => styles({ lineHeight: "normal", borderTopLeftRadius: "50%", borderTopRightRadius: "50%", borderBottomRightRadius: "50%", borderBottomLeftRadius: "50%", color: "color(display-p3 1 0 0)", fontWeight: "bold" }));
+	(inspector.button as any).childNodes = [{ nodeType: 3, textContent: "  \n " }, { nodeType: 1, textContent: "child" }];
+	inspector.fromParent({ type: "gd:hover-at", x: 5, y: 9 });
+	const element = inspector.posted.at(-1).element;
+	assert.equal(element.lineHeight, null);
+	assert.deepEqual(element.radius, [10, 10, 10, 10], "50% of the smaller side (20 px)");
+	assert.equal(element.color, null, "an unreadable color is unknown, not guessed");
+	assert.equal(element.hasText, false, "whitespace and child elements are not the element's own text");
+	assert.equal(element.fontWeight, 700);
+});
+
+test("S2: a scroll re-reports the hovered element's new box", () => {
+	const inspector = hoverInspector(() => styles());
+	inspector.fromParent({ type: "gd:hover-at", x: 5, y: 9 });
+	(inspector.button as any).getBoundingClientRect = () => ({ left: 4, top: -12, width: 60, height: 20 });
+	inspector.fire("scroll", {});
+	assert.deepEqual(inspector.posted.at(-1).element.rect, { x: 4, y: -12, width: 60, height: 20 });
+});
+
+// ---- the canvas side
+
+const TOKEN_SET = { exists: true, tokens: [
+	{ name: "--bg", value: "#1a1218", section: "Colors", group: "color" },
+	{ name: "--surface-2", value: "#342230", section: "Colors", group: "color" },
+	{ name: "--border", value: "#342230", section: "Colors", group: "color" },
+	{ name: "--text", value: "#f6eff3", section: "Colors", group: "color" },
+	{ name: "--text-muted", value: "#a78e9b", section: "Colors", group: "color" },
+	{ name: "--text-faint", value: "#76616b", section: "Colors", group: "color" },
+	{ name: "--paper", value: "#ffffff", section: "Colors", group: "color" },
+	{ name: "--border-soft", value: "#ffffff17", section: "Colors", group: "color" },
+	{ name: "--font-sans", value: 'Inter, "SF Pro Text", system-ui, sans-serif', section: "Typography", group: "font" },
+	{ name: "--font-mono", value: '"IosevkaTerm NF", monospace', section: "Typography", group: "font" },
+	{ name: "--radius-sm", value: "8px", section: "Radius", group: "radius" },
+	{ name: "--radius-md", value: "12px", section: "Radius", group: "radius" },
+	{ name: "--rail-width", value: "60px", section: "Layout", group: "layout" },
+] };
+
+const EXTRA_TOKENS = { exists: true, tokens: [...TOKEN_SET.tokens,
+	{ name: "--space-2", value: "8px", section: "Spacing", group: "spacing" },
+	{ name: "--space-4", value: "16px", section: "Spacing", group: "spacing" },
+	{ name: "--text-sm", value: "12px", section: "Typography", group: "font" },
+	{ name: "--text-md", value: "14px", section: "Typography", group: "font" },
+] };
+
+const MEASURE = {
+	selector: "main > p.or", label: "p.or", text: "or pay with card", hasText: true,
+	rect: { x: 30, y: 40, width: 200, height: 20 },
+	color: { r: 118, g: 97, b: 107, a: 1 }, background: { r: 255, g: 255, b: 255 },
+	fontFamily: 'Inter, "SF Pro Text", system-ui, sans-serif', fontSize: 14, fontWeight: 400, lineHeight: 21,
+	margin: [8, 0, 8, 0], padding: [0, 0, 0, 0], radius: [0, 0, 0, 0],
+};
+
+const panelOf = (canvas: Canvas) => canvas.document.getElementById("gd-inspector");
+const panelText = (canvas: Canvas) => allText(panelOf(canvas));
+function allText(element: FakeElement): string {
+	return [element.textContent, ...element.children.map(allText)].filter(Boolean).join(" ");
+}
+const rowOf = (canvas: Canvas, label: string) => withClass(panelOf(canvas), "gd-inspector-row").find((row) => texts(row, "gd-inspector-label")[0] === label);
+const rowText = (canvas: Canvas, label: string) => { const row = rowOf(canvas, label); return row ? allText(withClass(row, "gd-inspector-value")[0]) : undefined; };
+const rowLabels = (canvas: Canvas) => withClass(panelOf(canvas), "gd-inspector-row").map((row) => texts(row, "gd-inspector-label")[0]);
+
+async function inspecting(tokens: unknown = TOKEN_SET, extraContext: Record<string, unknown> = {}) {
+	const canvas = await loadRail(300, { [TOKENS_URL]: tokens }, {}, extraContext);
+	tallViewport(canvas);
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	return canvas;
+}
+function inspect(canvas: Canvas, surface: { contentWindow: unknown }, element: unknown = MEASURE) {
+	canvas.message(surface.contentWindow, { type: "gd:inspect", element });
+}
+
+test("S2: in Comment mode the panel shows the selector, the values and the token each one matches", async () => {
+	const canvas = await inspecting();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	assert.equal(panelOf(canvas).hidden, true);
+	inspect(canvas, first.frame, { ...MEASURE, color: { r: 246, g: 239, b: 243, a: 1 }, background: { r: 26, g: 18, b: 24 }, radius: [8, 8, 8, 8] });
+	assert.equal(panelOf(canvas).hidden, false);
+	assert.equal(canvas.document.getElementById("gd-inspector-title").textContent, "p.or");
+	assert.equal(canvas.document.getElementById("gd-inspector-selector").textContent, "main > p.or");
+	assert.deepEqual(rowLabels(canvas), ["Color", "Background", "Contrast", "Font", "Size", "Line height", "Spacing", "Radius"]);
+	assert.match(rowText(canvas, "Color")!, /#f6eff3/);
+	assert.match(rowText(canvas, "Color")!, /--text/);
+	assert.match(rowText(canvas, "Background")!, /#1a1218[^]*--bg/);
+	assert.match(rowText(canvas, "Font")!, /Inter[^]*--font-sans/);
+	assert.match(rowText(canvas, "Radius")!, /8 px[^]*--radius-sm/);
+	assert.equal(withClass(rowOf(canvas, "Color")!, "gd-inspector-bad").length, 0, "nothing flagged");
+	assert.match(rowText(canvas, "Size")!, /14 px/);
+	assert.match(rowText(canvas, "Line height")!, /21 px/);
+	assert.match(rowText(canvas, "Spacing")!, /margin 8 0 8 0/);
+	assert.equal(withClass(panelOf(canvas), "gd-inspector-swatch").length, 2, "a swatch for the text and the background color");
+	assert.equal(withClass(panelOf(canvas), "gd-inspector-swatch")[0].style.background, "rgb(246, 239, 243)");
+});
+
+test("S2: a value with several matching tokens names them all, and the panel has a named heading and real buttons", async () => {
+	const canvas = await inspecting();
+	const [first] = canvas.boards;
+	inspect(canvas, first.frame, { ...MEASURE, color: { r: 52, g: 34, b: 48, a: 1 } });
+	assert.match(rowText(canvas, "Color")!, /--surface-2[^]*--border/);
+	const html = read("index.html");
+	assert.match(html, /<button type="button" id="gd-inspector-fix"/);
+	assert.match(html, /<button type="button" id="gd-inspector-copy"/);
+	assert.match(html, /<h2 id="gd-inspector-title"/);
+});
+
+test("S2: a color off the system shows ⚠ no token and the nearest token by perceptual distance", async () => {
+	const canvas = await inspecting();
+	const [first] = canvas.boards;
+	// #77616b is one step from --text-faint; #b09aa6 is closest to --text-muted, not to --text.
+	inspect(canvas, first.frame, { ...MEASURE, color: { r: 119, g: 97, b: 107, a: 1 } });
+	assert.match(rowText(canvas, "Color")!, /⚠ no token/);
+	assert.match(rowText(canvas, "Color")!, /Nearest[^]*--text-faint[^]*#76616b/);
+	assert.equal(withClass(rowOf(canvas, "Color")!, "gd-inspector-bad").length >= 1, true);
+	inspect(canvas, first.frame, { ...MEASURE, color: { r: 176, g: 154, b: 166, a: 1 } });
+	assert.match(rowText(canvas, "Color")!, /Nearest[^]*--text-muted/);
+	// Perceptual distance: a dark reddish background is nearest the dark plum --bg.
+	inspect(canvas, first.frame, { ...MEASURE, background: { r: 40, g: 10, b: 20 } });
+	assert.match(rowText(canvas, "Background")!, /Nearest[^]*--bg/);
+});
+
+test("S2: contrast is the WCAG ratio, flagged under AA: 4.5 : 1 for normal text, 3 : 1 for large text", async () => {
+	const canvas = await inspecting();
+	const [first] = canvas.boards;
+	const grey = (value: number) => ({ r: value, g: value, b: value, a: 1 });
+	inspect(canvas, first.frame, { ...MEASURE, color: grey(0x76) });
+	assert.match(rowText(canvas, "Contrast")!, /4\.54 : 1/);
+	assert.equal(withClass(rowOf(canvas, "Contrast")!, "gd-inspector-bad").length, 0, "#767676 on white passes AA");
+	inspect(canvas, first.frame, { ...MEASURE, color: grey(0x77) });
+	assert.match(rowText(canvas, "Contrast")!, /4\.47 : 1/, "4.478 is shown as 4.47, never rounded up toward a pass");
+	assert.match(rowText(canvas, "Contrast")!, /⚠[^]*needs 4\.5 : 1/);
+	assert.equal(withClass(rowOf(canvas, "Contrast")!, "gd-inspector-bad").length >= 1, true);
+	// 24 px, or 18.66 px and bold, is large text: 3 : 1.
+	inspect(canvas, first.frame, { ...MEASURE, color: grey(0x77), fontSize: 24 });
+	assert.equal(withClass(rowOf(canvas, "Contrast")!, "gd-inspector-bad").length, 0);
+	assert.match(rowText(canvas, "Contrast")!, /large text/);
+	inspect(canvas, first.frame, { ...MEASURE, color: grey(0x77), fontSize: 18.66, fontWeight: 700 });
+	assert.equal(withClass(rowOf(canvas, "Contrast")!, "gd-inspector-bad").length, 0);
+	inspect(canvas, first.frame, { ...MEASURE, color: grey(0x77), fontSize: 18.66, fontWeight: 400 });
+	assert.equal(withClass(rowOf(canvas, "Contrast")!, "gd-inspector-bad").length >= 1, true, "18.66 px regular is not large");
+	inspect(canvas, first.frame, { ...MEASURE, color: grey(0xaa), fontSize: 24 });
+	assert.match(rowText(canvas, "Contrast")!, /⚠[^]*needs 3 : 1/);
+	// Black on white is 21 : 1; semi-transparent text is composited over its background first.
+	inspect(canvas, first.frame, { ...MEASURE, color: { r: 0, g: 0, b: 0, a: 1 } });
+	assert.match(rowText(canvas, "Contrast")!, /21 : 1/);
+	inspect(canvas, first.frame, { ...MEASURE, color: { r: 0, g: 0, b: 0, a: 0.5 } });
+	assert.match(rowText(canvas, "Contrast")!, /3\.94 : 1/);
+});
+
+test("S2: an element with no text, or an unknown background, shows no contrast ratio", async () => {
+	const canvas = await inspecting();
+	const [first] = canvas.boards;
+	inspect(canvas, first.frame, { ...MEASURE, hasText: false, text: "" });
+	assert.equal(rowText(canvas, "Contrast"), "—");
+	inspect(canvas, first.frame, { ...MEASURE, background: null });
+	assert.match(rowText(canvas, "Contrast")!, /unknown background/);
+	assert.match(rowText(canvas, "Background")!, /image or gradient/);
+	inspect(canvas, first.frame, { ...MEASURE, color: null });
+	assert.match(rowText(canvas, "Color")!, /unreadable/);
+});
+
+test("S2: font family, font size and radius off the system are flagged; sizes use the nearest token by numeric distance", async () => {
+	const canvas = await inspecting(EXTRA_TOKENS);
+	const [first] = canvas.boards;
+	inspect(canvas, first.frame, { ...MEASURE, fontFamily: "Arial, sans-serif", fontSize: 13, radius: [10, 10, 10, 10], margin: [8, 0, 12, 0], padding: [0, 16, 0, 16] });
+	assert.match(rowText(canvas, "Font")!, /Arial[^]*⚠ no token/);
+	assert.match(rowText(canvas, "Size")!, /13 px[^]*⚠ no token[^]*Nearest[^]*--text-(sm|md)/);
+	assert.match(rowText(canvas, "Radius")!, /10 px[^]*⚠ no token[^]*--radius-(sm|md)/);
+	assert.match(rowText(canvas, "Spacing")!, /margin 8 0 12 0/);
+	assert.match(rowText(canvas, "Spacing")!, /padding 0 16 0 16/);
+	assert.match(rowText(canvas, "Spacing")!, /⚠[^]*12 px[^]*--space-/, "12 is off the 8/16 scale");
+	// 13 is as near 12 as 14 is far; 13.4 is nearer 14.
+	inspect(canvas, first.frame, { ...MEASURE, fontSize: 13.4 });
+	assert.match(rowText(canvas, "Size")!, /Nearest[^]*--text-md/);
+	// On the scale, nothing is flagged.
+	inspect(canvas, first.frame, { ...MEASURE, fontSize: 12, margin: [8, 0, 16, 0] });
+	assert.match(rowText(canvas, "Size")!, /--text-sm/);
+	assert.equal(withClass(rowOf(canvas, "Spacing")!, "gd-inspector-bad").length, 0);
+	assert.match(rowText(canvas, "Spacing")!, /on scale/);
+	// A font whose first family is a token's counts as that token.
+	inspect(canvas, first.frame, { ...MEASURE, fontFamily: 'Inter, Arial, sans-serif' });
+	assert.match(rowText(canvas, "Font")!, /--font-sans/);
+	assert.equal(withClass(rowOf(canvas, "Font")!, "gd-inspector-bad").length, 0);
+});
+
+test("S1/S2: without design tokens (or without tokens of a kind) the panel still shows values and contrast and compares nothing", async () => {
+	for (const tokens of [null, { exists: false, tokens: [] }]) {
+		const canvas = await inspecting(tokens);
+		const [first] = canvas.boards;
+		inspect(canvas, first.frame);
+		assert.equal(panelOf(canvas).hidden, false);
+		assert.match(rowText(canvas, "Color")!, /#76616b/);
+		assert.match(rowText(canvas, "Contrast")!, /⚠[^]*needs 4\.5 : 1|\d : 1/);
+		assert.ok(!/no token/.test(panelText(canvas)), "no 'no token' without tokens");
+		assert.equal(canvas.document.getElementById("gd-inspector-note").hidden, false);
+		assert.match(canvas.document.getElementById("gd-inspector-note").textContent, /No design\/system\.md tokens/);
+	}
+	// Tokens exist but none of a kind: that row shows its value only.
+	const canvas = await inspecting();
+	inspect(canvas, canvas.boards[0].frame, { ...MEASURE, fontSize: 13, margin: [10, 0, 10, 0] });
+	assert.ok(!/no token/.test(rowText(canvas, "Size")!));
+	assert.ok(!/no token|off scale/.test(rowText(canvas, "Spacing")!));
+	assert.equal(canvas.document.getElementById("gd-inspector-note").hidden, true);
+});
+
+test("S2: tokens reload live: a changed system.md changes the next comparison", async () => {
+	const canvas = await inspecting();
+	const [first] = canvas.boards;
+	inspect(canvas, first.frame, { ...MEASURE, color: { r: 1, g: 2, b: 3, a: 1 } });
+	assert.doesNotMatch(rowText(canvas, "Color")!, /--ink/);
+	canvas.replies[TOKENS_URL] = { exists: true, tokens: [{ name: "--ink", value: "#010203", section: "Colors", group: "color" }] };
+	await canvas.serverEvent("change", { slug: null, file: "system.md" });
+	inspect(canvas, first.frame, { ...MEASURE, color: { r: 1, g: 2, b: 3, a: 1 } });
+	assert.match(rowText(canvas, "Color")!, /--ink/);
+});
+
+test("S2: the panel appears only in Comment mode, from a trusted frame of the focused artboard, and leaves with the mode", async () => {
+	const canvas = await loadRail(300, { [TOKENS_URL]: TOKEN_SET });
+	const [first, second] = canvas.boards;
+	inspect(canvas, first.frame);
+	assert.equal(panelOf(canvas).hidden, true, "not in Navigate mode");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	canvas.message({}, { type: "gd:inspect", element: MEASURE });
+	canvas.message(thumbFrame(canvas, 0).contentWindow, { type: "gd:inspect", element: MEASURE });
+	assert.equal(panelOf(canvas).hidden, true, "a stranger or a thumbnail is not trusted");
+	for (const bad of [undefined, 3, "x", {}, { ...MEASURE, rect: null }, { ...MEASURE, margin: [1] }, { ...MEASURE, selector: "" }, { ...MEASURE, fontSize: "big" }, { ...MEASURE, color: { r: 999, g: 0, b: 0, a: 1 } }]) {
+		canvas.message(first.frame.contentWindow, { type: "gd:inspect", element: bad });
+		assert.equal(panelOf(canvas).hidden, true, JSON.stringify(bad));
+	}
+	inspect(canvas, first.frame);
+	assert.equal(panelOf(canvas).hidden, false);
+	canvas.document.getElementById("gd-tool-navigate").dispatch("click");
+	assert.equal(panelOf(canvas).hidden, true, "leaving Comment mode closes it");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	navItems(canvas)[0].dispatch("click");
+	inspect(canvas, second.frame);
+	assert.equal(panelOf(canvas).hidden, true, "another artboard than the focused one is inert");
+	inspect(canvas, first.frame);
+	assert.equal(panelOf(canvas).hidden, false);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(panelOf(canvas).hidden, true, "leaving focus mode closes it");
+});
+
+test("S2: the panel stays while the pointer is on it or focus is in it, and leaves shortly after the element is left", async () => {
+	const timers: Array<() => void> = [];
+	const canvas = await inspecting(TOKEN_SET, { setTimeout: (callback: () => void) => { timers.push(callback); return timers.length; } });
+	const [first] = canvas.boards;
+	inspect(canvas, first.frame);
+	inspect(canvas, first.frame, null);
+	assert.equal(panelOf(canvas).hidden, false, "not at once: the pointer may be on its way to the buttons");
+	timers.splice(0).forEach((run) => run());
+	assert.equal(panelOf(canvas).hidden, true);
+
+	inspect(canvas, first.frame);
+	panelOf(canvas).dispatch("pointerenter");
+	inspect(canvas, first.frame, null);
+	timers.splice(0).forEach((run) => run());
+	assert.equal(panelOf(canvas).hidden, false, "the pointer is on the panel");
+	panelOf(canvas).dispatch("pointerleave");
+	timers.splice(0).forEach((run) => run());
+	assert.equal(panelOf(canvas).hidden, true, "and leaves when it leaves");
+
+	inspect(canvas, first.frame);
+	canvas.document.getElementById("gd-inspector-copy").focus();
+	inspect(canvas, first.frame, null);
+	timers.splice(0).forEach((run) => run());
+	assert.equal(panelOf(canvas).hidden, false, "keyboard focus inside keeps it");
+	canvas.document.activeElement = canvas.document.body;
+	inspect(canvas, first.frame);
+	inspect(canvas, first.frame, null);
+	inspect(canvas, first.frame);
+	timers.splice(0).forEach((run) => run());
+	assert.equal(panelOf(canvas).hidden, false, "hovering again cancels the pending hide");
+});
+
+test("S2: moving the pointer over the panel does not clear the hovered element's outline", async () => {
+	const canvas = await inspecting();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	inspect(canvas, first.frame);
+	const posted = first.frame.contentWindow!.posted.length;
+	canvas.viewport.dispatch("pointermove", { pointerId: 1, clientX: 600, clientY: 200, target: panelOf(canvas) });
+	assert.equal(first.frame.contentWindow!.posted.length, posted, "no hover-at null reached the artboard");
+});
+
+test("S2: the panel sits beside the artboard, not over the hovered element", async () => {
+	const canvas = await inspecting();
+	const [first] = canvas.boards;
+	const place = () => {
+		const panel = panelOf(canvas);
+		const left = Number.parseFloat(panel.style.left);
+		const top = Number.parseFloat(panel.style.top) + 50;
+		return { left, top, right: left + 280 };
+	};
+	// The element at (30, 40, 200 x 20) in a 400 px frame at (100, 120): client box 130..330 x 160..180.
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	inspect(canvas, first.frame);
+	assert.deepEqual([place().left, place().top], [512, 160], "right of the frame, level with the element");
+	assert.ok(place().left >= 500, "clear of the frame, so of the element");
+	// No room on the right: it goes to the left of the frame.
+	first.frame.rect = { left: 560, top: 120, width: 400, height: 300 };
+	inspect(canvas, first.frame);
+	assert.equal(place().left, 560 - 12 - 280);
+	assert.ok(place().right <= 560);
+	// No room on either side: below the element, kept inside the viewport.
+	canvas.viewport.rect = { left: 0, top: 50, width: 420, height: 1400 };
+	first.frame.rect = { left: 10, top: 120, width: 400, height: 300 };
+	inspect(canvas, first.frame);
+	assert.equal(place().top, 160 + 20 + 8 - 0, "below the element's bottom (180) plus a gap");
+	assert.ok(place().left >= 12 && place().right <= 420 - 12);
+});
+
+test("S2: the panel is placed against the frame the element is in: a scaled size frame of All sizes", async () => {
+	const canvas = await loadRail(300, { ...wideAlpha, [TOKENS_URL]: TOKEN_SET });
+	tallViewport(canvas);
+	focusOn(canvas);
+	sizeButton(canvas, "all").dispatch("click");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	const [phone] = sizeSections(canvas).map(iframeOf);
+	phone.rect = { left: 100, top: 200, width: 195, height: 422 };
+	inspect(canvas, phone, { ...MEASURE, rect: { x: 40, y: 100, width: 100, height: 40 } });
+	assert.equal(panelOf(canvas).hidden, false, "size frames are registered frames");
+	assert.equal(Number.parseFloat(panelOf(canvas).style.left), 295 + 12, "right of the 195 px frame");
+	assert.equal(Number.parseFloat(panelOf(canvas).style.top) + 50, 200 + 100 * 0.5);
+});
+
+test("S3: Ask the agent to fix opens the comment popover on that element, prefilled and editable, listing the flagged values and nearest tokens", async () => {
+	const canvas = await inspecting();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	const popover = canvas.document.getElementById("gd-popover");
+	// #96828c is off the system and 3.6 : 1 on white.
+	inspect(canvas, first.frame, { ...MEASURE, color: { r: 150, g: 130, b: 140, a: 1 }, radius: [10, 10, 10, 10] });
+	canvas.document.getElementById("gd-inspector-fix").dispatch("click");
+	assert.equal(popover.hidden, false);
+	assert.equal(panelOf(canvas).hidden, true, "the popover takes the panel's place");
+	assert.equal(canvas.document.getElementById("gd-popover-target").textContent, "01-a.html · main > p.or");
+	const text = canvas.document.getElementById("gd-popover-text").value;
+	assert.match(text, /^Fix the values on main > p\.or that are off the design system \(design\/system\.md\):\n/);
+	assert.match(text, /\n- Text color #96828c is not a token; nearest is --text-(faint|muted) \(#[0-9a-f]{6}\)\./);
+	assert.match(text, /\n- Contrast 3\.\d+:1 is below WCAG AA \(4\.5:1 for normal text\)\./);
+	assert.match(text, /\n- Border radius 10px is not a token; nearest is --radius-(sm|md) \(\d+px\)\./);
+	assert.ok(!text.includes("Background"), "values that match a token are not listed");
+	assert.equal(canvas.document.activeElement, canvas.document.getElementById("gd-popover-text"));
+	// Editable, and it follows Send now / Collect: it is a normal comment.
+	canvas.document.getElementById("gd-popover-text").value = `${text}\nAlso check the hover state.`;
+	canvas.document.getElementById("gd-mode-collect").dispatch("change");
+	canvas.document.getElementById("gd-popover-form").dispatch("submit");
+	await flush();
+	const post = canvas.posts.at(-1)!;
+	assert.equal(post.url, "/t/api/comments");
+	assert.deepEqual({ ...(post.body as any), comment: undefined }, { slug: "alpha", file: "01-a.html", selector: "main > p.or", excerpt: "or pay with card", comment: undefined, mode: "collect" });
+	assert.match((post.body as any).comment, /Also check the hover state\.$/);
+});
+
+test("S3: Send now sends the prefilled comment; at another size it records that size", async () => {
+	const canvas = await inspecting();
+	const [first] = canvas.boards;
+	navItems(canvas)[0].dispatch("click");
+	sizeButton(canvas, "phone").dispatch("click");
+	first.frame.rect = { left: 100, top: 120, width: 390, height: 600 };
+	inspect(canvas, first.frame, { ...MEASURE, color: { r: 119, g: 97, b: 107, a: 1 } });
+	canvas.document.getElementById("gd-inspector-fix").dispatch("click");
+	canvas.document.getElementById("gd-popover-form").dispatch("submit");
+	await flush();
+	const body = canvas.posts.at(-1)!.body as any;
+	assert.equal(body.mode, "send");
+	assert.deepEqual(body.viewport, { width: 390, height: 844 });
+	assert.ok(body.comment.length <= 2000);
+});
+
+test("S3: when nothing is flagged Ask the agent to fix is disabled and says why; Copy still works", async () => {
+	const canvas = await inspecting();
+	const [first] = canvas.boards;
+	inspect(canvas, first.frame, { ...MEASURE, color: { r: 246, g: 239, b: 243, a: 1 }, background: { r: 26, g: 18, b: 24 } });
+	const fix = canvas.document.getElementById("gd-inspector-fix");
+	assert.equal(fix.disabled, true);
+	assert.match(fix.title, /Nothing is off the design system/);
+	assert.equal(canvas.document.getElementById("gd-inspector-copy").disabled, false);
+	fix.dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-popover").hidden, true);
+	inspect(canvas, first.frame, { ...MEASURE, color: { r: 119, g: 97, b: 107, a: 1 } });
+	assert.equal(canvas.document.getElementById("gd-inspector-fix").disabled, false);
+	assert.equal(canvas.document.getElementById("gd-inspector-fix").title, "");
+});
+
+test("S3: a very long list of flags still fits the comment limit", async () => {
+	const canvas = await inspecting();
+	const [first] = canvas.boards;
+	inspect(canvas, first.frame, { ...MEASURE, selector: `main > ${"div > ".repeat(80)}p`, color: { r: 119, g: 97, b: 107, a: 1 }, radius: [10, 10, 10, 10] });
+	canvas.document.getElementById("gd-inspector-fix").dispatch("click");
+	assert.ok(canvas.document.getElementById("gd-popover-text").value.length <= 2000);
+});
+
+test("S3: Copy puts the same text on the clipboard, and falls back when the clipboard API is missing or refuses", async () => {
+	const written: string[] = [];
+	const canvas = await inspecting(TOKEN_SET, { navigator: { clipboard: { writeText: async (text: string) => { written.push(text); } } } });
+	const [first] = canvas.boards;
+	inspect(canvas, first.frame, { ...MEASURE, color: { r: 119, g: 97, b: 107, a: 1 } });
+	canvas.document.getElementById("gd-inspector-copy").dispatch("click");
+	await flush();
+	assert.equal(written.length, 1);
+	assert.match(written[0], /^Fix the values on main > p\.or that are off the design system/);
+	assert.equal(canvas.document.getElementById("gd-toast").textContent, "Copied");
+	// What Copy copies is what Ask the agent to fix prefills.
+	canvas.document.getElementById("gd-inspector-fix").dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-popover-text").value, written[0]);
+
+	// A refusing clipboard falls back to a hidden text area and the browser's copy command.
+	const commands: string[] = [];
+	const refused = await inspecting(TOKEN_SET, { navigator: { clipboard: { writeText: async () => { throw new Error("denied"); } } } });
+	(refused.document as any).execCommand = (command: string) => { commands.push(command); return true; };
+	inspect(refused, refused.boards[0].frame, { ...MEASURE, color: { r: 119, g: 97, b: 107, a: 1 } });
+	refused.document.getElementById("gd-inspector-copy").dispatch("click");
+	await flush();
+	assert.deepEqual(commands, ["copy"]);
+	assert.equal(refused.document.getElementById("gd-toast").textContent, "Copied");
+	assert.equal(refused.document.body.children.filter((child) => child.localName === "textarea").length, 0, "the helper text area is removed");
+
+	// No way to copy: say so, and keep the text reachable through Ask the agent to fix.
+	const none = await inspecting();
+	inspect(none, none.boards[0].frame, { ...MEASURE, color: { r: 119, g: 97, b: 107, a: 1 } });
+	none.document.getElementById("gd-inspector-copy").dispatch("click");
+	await flush();
+	assert.match(none.document.getElementById("gd-toast").textContent, /^Could not copy/);
+	assert.equal(none.document.getElementById("gd-toast").classes.has("gd-error"), true);
+});
+
+test("S2/S3: the panel is in index.html and canvas.css with tokens only, focus rings and no inline script or style", () => {
+	const html = read("index.html");
+	assert.match(html, /<section id="gd-inspector" class="gd-inspector"[^>]*aria-labelledby="gd-inspector-title"[^>]*hidden>/);
+	assert.match(html, /id="gd-inspector-fix"[^>]*>[^]*?Ask the agent to fix</);
+	assert.match(html, /id="gd-inspector-copy"[^>]*>Copy</);
+	assert.match(html, /<symbol id="i-target"/);
+	const css = read("canvas.css");
+	for (const selector of [".gd-inspector", ".gd-inspector-row", ".gd-inspector-swatch", ".gd-inspector-ok", ".gd-inspector-bad"]) assert.ok(css.includes(`${selector} {`) || css.includes(`${selector},`), `${selector} is styled`);
+	assert.match(css, /\.gd-inspector\s*{[^}]*position:\s*absolute[^}]*box-shadow:\s*var\(--shadow-panel\)/);
+	assert.match(css, /\.gd-inspector-bad\s*{[^}]*color:\s*var\(--warning\)/);
+	assert.match(css, /\.gd-inspector-ok\s*{[^}]*color:\s*var\(--success\)/);
+	assert.ok(!/<style|<script[^>]*>[^<]/.test(html.replace(/<script[^>]*src=[^>]*><\/script>|<script id="gd-config"[^>]*>[^<]*<\/script>/g, "")), "no inline script or style");
+});
+
+// Accessibility checks (T3): the inspector checks the page after load; the canvas shows the results.
+
+type PageSpec = { tag: string; attrs?: Record<string, string>; style?: Record<string, string>; size?: [number, number]; text?: string; kids?: PageSpec[] };
+
+/** A small page for the inspector: elements in document order, with computed styles and boxes. */
+function checkPage(specs: PageSpec[]) {
+	const inspector = loadInspector();
+	const Element = inspector.Element as new () => any;
+	const all: any[] = [];
+	const build = (spec: PageSpec, parent: any): any => {
+		const node = new Element();
+		all.push(node);
+		const attrs = spec.attrs ?? {};
+		Object.assign(node, {
+			localName: spec.tag, parentElement: parent, id: attrs.id ?? "", className: attrs.class ?? "", attrs, styleSpec: spec.style ?? {},
+			size: spec.size ?? [100, 24], childNodes: [], children: [], isConnected: true, scrolled: 0,
+			getAttribute: (name: string) => attrs[name] ?? null,
+			hasAttribute: (name: string) => name in attrs,
+			scrollIntoView() { node.scrolled += 1; },
+			contains: (other: any) => { for (let current = other; current; current = current.parentElement) if (current === node) return true; return false; },
+		});
+		node.index = all.length;
+		Object.defineProperty(node, "textContent", { get: () => node.childNodes.map((child: any) => child.textContent).join("") });
+		Object.defineProperty(node, "innerText", { get: () => node.textContent });
+		node.getBoundingClientRect = () => ({ left: 8, top: 8 + node.index * 30, width: node.size[0], height: node.size[1] });
+		if (spec.text) node.childNodes.push({ nodeType: 3, textContent: spec.text });
+		for (const kid of spec.kids ?? []) {
+			const child = build(kid, node);
+			child.nodeType = 1;
+			node.children.push(child);
+			node.childNodes.push(child);
+		}
+		return node;
+	};
+	const body = build({ tag: "body", kids: specs }, null);
+	const doc = inspector.document as any;
+	doc.body = body;
+	doc.querySelectorAll = (selector: string) => (selector === "*" ? all : selector.startsWith("#") ? all.filter((node) => node.id === selector.slice(1)) : []);
+	doc.querySelector = (selector: string) => (selector.startsWith("#") ? all.find((node) => node.id === selector.slice(1)) ?? null : null);
+	doc.getElementById = (id: string) => all.find((node) => node.id === id) ?? null;
+	inspector.context.getComputedStyle = (element: any) => ({ ...styles(), ...(element.styleSpec ?? {}) });
+	const reports = () => inspector.posted.filter((message) => message.type === "gd:checks");
+	const run = () => {
+		inspector.fire("load", {});
+		inspector.runTimeouts();
+		return reports().at(-1) as { checks: Array<{ id: string; label: string; count: number; advice: number }>; issues: Array<Record<string, any>> };
+	};
+	return { inspector, all, run, reports, body };
+}
+
+const issuesOf = (report: { issues: Array<Record<string, any>> }, check: string, severity?: string) => report.issues.filter((issue) => issue.check === check && (severity === undefined || issue.severity === severity));
+const gray = (value: number) => ({ color: `rgb(${value}, ${value}, ${value})` });
+
+test("S4: the inspector checks text contrast against AA: 4.5 : 1, 3 : 1 for large text, with the real background", () => {
+	const page = checkPage([
+		{ tag: "p", attrs: { id: "low" }, text: "or pay with card", style: gray(119) },
+		{ tag: "p", attrs: { id: "ok" }, text: "fine", style: gray(118) },
+		{ tag: "p", attrs: { id: "large-ok" }, text: "Big", style: { ...gray(119), fontSize: "24px" } },
+		{ tag: "p", attrs: { id: "large-low" }, text: "Big", style: { ...gray(170), fontSize: "24px" } },
+		{ tag: "p", attrs: { id: "bold-ok" }, text: "Bold", style: { ...gray(119), fontSize: "19px", fontWeight: "700" } },
+		{ tag: "p", attrs: { id: "bold-low" }, text: "Not bold", style: { ...gray(119), fontSize: "19px", fontWeight: "400" } },
+		{ tag: "p", attrs: { id: "alpha" }, text: "Faint", style: { color: "rgba(0, 0, 0, 0.2)" } },
+		{ tag: "p", attrs: { id: "dark" }, text: "Light on dark", style: { color: "rgb(246, 239, 243)", backgroundColor: "rgb(26, 18, 24)" } },
+		{ tag: "div", style: { backgroundColor: "rgb(0, 0, 0)" }, kids: [{ tag: "p", attrs: { id: "inherits" }, text: "Dark text on a dark parent", style: gray(40) }] },
+		{ tag: "div", style: { backgroundImage: "linear-gradient(red, blue)" }, kids: [{ tag: "p", attrs: { id: "on-image" }, text: "Unknown", style: gray(200) }] },
+		{ tag: "p", attrs: { id: "hidden" }, text: "Hidden", style: { ...gray(200), display: "none" } },
+		{ tag: "p", attrs: { id: "invisible" }, text: "Hidden", style: { ...gray(200), visibility: "hidden" } },
+		{ tag: "p", attrs: { id: "empty" }, text: "Zero", style: gray(200), size: [0, 0] },
+		{ tag: "button", attrs: { id: "off", disabled: "" }, text: "Disabled", style: gray(200), size: [100, 40] },
+		{ tag: "p", attrs: { id: "no-text" }, text: "   ", style: gray(200) },
+		{ tag: "script", text: "var x", style: gray(255) },
+	]);
+	const report = page.run();
+	assert.deepEqual(issuesOf(report, "contrast").map((issue) => issue.selector), ["#low", "#large-low", "#bold-low", "#alpha", "#inherits"]);
+	const low = issuesOf(report, "contrast")[0];
+	assert.deepEqual({ ...low, rect: undefined }, {
+		check: "contrast", severity: "fail", title: "Low contrast", selector: "#low", label: "p#low", rect: undefined,
+		detail: '"or pay with card" is 4.47 : 1 (#777777 on #ffffff); WCAG AA needs 4.5 : 1.',
+	});
+	assert.deepEqual(low.rect, { x: 8, y: 68, width: 100, height: 24 });
+	assert.match(issuesOf(report, "contrast")[1].detail, /WCAG AA needs 3 : 1 for large text/);
+	assert.match(issuesOf(report, "contrast")[3].detail, /\(#cccccc on #ffffff\)/, "translucent text is judged as composited over its background");
+	assert.deepEqual(report.checks.find((check) => check.id === "contrast"), { id: "contrast", label: "Text contrast", count: 5, advice: 0 });
+});
+
+test("S4: the inspector flags interactive elements under 24 × 24 px, and advises 44 px for the rest", () => {
+	const page = checkPage([
+		{ tag: "button", attrs: { id: "tiny" }, text: "Go", size: [20, 20] },
+		{ tag: "button", attrs: { id: "narrow" }, text: "Go", size: [100, 23] },
+		{ tag: "a", attrs: { id: "advice", href: "/pay" }, text: "Pay", size: [100, 28], style: { display: "block" } },
+		{ tag: "button", attrs: { id: "edge" }, text: "Edge", size: [24, 24] },
+		{ tag: "button", attrs: { id: "big" }, text: "Big", size: [120, 48] },
+		{ tag: "a", attrs: { id: "no-href" }, text: "Not a link", size: [10, 10] },
+		{ tag: "a", attrs: { id: "inline", href: "/x" }, text: "inline link", size: [60, 14], style: { display: "inline" } },
+		{ tag: "button", attrs: { id: "disabled", disabled: "" }, text: "Off", size: [10, 10] },
+		{ tag: "input", attrs: { id: "hidden", type: "hidden" }, size: [0, 0] },
+		{ tag: "div", attrs: { id: "tab0", tabindex: "0" }, size: [20, 20] },
+		{ tag: "div", attrs: { id: "tab-1", tabindex: "-1" }, size: [10, 10] },
+		{ tag: "div", attrs: { id: "role-button", role: "button", "aria-label": "Close" }, size: [12, 12] },
+		{ tag: "select", attrs: { id: "pick", "aria-label": "Size" }, size: [80, 22] },
+		{ tag: "textarea", attrs: { id: "area", "aria-label": "Note" }, size: [200, 80] },
+		{ tag: "button", attrs: { id: "gone" }, text: "Hidden", size: [0, 0] },
+	]);
+	const report = page.run();
+	assert.deepEqual(issuesOf(report, "target", "fail").map((issue) => issue.selector), ["#tiny", "#narrow", "#tab0", "#role-button", "#pick"]);
+	assert.deepEqual(issuesOf(report, "target", "advice").map((issue) => issue.selector), ["#advice", "#edge"]);
+	const tiny = issuesOf(report, "target")[0];
+	assert.equal(tiny.title, "Small touch target");
+	assert.equal(tiny.detail, '"Go" is 20 × 20 px; WCAG 2.2 needs at least 24 × 24 px.');
+	assert.equal(issuesOf(report, "target", "advice")[0].title, "Touch target under 44 px");
+	assert.equal(issuesOf(report, "target", "advice")[0].detail, '"Pay" is 100 × 28 px; 44 × 44 px is recommended for touch.');
+	assert.equal(issuesOf(report, "target").find((issue) => issue.selector === "#role-button")!.detail.startsWith('"Close"'), true, "named by aria-label");
+	assert.deepEqual(report.checks.find((check) => check.id === "target"), { id: "target", label: "Target size", count: 5, advice: 2 });
+});
+
+test("S4: the inspector flags images without an alt attribute; alt=\"\" and presentation are fine", () => {
+	const page = checkPage([
+		{ tag: "img", attrs: { id: "bad", src: "https://example.invalid/img/hero-photo.png?x=1" } },
+		{ tag: "img", attrs: { id: "empty", src: "a.png", alt: "" } },
+		{ tag: "img", attrs: { id: "named", src: "b.png", alt: "A cup" } },
+		{ tag: "img", attrs: { id: "role", src: "c.png", role: "presentation" } },
+		{ tag: "img", attrs: { id: "none", src: "d.png", role: "none" } },
+		{ tag: "img", attrs: { id: "aria", src: "e.png", "aria-hidden": "true" } },
+		{ tag: "input", attrs: { id: "btn", type: "image", src: "f.png" } },
+		{ tag: "input", attrs: { id: "btn-ok", type: "image", src: "f.png", alt: "Go" } },
+	]);
+	const report = page.run();
+	assert.deepEqual(issuesOf(report, "alt").map((issue) => issue.selector), ["#bad", "#btn"]);
+	assert.equal(issuesOf(report, "alt")[0].title, "Image without alt text");
+	assert.equal(issuesOf(report, "alt")[0].detail, 'hero-photo.png has no alt attribute. Describe it, or use alt="" if it is decorative.');
+	assert.deepEqual(report.checks.find((check) => check.id === "alt")?.count, 2);
+});
+
+test("S4: the inspector flags form fields without an accessible label, and accepts each way of labeling", () => {
+	const page = checkPage([
+		{ tag: "input", attrs: { id: "aria", type: "text", "aria-label": "Email" } },
+		{ tag: "label", attrs: { for: "for" }, text: "Street" },
+		{ tag: "input", attrs: { id: "for", type: "text" } },
+		{ tag: "label", text: "City", kids: [{ tag: "input", attrs: { id: "wrapped", type: "text" } }] },
+		{ tag: "span", attrs: { id: "name" }, text: "Postal code" },
+		{ tag: "input", attrs: { id: "by", type: "text", "aria-labelledby": "missing name" } },
+		{ tag: "input", attrs: { id: "title", type: "text", title: "Phone" } },
+		{ tag: "input", attrs: { id: "placeholder", type: "text", placeholder: "Search" } },
+		{ tag: "select", attrs: { id: "select" } },
+		{ tag: "textarea", attrs: { id: "area" } },
+		{ tag: "input", attrs: { id: "blank", type: "text", "aria-label": "  " } },
+		{ tag: "label", attrs: { for: "empty-label" }, text: " " },
+		{ tag: "input", attrs: { id: "empty-label", type: "text" } },
+		{ tag: "input", attrs: { id: "dangling", type: "text", "aria-labelledby": "nowhere" } },
+		{ tag: "input", attrs: { id: "submit", type: "submit", value: "Pay" } },
+		{ tag: "input", attrs: { id: "button", type: "button" } },
+		{ tag: "input", attrs: { id: "reset", type: "reset" } },
+		{ tag: "input", attrs: { id: "hidden", type: "hidden" } },
+		{ tag: "input", attrs: { id: "invisible", type: "text" }, style: { display: "none" } },
+		{ tag: "input", attrs: { id: "no-type" } },
+	]);
+	const report = page.run();
+	assert.deepEqual(issuesOf(report, "label").map((issue) => issue.selector), ["#placeholder", "#select", "#area", "#blank", "#empty-label", "#dangling", "#no-type"]);
+	assert.equal(issuesOf(report, "label")[0].title, "Form field without a label");
+	assert.equal(issuesOf(report, "label")[0].detail, 'The text field "Search" has no label. Add a <label for>, aria-label or aria-labelledby; a placeholder is not a label.');
+	assert.equal(issuesOf(report, "label")[1].detail, "The select has no label. Add a <label for>, aria-label or aria-labelledby; a placeholder is not a label.");
+	assert.deepEqual(report.checks.find((check) => check.id === "label")?.count, 7);
+});
+
+test("S4: the inspector flags headings that skip a level, in document order", () => {
+	const page = checkPage([
+		{ tag: "h1", text: "Title" }, { tag: "h2", text: "A" },
+		{ tag: "h4", attrs: { id: "skip1" }, text: "Detail" },
+		{ tag: "h2", text: "B" }, { tag: "h3", text: "B1" }, { tag: "h3", text: "B2" },
+		{ tag: "h6", attrs: { id: "skip2" }, text: "Fine print" },
+		{ tag: "h1", text: "Again" }, { tag: "h2", text: "Ok" },
+		{ tag: "div", attrs: { id: "aria", role: "heading", "aria-level": "4" }, text: "ARIA heading" },
+		{ tag: "h5", attrs: { id: "hidden" }, text: "Hidden", style: { display: "none" } },
+	]);
+	const report = page.run();
+	assert.deepEqual(issuesOf(report, "heading").map((issue) => issue.selector), ["#skip1", "#skip2", "#aria"]);
+	assert.equal(issuesOf(report, "heading")[0].title, "Heading level skipped");
+	assert.equal(issuesOf(report, "heading")[0].detail, 'h4 "Detail" follows h2: h3 is missing.');
+	assert.equal(issuesOf(report, "heading")[1].detail, 'h6 "Fine print" follows h3: h4, h5 are missing.');
+	const clean = checkPage([{ tag: "h2", text: "Starts at two" }, { tag: "h3", text: "x" }, { tag: "h2", text: "y" }]);
+	assert.deepEqual(clean.run().issues, [], "the first heading may be any level; going back up is fine");
+});
+
+test("S4: a clean page reports every check passed; reports run after load, wait for the page to settle, and are not repeated", () => {
+	const page = checkPage([{ tag: "h1", text: "Hello" }, { tag: "p", text: "World" }, { tag: "button", text: "Go", size: [120, 48] }]);
+	page.inspector.fire("load", {});
+	assert.deepEqual(page.reports(), [], "nothing before the page has settled");
+	assert.ok(page.inspector.timeouts.every((timer) => timer.ms >= 100), "after a short delay, so late images and scripts are in");
+	page.inspector.runTimeouts();
+	assert.equal(page.reports().length, 1);
+	const first = page.reports()[0];
+	assert.equal(first.type, "gd:checks");
+	assert.deepEqual(first.checks.map((check: { id: string; count: number; advice: number }) => [check.id, check.count, check.advice]), [["contrast", 0, 0], ["target", 0, 0], ["alt", 0, 0], ["label", 0, 0], ["heading", 0, 0]]);
+	assert.deepEqual(first.checks.map((check: { label: string }) => check.label), ["Text contrast", "Target size", "Images have alt text", "Form fields have labels", "Headings in order"]);
+	assert.deepEqual(first.issues, []);
+	page.inspector.fire("resize", {});
+	page.inspector.runTimeouts();
+	assert.equal(page.reports().length, 1, "an unchanged result is not sent again");
+	page.all.find((node) => node.localName === "button").size = [10, 10];
+	page.inspector.fire("resize", {});
+	page.inspector.runTimeouts();
+	assert.equal(page.reports().length, 2, "a resize that changes the result sends it");
+	assert.equal(page.reports()[1].issues[0].selector, "body > button");
+});
+
+test("S4: many findings are capped per check, with the full count reported", () => {
+	const page = checkPage(Array.from({ length: 45 }, (_, index) => ({ tag: "p", attrs: { id: `p${index}` }, text: `text ${index}`, style: gray(200) })));
+	const report = page.run();
+	assert.equal(issuesOf(report, "contrast").length, 20);
+	assert.equal(report.checks.find((check) => check.id === "contrast")!.count, 45);
+	const advice = checkPage(Array.from({ length: 30 }, (_, index) => ({ tag: "button", attrs: { id: `b${index}` }, text: "x", size: [30, 30] as [number, number] }))).run();
+	assert.equal(issuesOf(advice, "target", "advice").length, 10);
+	assert.equal(advice.checks.find((check) => check.id === "target")!.advice, 30);
+});
+
+test("S4: Show highlights the element by selector through the existing highlight message; a pin id still works", () => {
+	const page = checkPage([{ tag: "p", attrs: { id: "low" }, text: "x" }, { tag: "p", attrs: { id: "other" }, text: "y" }]);
+	const low = page.all.find((node) => node.id === "low");
+	page.inspector.fromParent({ type: "gd:highlight", selector: "#low" });
+	assert.equal(low.scrolled, 1);
+	page.inspector.fromParent({ type: "gd:highlight", selector: "#missing" });
+	page.inspector.fromParent({ type: "gd:highlight", selector: "x".repeat(501) });
+	page.inspector.fromParent({ type: "gd:highlight", selector: 5 });
+	assert.equal(low.scrolled, 1, "an unknown, oversized or non-string selector highlights nothing");
+	page.inspector.fromParent({ type: "gd:pins", pins: [{ id: "c1", selector: "#other" }] });
+	page.inspector.fromParent({ type: "gd:highlight", id: "c1" });
+	assert.equal(page.all.find((node) => node.id === "other").scrolled, 1);
+});
+
+// Accessibility checks (T3): the canvas side: the Checks tab, the artboard list tags, Show and Ask the agent to fix.
+
+const CHECK_LABELS: Array<[string, string]> = [["contrast", "Text contrast"], ["target", "Target size"], ["alt", "Images have alt text"], ["label", "Form fields have labels"], ["heading", "Headings in order"]];
+const finding = (extra: Record<string, unknown> = {}) => ({ check: "contrast", severity: "fail", title: "Low contrast", detail: '"or pay with card" is 3.1 : 1 (#999999 on #ffffff); WCAG AA needs 4.5 : 1.', selector: "main > p.or", label: "p.or", rect: { x: 30, y: 40, width: 200, height: 20 }, ...extra });
+function checksReport(issues: Array<Record<string, any>> = [], extra: Record<string, unknown> = {}) {
+	const checks = CHECK_LABELS.map(([id, label]) => ({
+		id, label,
+		count: issues.filter((entry) => entry.check === id && entry.severity === "fail").length,
+		advice: issues.filter((entry) => entry.check === id && entry.severity === "advice").length,
+	}));
+	return { type: "gd:checks", checks, issues, ...extra };
+}
+const report_ = (canvas: Canvas, surface: { contentWindow: unknown }, issues: Array<Record<string, any>> = [], extra: Record<string, unknown> = {}) => canvas.message(surface.contentWindow, checksReport(issues, extra));
+const checksPanel = (canvas: Canvas) => canvas.document.getElementById("gd-checks");
+const checkCards = (canvas: Canvas) => withClass(checksPanel(canvas), "gd-check");
+const navA11y = (canvas: Canvas) => withClass(canvas.document.getElementById("gd-nav-list"), "gd-nav-a11y");
+const openChecks = (canvas: Canvas) => canvas.document.getElementById("gd-tab-checks").dispatch("click");
+
+test("S4: the Checks tab sits before Brief with a count, and says when nothing has been checked yet", async () => {
+	const canvas = await loadRail();
+	const tab = canvas.document.getElementById("gd-tab-checks");
+	assert.equal(tab.getAttribute("aria-selected"), "false");
+	assert.equal(canvas.document.getElementById("gd-count-checks").textContent, "0");
+	openChecks(canvas);
+	assert.equal(tab.getAttribute("aria-selected"), "true");
+	assert.equal(checksPanel(canvas).hidden, false);
+	assert.equal(canvas.document.getElementById("gd-comment-list").hidden, true);
+	assert.equal(canvas.document.getElementById("gd-brief").hidden, true);
+	assert.equal(canvas.document.getElementById("gd-panel-empty").hidden, true, "the empty comment notice is not shown here");
+	assert.equal(canvas.document.getElementById("gd-tabpanel").getAttribute("aria-labelledby"), "gd-tab-checks");
+	assert.match(allText(checksPanel(canvas)), /Checks run when an artboard loads\./);
+	canvas.document.getElementById("gd-filter-open").dispatch("click");
+	assert.equal(checksPanel(canvas).hidden, true);
+});
+
+test("S4: results from an artboard's frame fill the tab: count, an issue card per finding, and the passed groups once", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	report_(canvas, first.frame, [
+		finding(),
+		finding({ check: "label", title: "Form field without a label", detail: "The select has no label.", selector: "#size", label: "select#size" }),
+		finding({ check: "target", severity: "advice", title: "Touch target under 44 px", detail: '"Pay" is 100 × 28 px; 44 × 44 px is recommended for touch.', selector: "#pay", label: "button#pay" }),
+	]);
+	assert.equal(canvas.document.getElementById("gd-count-checks").textContent, "2", "advice does not count");
+	openChecks(canvas);
+	const groups = withClass(checksPanel(canvas), "gd-check-group");
+	assert.equal(groups.length, 1, "one group per checked artboard");
+	assert.equal(texts(groups[0], "gd-check-heading")[0], "01 First");
+	assert.equal(texts(groups[0], "gd-check-summary")[0], "2 checks");
+	assert.deepEqual(checkCards(canvas).map((card) => texts(card, "gd-check-title")[0]), ["Low contrast", "Form field without a label", "Touch target under 44 px"]);
+	assert.deepEqual(checkCards(canvas).map((card) => card.classes.has("gd-check-fail")), [true, true, false]);
+	assert.deepEqual(checkCards(canvas).map((card) => card.classes.has("gd-check-advice")), [false, false, true]);
+	assert.equal(texts(checkCards(canvas)[0], "gd-check-detail")[0], finding().detail);
+	assert.equal(texts(checkCards(canvas)[0], "gd-check-selector")[0], "main > p.or");
+	assert.equal(texts(checkCards(canvas)[0], "gd-check-kind")[0], "Problem");
+	assert.equal(texts(checkCards(canvas)[2], "gd-check-kind")[0], "Advice");
+	// Passed groups are listed once: Target size has advice only, so it passed; Text contrast and Form fields failed.
+	const passed = texts(groups[0], "gd-check-passed");
+	assert.equal(passed.length, 1);
+	assert.equal(passed[0], "Passed: Target size · Images have alt text · Headings in order");
+});
+
+test("S4: an artboard with no findings reads as passed, and a message from anything else is ignored", async () => {
+	const canvas = await loadRail();
+	const [first, second] = canvas.boards;
+	report_(canvas, first.frame, []);
+	openChecks(canvas);
+	assert.equal(checkCards(canvas).length, 0);
+	assert.equal(texts(checksPanel(canvas), "gd-check-passed")[0], "Passed: Text contrast · Target size · Images have alt text · Form fields have labels · Headings in order");
+	assert.match(texts(checksPanel(canvas), "gd-check-summary")[0], /A11y ✓/);
+	// Strangers, thumbnails and malformed reports change nothing.
+	canvas.message({}, checksReport([finding()]));
+	canvas.message(thumbFrame(canvas, 1).contentWindow, checksReport([finding()]));
+	for (const bad of [null, "x", { ...checksReport(), checks: "no" }, { ...checksReport(), issues: "no" }, checksReport([finding({ rect: null })]), checksReport([finding({ selector: "" })]), checksReport([finding({ severity: "boom" })]), checksReport([finding({ check: "unknown" })]), { ...checksReport(), checks: [{ id: "contrast", label: "x", count: -1, advice: 0 }] }]) {
+		canvas.message(second.frame.contentWindow, bad);
+	}
+	assert.equal(withClass(checksPanel(canvas), "gd-check-group").length, 1, "only the first artboard has a result");
+	assert.equal(canvas.document.getElementById("gd-count-checks").textContent, "0");
+});
+
+test("S4: the system board is excluded from checks", async () => {
+	const withSystem = await loadRail(300, { "/t/api/system": { exists: true, file: "system.html", width: 1440, height: 1200 } });
+	const system = withSystem.world.children[0].children.find((child) => child.classes.has("gd-frame-box"))!.children.find((child) => child.localName === "iframe")!;
+	assert.equal(system.src.includes("system.html"), true);
+	report_(withSystem, system, [finding()]);
+	assert.equal(withSystem.document.getElementById("gd-count-checks").textContent, "0");
+	openChecks(withSystem);
+	assert.equal(withClass(checksPanel(withSystem), "gd-check-group").length, 0);
+});
+
+test("S4: size frames do not report checks; the artboard's own frame does, whatever its size", async () => {
+	const canvas = await loadRail(300, wideAlpha);
+	const [first] = canvas.boards;
+	focusOn(canvas);
+	sizeButton(canvas, "all").dispatch("click");
+	for (const frame of sizeSections(canvas).map(iframeOf)) report_(canvas, frame, [finding()]);
+	assert.equal(canvas.document.getElementById("gd-count-checks").textContent, "0", "size frames are not the artboard");
+	report_(canvas, first.frame, [finding()]);
+	assert.equal(canvas.document.getElementById("gd-count-checks").textContent, "1");
+});
+
+test("S4: each artboard's list item carries A11y ✓ or N checks; none before the artboard has reported", async () => {
+	const canvas = await loadRail();
+	const [first, second] = canvas.boards;
+	assert.deepEqual(navA11y(canvas), []);
+	report_(canvas, first.frame, []);
+	report_(canvas, second.frame, [finding(), finding({ selector: "#b" }), finding({ check: "target", severity: "advice", selector: "#c" })]);
+	assert.deepEqual(navA11y(canvas).map((tag) => tag.textContent), ["A11y ✓", "2 checks"]);
+	assert.deepEqual(navA11y(canvas).map((tag) => tag.dataset.state), ["ok", "warn"]);
+	assert.match(navA11y(canvas)[1].title, /Checks tab/);
+	assert.match(navA11y(canvas)[0].title, /heuristics/i);
+	report_(canvas, second.frame, [finding()]);
+	assert.equal(navA11y(canvas)[1].textContent, "1 check", "singular");
+	// A chosen tag and the checks tag live side by side.
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": {} }));
+	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Alternative", "Chosen"]);
+	assert.equal(navA11y(canvas).length, 2);
+});
+
+test("S4: results are refreshed on reload: a reloading artboard drops its result until it reports again", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	report_(canvas, first.frame, [finding()]);
+	assert.equal(navA11y(canvas)[0].textContent, "1 check");
+	await canvas.serverEvent("change", { slug: "alpha", file: "01-a.html" });
+	first.frame.dispatch("load");
+	assert.deepEqual(navA11y(canvas), [], "stale tag gone");
+	assert.equal(canvas.document.getElementById("gd-count-checks").textContent, "0");
+	openChecks(canvas);
+	assert.equal(withClass(checksPanel(canvas), "gd-check-group").length, 0);
+	report_(canvas, first.frame, []);
+	assert.equal(navA11y(canvas)[0].textContent, "A11y ✓");
+	// A frame that resizes (a size picked) re-reports through the same channel and replaces the result.
+	report_(canvas, first.frame, [finding(), finding({ selector: "#b" })]);
+	assert.equal(navA11y(canvas)[0].textContent, "2 checks");
+});
+
+test("S4: Show highlights the element in the artboard's frame through gd:highlight with its selector", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	report_(canvas, first.frame, [finding()]);
+	openChecks(canvas);
+	const show = withClass(checkCards(canvas)[0], "gd-check-show")[0];
+	assert.equal(allText(show).includes("Show"), true);
+	assert.match(show.getAttribute("aria-label")!, /^Show Low contrast on p\.or in 01 First$/);
+	const before = canvas.world.style.transform;
+	show.dispatch("click");
+	assert.deepEqual(first.frame.contentWindow!.posted.at(-1), { type: "gd:highlight", selector: "main > p.or" });
+	assert.notEqual(canvas.world.style.transform, before, "the canvas centers the element when the artboard is not in focus");
+});
+
+test("S4: Show works in focus mode (no pan) and across artboards (leaves focus on another), and reaches every size frame", async () => {
+	const canvas = await loadRail(300, wideAlpha);
+	const [first, second] = canvas.boards;
+	report_(canvas, first.frame, [finding()]);
+	report_(canvas, second.frame, [finding({ selector: "#second" })]);
+	navItems(canvas)[0].dispatch("click");
+	openChecks(canvas);
+	const transform = canvas.world.style.transform;
+	withClass(checkCards(canvas)[0], "gd-check-show")[0].dispatch("click");
+	assert.equal(canvas.world.style.transform, transform, "the focused artboard stays put");
+	assert.deepEqual(first.frame.contentWindow!.posted.at(-1), { type: "gd:highlight", selector: "main > p.or" });
+	// Another artboard's issue leaves focus mode first.
+	withClass(checkCards(canvas)[1], "gd-check-show")[0].dispatch("click");
+	assert.doesNotMatch(canvas.navMode.textContent, /^Using:/);
+	assert.deepEqual(second.frame.contentWindow!.posted.at(-1), { type: "gd:highlight", selector: "#second" });
+	// In All sizes the highlight reaches each size frame.
+	navItems(canvas)[0].dispatch("click");
+	sizeButton(canvas, "all").dispatch("click");
+	withClass(checkCards(canvas)[0], "gd-check-show")[0].dispatch("click");
+	for (const frame of sizeSections(canvas).map(iframeOf)) assert.deepEqual(frame.contentWindow!.posted.at(-1), { type: "gd:highlight", selector: "main > p.or" });
+});
+
+test("S4: Ask the agent to fix on an issue opens the comment popover on that element, prefilled and editable, following Send now / Collect", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	report_(canvas, first.frame, [finding()]);
+	openChecks(canvas);
+	const fix = withClass(checkCards(canvas)[0], "gd-check-fix")[0];
+	assert.equal(allText(fix).includes("Ask the agent to fix"), true);
+	fix.dispatch("click");
+	const popover = canvas.document.getElementById("gd-popover");
+	assert.equal(popover.hidden, false);
+	assert.equal(canvas.document.getElementById("gd-popover-target").textContent, "01-a.html · main > p.or");
+	const text = canvas.document.getElementById("gd-popover-text").value;
+	assert.equal(text, `Accessibility check on main > p.or: Low contrast.\n${finding().detail}\nFix it so it meets WCAG 2.2 AA, keeping the design's tokens.`);
+	canvas.document.getElementById("gd-mode-collect").dispatch("change");
+	canvas.document.getElementById("gd-popover-text").value = `${text}\nAlso on hover.`;
+	canvas.document.getElementById("gd-popover-form").dispatch("submit");
+	await flush();
+	const body = canvas.posts.at(-1)!.body as any;
+	assert.deepEqual({ ...body, comment: undefined }, { slug: "alpha", file: "01-a.html", selector: "main > p.or", excerpt: "p.or", comment: undefined, mode: "collect" });
+	assert.match(body.comment, /Also on hover\.$/);
+	// Advice reads "Consider" instead of a failure.
+	report_(canvas, first.frame, [finding({ check: "target", severity: "advice", title: "Touch target under 44 px", detail: "x", selector: "#pay", label: "button#pay" })]);
+	withClass(checkCards(canvas)[0], "gd-check-fix")[0].dispatch("click");
+	assert.match(canvas.document.getElementById("gd-popover-text").value, /^Accessibility advice on #pay: Touch target under 44 px\.\nx\nConsider /);
+});
+
+test("S4: an issue in another artboard than the focused one leaves that focus before asking", async () => {
+	const canvas = await loadRail();
+	const [first, second] = canvas.boards;
+	report_(canvas, second.frame, [finding({ selector: "#second" })]);
+	navItems(canvas)[0].dispatch("click");
+	openChecks(canvas);
+	second.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	withClass(checkCards(canvas)[0], "gd-check-fix")[0].dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-popover").hidden, false);
+	assert.equal(canvas.document.getElementById("gd-popover-target").textContent, "02-b.html · #second");
+	assert.equal(first.shield!.hidden, false);
+});
+
+test("S4: the Checks tab follows the design: results of the old design never show under a new one", async () => {
+	const canvas = await loadRail();
+	report_(canvas, canvas.boards[0].frame, [finding()]);
+	await canvas.serverEvent("show", { slug: "beta" });
+	assert.equal(canvas.document.getElementById("gd-count-checks").textContent, "0");
+	openChecks(canvas);
+	assert.equal(withClass(checksPanel(canvas), "gd-check-group").length, 0);
+	assert.deepEqual(navA11y(canvas), []);
+});
+
+test("S4: index.html and canvas.css carry the Checks tab, the issue cards and the list tag with tokens only", () => {
+	const html = read("index.html");
+	assert.match(html, /<button type="button" role="tab" id="gd-tab-checks" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1">Checks <span id="gd-count-checks" class="gd-count">0<\/span><\/button>/);
+	assert.ok(html.indexOf('id="gd-filter-resolved"') < html.indexOf('id="gd-tab-checks"') && html.indexOf('id="gd-tab-checks"') < html.indexOf('id="gd-tab-brief"'));
+	assert.match(html, /<div id="gd-checks" class="gd-checks" hidden>/);
+	const css = read("canvas.css");
+	for (const selector of [".gd-checks", ".gd-check-group", ".gd-check", ".gd-check-fail", ".gd-check-advice", ".gd-check-passed", ".gd-nav-a11y"]) assert.ok(css.includes(`${selector} {`) || css.includes(`${selector},`) || css.includes(`${selector}[`), `${selector} is styled`);
+	assert.match(css, /\.gd-nav-a11y\[data-state="ok"\]\s*{[^}]*color:\s*var\(--success\)/);
+	assert.match(css, /\.gd-nav-a11y\[data-state="warn"\]\s*{[^}]*color:\s*var\(--warning\)/);
+	assert.match(css, /\.gd-check-passed[^{]*{[^}]*border-style:\s*dashed/);
 });
