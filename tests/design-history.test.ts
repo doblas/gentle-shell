@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, statSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { TestContext } from "node:test";
 import test from "node:test";
-import { DesignHistoryError, MAX_DESIGN_VERSIONS, createDesignHistoryStore } from "../lib/design-history.ts";
+import { DesignHistoryError, MAX_DESIGN_VERSIONS, MAX_DESIGN_VERSION_BYTES, createDesignHistoryStore } from "../lib/design-history.ts";
 
 // design/<slug>/.history/ has one owner: lib/design-history.ts (S1, S4). Temp dirs only.
 
@@ -164,18 +164,21 @@ test("S1: a symlinked .history, artboard folder, content file or index is refuse
 	assert.equal(readFileSync(join(outside, "index.json"), "utf8"), index, "the linked index is untouched");
 });
 
-test("S1: an artboard that is a link out of the design is refused; a link inside is read through", async (t) => {
+test("S1: an artboard that is a link, or in a folder that is a link, is skipped for snapshots; nothing is stored", async (t) => {
 	const { root, dir } = fixture(t);
 	const store = createDesignHistoryStore(root);
 	const outside = scratch(t, "gentle-design-history-outside-");
 	writeFileSync(join(outside, "secret.html"), "<p>secret</p>");
 	symlinkSync(join(outside, "secret.html"), join(dir, "evil.html"));
-	await assert.rejects(store.observe("alpha", "evil.html"), refused("invalid-file"));
+	assert.equal((await store.observe("alpha", "evil.html")).status, "skipped");
 	symlinkSync(join(outside), join(dir, "linked"));
-	await assert.rejects(store.observe("alpha", "linked/secret.html"), refused("invalid-file"));
+	assert.equal((await store.observe("alpha", "linked/secret.html")).status, "skipped");
 	assert.equal(existsSync(join(dir, ".history")), false, "nothing was stored");
+	// A link inside the design is refused too: restore must never write through it (see the restore tests).
 	symlinkSync(join(dir, "01-a.html"), join(dir, "alias.html"));
-	assert.equal((await store.observe("alpha", "alias.html")).status, "created");
+	const alias = await store.observe("alpha", "alias.html");
+	assert.equal(alias.status, "skipped");
+	assert.match(alias.status === "skipped" ? alias.message : "", /alias\.html is a link/);
 });
 
 test("S1: file names must be artboard paths, and a slug outside the design root is not found", async (t) => {
@@ -192,6 +195,7 @@ test("S1: file names must be artboard paths, and a slug outside the design root 
 
 test("S1: a file over the size limit is skipped with a warning and stores nothing; the limit is inclusive", async (t) => {
 	const { root, dir } = fixture(t);
+	assert.equal(MAX_DESIGN_VERSION_BYTES, 8 * 1024 * 1024, "stored versions are at most 8 MiB");
 	const store = createDesignHistoryStore(root, { maxVersionBytes: 16 });
 	edit(dir, "x".repeat(17));
 	const skipped = await store.observe("alpha", "01-a.html");
@@ -324,12 +328,12 @@ test("S1: an artboard that does not exist yet in a folder that links out of the 
 	const store = createDesignHistoryStore(root);
 	const outside = scratch(t, "gentle-design-history-outside-");
 	symlinkSync(outside, join(dir, "linked"));
-	await assert.rejects(store.observe("alpha", "linked/new.html"), refused("invalid-file"));
+	assert.equal((await store.observe("alpha", "linked/new.html")).status, "skipped");
 	// Restore must not write through that folder either, even with a hand-made index and content.
 	mkdirSync(join(dir, ".history", "linked", "new.html"), { recursive: true });
 	writeFileSync(join(dir, ".history", "linked", "new.html", "1.html"), "<p>planted</p>");
 	writeFileSync(indexPath(dir), JSON.stringify({ version: 1, artboards: { "linked/new.html": { versions: [{ n: 1, createdAt: FIXED.toISOString(), source: "hand", sha256: sha("<p>planted</p>") }] } } }));
-	await assert.rejects(store.restore("alpha", "linked/new.html", 1), refused("invalid-file"));
+	await assert.rejects(store.restore("alpha", "linked/new.html", 1), refused("unsafe"));
 	assert.deepEqual(readdirSync(outside), []);
 });
 
@@ -396,4 +400,111 @@ test("S1: a link planted where the next version file goes is replaced, never wri
 	assert.equal(readFileSync(join(outside, "target.html"), "utf8"), "<p>precious</p>");
 	assert.equal(lstatSync(join(dir, ".history", "01-a.html", "2.html")).isFile(), true);
 	assert.equal(readFileSync(join(dir, ".history", "01-a.html", "2.html"), "utf8"), "<h1>two</h1>");
+});
+
+// Verifier findings (L4).
+
+test("S1/S4: restore never writes through an artboard that is a link, even to a file inside the design", async (t) => {
+	const { root, dir } = fixture(t);
+	const store = createDesignHistoryStore(root);
+	writeFileSync(join(dir, "design.json"), '{"artboards":[]}');
+	writeFileSync(join(dir, "comments.json"), '{"version":1,"comments":[]}\n');
+	writeFileSync(join(dir, "02-b.html"), "<p>b</p>");
+	await store.observe("alpha", "01-a.html");
+	for (const target of ["design.json", "comments.json", "02-b.html"]) {
+		rmSync(join(dir, "01-a.html"), { force: true });
+		symlinkSync(target, join(dir, "01-a.html"));
+		const before = readFileSync(join(dir, target));
+		await store.restore("alpha", "01-a.html", 1).catch(() => {});
+		assert.deepEqual(readFileSync(join(dir, target)), before, `${target} was written through the link`);
+	}
+});
+
+test("S4: restore refuses a link artboard (inside or outside the design, or into .history) with a clear reason and writes nothing", async (t) => {
+	const { root, dir } = fixture(t);
+	const store = createDesignHistoryStore(root);
+	const outside = scratch(t, "gentle-design-history-outside-");
+	writeFileSync(join(outside, "secret.html"), "<p>outside</p>");
+	await store.observe("alpha", "01-a.html");
+	edit(dir, "<h1>two</h1>");
+	await store.observe("alpha", "01-a.html");
+	const targets = [join(outside, "secret.html"), "sub/inner.html", ".history/01-a.html/1.html", ".history/index.json", "01-a.html"];
+	for (const target of targets) {
+		rmSync(join(dir, "01-a.html"), { force: true });
+		symlinkSync(target, join(dir, "01-a.html"));
+		const watched = target.startsWith("/") ? join(outside, "secret.html") : join(dir, target);
+		const index = readFileSync(indexPath(dir), "utf8");
+		const before = target === "01-a.html" ? "" : readFileSync(watched);
+		await assert.rejects(store.restore("alpha", "01-a.html", 1), (error: unknown) => error instanceof DesignHistoryError && error.code === "unsafe" && /01-a\.html is a link/.test(error.message), target);
+		if (target !== "01-a.html") assert.deepEqual(readFileSync(watched), before, `${target} untouched`);
+		assert.equal(readFileSync(indexPath(dir), "utf8"), index, "and the index too");
+		assert.equal(lstatSync(join(dir, "01-a.html")).isSymbolicLink(), true, "the link itself is left as it was");
+	}
+});
+
+test("S4: the artboard is replaced by renaming over its own path, so a link swapped in late is replaced, not followed", async (t) => {
+	const { root, dir } = fixture(t);
+	const store = createDesignHistoryStore(root);
+	await store.observe("alpha", "01-a.html");
+	edit(dir, "<h1>two</h1>");
+	await store.observe("alpha", "01-a.html");
+	await store.restore("alpha", "01-a.html", 1);
+	assert.equal(lstatSync(join(dir, "01-a.html")).isFile(), true);
+	assert.equal(readFileSync(join(dir, "01-a.html"), "utf8"), "<h1>one</h1>");
+});
+
+test("S1: an annotate that would push index.json past its read limit is refused and the index stays readable", async (t) => {
+	const { root, dir } = fixture(t);
+	const store = createDesignHistoryStore(root);
+	await store.observe("alpha", "01-a.html");
+	const doc = readIndex(dir);
+	const hash = doc.artboards["01-a.html"].versions[0].sha256;
+	for (let a = 0; a < 72; a++) doc.artboards[`x${a}.html`] = { versions: Array.from({ length: 50 }, (_, i) => ({ n: i + 1, createdAt: "2026-01-01T00:00:00.000Z", source: "hand", note: "é".repeat(500), sha256: hash })) };
+	writeFileSync(join(dir, ".history", "index.json"), JSON.stringify(doc));
+	await store.read("alpha");
+	await store.annotate("alpha", "01-a.html", 1, { note: "y" }).catch(() => {});
+	await store.read("alpha"); // must not throw "index.json is too large"
+});
+
+test("S1: an index that would be too big to read back is never written: the operation fails clearly and nothing changes", async (t) => {
+	const { root, dir } = fixture(t);
+	const store = createDesignHistoryStore(root);
+	await store.observe("alpha", "01-a.html");
+	const doc = readIndex(dir);
+	const hash = doc.artboards["01-a.html"].versions[0].sha256;
+	for (let a = 0; a < 72; a++) doc.artboards[`x${a}.html`] = { versions: Array.from({ length: 50 }, (_, i) => ({ n: i + 1, createdAt: "2026-01-01T00:00:00.000Z", source: "hand", note: "é".repeat(500), sha256: hash })) };
+	const bytes = JSON.stringify(doc);
+	writeFileSync(indexPath(dir), bytes);
+	await assert.rejects(store.annotate("alpha", "01-a.html", 1, { note: "y" }), (error: unknown) => error instanceof DesignHistoryError && error.code === "limit" && /index\.json/.test(error.message));
+	edit(dir, "<h1>two</h1>");
+	await assert.rejects(store.observe("alpha", "01-a.html"), refused("limit"));
+	assert.equal(readFileSync(indexPath(dir), "utf8"), bytes, "the index is as it was");
+	assert.deepEqual(readdirSync(join(dir, ".history", "01-a.html")), ["1.html"], "and no version content was left behind");
+	assert.deepEqual(readdirSync(join(dir, ".history")).filter((name) => name.endsWith(".tmp")), []);
+	await store.read("alpha");
+});
+
+test("S4: restore keeps the artboard file's mode", { skip: process.platform === "win32" }, async (t) => {
+	const { root, dir } = fixture(t);
+	const store = createDesignHistoryStore(root);
+	await store.observe("alpha", "01-a.html");
+	edit(dir, "<h1>two</h1>");
+	await store.observe("alpha", "01-a.html");
+	chmodSync(join(dir, "01-a.html"), 0o600);
+	await store.restore("alpha", "01-a.html", 1);
+	assert.equal(readFileSync(join(dir, "01-a.html"), "utf8"), "<h1>one</h1>");
+	assert.equal(statSync(join(dir, "01-a.html")).mode & 0o777, 0o600);
+	chmodSync(join(dir, "01-a.html"), 0o664);
+	await store.restore("alpha", "01-a.html", 2);
+	assert.equal(statSync(join(dir, "01-a.html")).mode & 0o777, 0o664);
+});
+
+test("S1: a link artboard is skipped with a message that names it, while other artboards keep their history", async (t) => {
+	const { root, dir } = fixture(t);
+	const store = createDesignHistoryStore(root);
+	symlinkSync("01-a.html", join(dir, "evil.html"));
+	const skipped = await store.observe("alpha", "evil.html");
+	assert.deepEqual(skipped.status === "skipped" ? skipped.reason : "", "unsafe");
+	assert.match(skipped.status === "skipped" ? skipped.message : "", /evil\.html is a link or inside a linked folder, so its versions are not stored\./);
+	assert.equal((await store.observe("alpha", "01-a.html")).status, "created");
 });

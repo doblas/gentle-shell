@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, open, realpath, unlink } from "node:fs/promises";
+import { constants } from "node:fs";
+import { chmod, lstat, mkdir, open, rename, unlink } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import { dirname, join, sep } from "node:path";
 import { isArtboardPath, isDesignCommentId, locateDesignFile, readDesignFile, replaceDesignFile, serializeDesignWrite } from "./design-comments.ts";
 
@@ -14,8 +16,11 @@ export const DESIGN_HISTORY_DIR = ".history";
 export const DESIGN_HISTORY_INDEX = "index.json";
 /** The most versions kept per artboard; the oldest beyond it are dropped, never the newest. */
 export const MAX_DESIGN_VERSIONS = 50;
-/** A stored version, like a served artboard file, is at most this big (lib/design-canvas-server.ts LIMITS.fileBytes). */
-export const MAX_DESIGN_VERSION_BYTES = 32 * 1024 * 1024;
+/**
+ * A stored version is at most this big; a larger artboard is skipped with a warning. Smaller than the served-file limit
+ * on purpose: 50 versions of one artboard would otherwise keep up to 1.6 GB.
+ */
+export const MAX_DESIGN_VERSION_BYTES = 8 * 1024 * 1024;
 export const DESIGN_VERSION_NOTE_LIMIT = 500;
 const MAX_ARTBOARDS = 256;
 const MAX_INDEX_BYTES = 4 * 1024 * 1024;
@@ -37,7 +42,7 @@ export type DesignVersion = {
 
 export type DesignHistoryDocument = { version: 1; artboards: Record<string, { versions: DesignVersion[] }> };
 
-export type DesignHistoryErrorCode = "not-found" | "invalid-file" | "invalid-input" | "limit" | "too-large";
+export type DesignHistoryErrorCode = "not-found" | "invalid-file" | "invalid-input" | "limit" | "too-large" | "unsafe";
 
 export class DesignHistoryError extends Error {
 	readonly code: DesignHistoryErrorCode;
@@ -54,7 +59,7 @@ export type DesignObservation =
 	/** The artboard file does not exist (yet, or any more). */
 	| { status: "missing" }
 	/** Too big to store: nothing was written. */
-	| { status: "skipped"; reason: "too-large"; message: string };
+	| { status: "skipped"; reason: "too-large" | "unsafe"; message: string };
 
 export type DesignRestoreResult = {
 	/** The version whose content was written back. */
@@ -91,10 +96,6 @@ const SHA256 = /^[0-9a-f]{64}$/;
 
 function invalid(message: string): DesignHistoryError {
 	return new DesignHistoryError("invalid-file", message);
-}
-
-function within(root: string, target: string): boolean {
-	return target.startsWith(root.endsWith(sep) ? root : root + sep);
 }
 
 function isMissing(error: unknown): boolean {
@@ -186,7 +187,8 @@ async function realDirectory(path: string, create: boolean, name: string): Promi
 async function readRegular(path: string, max: number): Promise<Buffer | undefined | "too-large"> {
 	try {
 		if (!(await lstat(path)).isFile()) throw invalid(`${path} must be a regular file`);
-		const handle = await open(path, "r");
+		// O_NOFOLLOW: a link swapped in after the lstat above is refused, not followed.
+		const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
 		try {
 			const info = await handle.stat();
 			if (!info.isFile()) throw invalid(`${path} must be a regular file`);
@@ -255,7 +257,10 @@ export function createDesignHistoryStore(designRoot: string, deps: DesignHistory
 		} catch (error) {
 			if (!isMissing(error)) throw error;
 		}
-		await replaceDesignFile(history, path, DESIGN_HISTORY_INDEX, `${JSON.stringify(document, null, 2)}\n`);
+		const text = `${JSON.stringify(document, null, 2)}\n`;
+		// An index this module could not read back would lock the history: refuse it and keep the one on disk.
+		if (Buffer.byteLength(text) > MAX_INDEX_BYTES) throw new DesignHistoryError("limit", `design/${DESIGN_HISTORY_DIR}/${DESIGN_HISTORY_INDEX} would be larger than ${MAX_INDEX_BYTES} bytes, so this change was not recorded. Delete old versions from .history to make room.`);
+		await replaceDesignFile(history, path, DESIGN_HISTORY_INDEX, text);
 	}
 
 	/** Runs `task` after every earlier history task of this design. */
@@ -264,25 +269,55 @@ export function createDesignHistoryStore(designRoot: string, deps: DesignHistory
 		return serializeDesignWrite(join(dir, DESIGN_HISTORY_DIR, DESIGN_HISTORY_INDEX), () => task(dir));
 	}
 
-	/** The artboard file's real path inside the design: the file itself, or where it would be; undefined when its folder is missing. */
+	/**
+	 * The artboard file's path inside the design: the file itself, or where it would be (`exists: false`); undefined
+	 * when its folder is missing. Every folder segment and the file must be what they claim to be: a link is refused
+	 * ("unsafe"), so nothing is read or written through one, and the path returned is the lexical one, never a realpath.
+	 */
 	async function artboardPath(dir: string, file: string): Promise<{ path: string; exists: boolean } | undefined> {
-		const full = join(dir, ...file.split("/"));
+		const unsafe = () => new DesignHistoryError("unsafe", `${file} is a link or inside a linked folder, so its versions are not stored and it cannot be restored.`);
+		const segments = file.split("/");
+		let current = dir;
+		for (const segment of segments.slice(0, -1)) {
+			current = join(current, segment);
+			try {
+				const info = await lstat(current);
+				if (info.isSymbolicLink() || !info.isDirectory()) throw unsafe();
+			} catch (error) {
+				if (isMissing(error)) return undefined;
+				throw error;
+			}
+		}
+		const path = join(current, segments[segments.length - 1]);
 		try {
-			const real = await realpath(full);
-			if (!within(dir, real)) throw invalid(`${file} leaves design/`);
-			return { path: real, exists: true };
+			const info = await lstat(path);
+			if (info.isSymbolicLink()) throw unsafe();
+			if (!info.isFile()) throw new DesignHistoryError("invalid-file", `${file} must be a regular file.`);
+			return { path, exists: true };
 		} catch (error) {
 			if (!isMissing(error)) throw error;
 		}
-		let parent: string;
+		return { path, exists: false };
+	}
+
+	/** Replaces the artboard at `path` by renaming a synced temp file over it, keeping the file's mode when it has one. */
+	async function replaceArtboard(path: string, content: Buffer, existing: boolean): Promise<void> {
+		const mode = existing ? (await lstat(path)).mode & 0o777 : 0o644;
+		const temp = join(dirname(path), `.${randomBytes(6).toString("hex")}.tmp`);
+		const handle = await open(temp, "wx", mode);
 		try {
-			parent = await realpath(dirname(full));
+			await handle.writeFile(content);
+			await chmod(temp, mode);
+			await handle.sync();
+		} finally {
+			await handle.close();
+		}
+		try {
+			await rename(temp, path);
 		} catch (error) {
-			if (isMissing(error)) return undefined;
+			await unlink(temp).catch(() => {});
 			throw error;
 		}
-		if (!within(dir, parent) && parent !== dir) throw invalid(`${file} leaves design/`);
-		return { path: join(parent, file.split("/").pop()!), exists: false };
 	}
 
 	async function readArtboard(dir: string, file: string): Promise<Buffer | undefined | "too-large"> {
@@ -347,7 +382,14 @@ export function createDesignHistoryStore(designRoot: string, deps: DesignHistory
 			const source = options?.source ?? "hand";
 			if (source !== "hand" && source !== "agent") throw new DesignHistoryError("invalid-input", 'source must be "hand" or "agent"');
 			return queued(slug, async (dir) => {
-				const data = await readArtboard(dir, file);
+				let data: Buffer | undefined | "too-large";
+				try {
+					data = await readArtboard(dir, file);
+				} catch (error) {
+					// One bad artboard must not block the design's history: it is skipped, and says why.
+					if (error instanceof DesignHistoryError && error.code === "unsafe") return { status: "skipped", reason: "unsafe", message: error.message.replace(/, so its versions are not stored and it cannot be restored\./, ", so its versions are not stored.") };
+					throw error;
+				}
 				if (data === undefined) return { status: "missing" };
 				if (data === "too-large") return { status: "skipped", reason: "too-large", message: `${file} is larger than ${maxBytes} bytes, so its versions are not stored.` };
 				const document = await loadIndex(dir);
@@ -381,7 +423,7 @@ export function createDesignHistoryStore(designRoot: string, deps: DesignHistory
 					result.saved = saved.version;
 				}
 				if (current !== undefined && sha256(current) === version.sha256) return result;
-				await replaceDesignFile(dirname(located.path), located.path, located.path.split(sep).pop()!, stored);
+				await replaceArtboard(located.path, stored, located.exists);
 				if (latestOf(document, file)?.sha256 !== version.sha256) {
 					const added = await addVersion(dir, document, file, stored, { source: "restore" });
 					await commit(dir, document, file, added);

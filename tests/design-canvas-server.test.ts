@@ -1517,11 +1517,11 @@ test("S4: a restore announces its versions and the artboard write reaches the ca
 
 test("S1: a file too big to store is skipped with a warning in the history reply, and stored again once it fits", async (t) => {
 	const { port, base, root } = await start(t);
-	writeFileSync(join(root, "alpha", "02-bare.html"), Buffer.alloc(32 * 1024 * 1024 + 1, 97));
+	writeFileSync(join(root, "alpha", "02-bare.html"), Buffer.alloc(8 * 1024 * 1024 + 1, 97));
 	const history = await parsedHistory(port, base);
 	assert.deepEqual(Object.keys(history.artboards), ["01-hero.html"]);
 	assert.equal(history.warnings.length, 1);
-	assert.match(history.warnings[0], /02-bare\.html is larger than 33554432 bytes/);
+	assert.match(history.warnings[0], /02-bare\.html is larger than 8388608 bytes/);
 	assert.equal(existsSync(join(root, "alpha", ".history", "02-bare.html")), false);
 	writeFileSync(join(root, "alpha", "02-bare.html"), "<h1>small</h1>");
 	const fixed = await parsedHistory(port, base);
@@ -1537,4 +1537,55 @@ test("S1: closing the server waits for history writes still running, so nothing 
 	await new Promise((resolve) => setTimeout(resolve, 200));
 	const after = existsSync(join(root, "alpha", ".history", "index.json")) ? readFileSync(join(root, "alpha", ".history", "index.json"), "utf8") : "";
 	assert.equal(after, snapshot);
+});
+
+test("S4: restore of an artboard that is a link is refused with 422 and writes through nothing, even into design.json or .history", async (t) => {
+	const { port, base, root } = await start(t);
+	await getHistory(port, base);
+	const design = join(root, "alpha", "design.json");
+	const manifestBytes = readFileSync(design);
+	const bare = join(root, "alpha", "02-bare.html");
+	for (const target of ["design.json", ".history/02-bare.html/1.html", "comments.json", "01-hero.html"]) {
+		rmSync(bare, { force: true });
+		symlinkSync(target, bare);
+		const watched = join(root, "alpha", target);
+		const before = existsSync(watched) ? readFileSync(watched) : undefined;
+		const index = readFileSync(join(root, "alpha", ".history", "index.json"), "utf8");
+		const reply = await postJson(port, "api/designs/alpha/history/restore", { file: "02-bare.html", n: 1 });
+		assert.equal(reply.status, 422, target);
+		assert.equal(JSON.parse(reply.body).error, "invalid-history");
+		assert.match(JSON.parse(reply.body).reason, /02-bare\.html is a link/);
+		assert.deepEqual(readFileSync(design), manifestBytes, "design.json unchanged");
+		assert.equal(existsSync(watched) ? readFileSync(watched).toString() : undefined, before?.toString(), `${target} unchanged`);
+		assert.equal(readFileSync(join(root, "alpha", ".history", "index.json"), "utf8"), index);
+		assert.equal((await rawRequest(port, `${base}api/designs/alpha`)).status, 200, "the manifest still loads");
+	}
+});
+
+test("S1: an artboard that is a link, or in a linked folder, is skipped with a warning of its own; the other artboards keep their history", async (t) => {
+	const { port, base, root } = await start(t);
+	const outside = scratch(t, "gentle-design-history-outside-");
+	writeFileSync(join(outside, "x.html"), "<p>outside</p>");
+	mkdirSync(join(root, "mixed"));
+	symlinkSync(join(outside, "x.html"), join(root, "mixed", "evil.html"));
+	symlinkSync(outside, join(root, "mixed", "linked"));
+	writeFileSync(join(root, "mixed", "ok.html"), "<p>ok</p>");
+	writeFileSync(join(root, "mixed", "design.json"), manifest("Mixed", ["ok.html", "evil.html", "linked/x.html"]));
+	const reply = await getHistory(port, base, "mixed");
+	assert.equal(reply.status, 200);
+	const history = JSON.parse(reply.body) as HistoryReply;
+	assert.deepEqual(Object.keys(history.artboards), ["ok.html"]);
+	assert.equal(history.warnings.length, 2);
+	assert.match(history.warnings.join("\n"), /evil\.html is a link or inside a linked folder/);
+	assert.match(history.warnings.join("\n"), /linked\/x\.html is a link or inside a linked folder/);
+	assert.equal(existsSync(join(root, "mixed", ".history", "evil.html")), false);
+	assert.deepEqual(readdirSync(outside), ["x.html"], "nothing written outside");
+	// Fixing the link clears its warning.
+	rmSync(join(root, "mixed", "evil.html"));
+	writeFileSync(join(root, "mixed", "evil.html"), "<p>fixed</p>");
+	const fixed = JSON.parse((await getHistory(port, base, "mixed")).body) as HistoryReply;
+	assert.deepEqual(Object.keys(fixed.artboards).sort(), ["evil.html", "ok.html"]);
+	assert.equal(fixed.warnings.length, 1);
+	// The other design is not affected.
+	assert.equal((await getHistory(port, base)).status, 200);
 });

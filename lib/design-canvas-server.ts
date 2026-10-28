@@ -144,7 +144,7 @@ class HttpError extends Error {
 function historyFailure(error: unknown): never {
 	if (!(error instanceof DesignHistoryError)) throw error;
 	if (error.code === "not-found") throw new HttpError(404, "not-found");
-	if (error.code === "invalid-file") throw new HttpError(422, "invalid-history", { error: "invalid-history", reason: error.message });
+	if (error.code === "invalid-file" || error.code === "unsafe") throw new HttpError(422, "invalid-history", { error: "invalid-history", reason: error.message });
 	if (error.code === "limit") throw new HttpError(409, "history-limit", { error: "history-limit", reason: error.message });
 	if (error.code === "too-large") throw new HttpError(413, "file-too-large", { error: "file-too-large", reason: error.message });
 	throw new HttpError(400, "invalid-history-input", { error: "invalid-history-input", reason: error.message });
