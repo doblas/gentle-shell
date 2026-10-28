@@ -1,7 +1,7 @@
 # Canvas version history and agent replies: implement design/canvas-features/02-version-history.html
 
 Objective: keep earlier versions of every artboard, compare any version with the current one (slider or side by side) and restore it; show what the agent did for each applied comment. Visual spec: `design/canvas-features/02-version-history.html`; tokens: `design/system.md`.
-Branch: `feat/canvas-version-history`, started from `feat/canvas-screen-sizes` once that feature is done (both change `assets/design-canvas/canvas.js`; sequential avoids conflicting writers). Test runner as in `odd/tasks/canvas-screen-sizes.md`. Work-unit commits only; push/PR are the user's decision.
+Branch: `feat/canvas-version-history`, started from `feat/canvas-token-inspector` (d01dcd4d1) after screen sizes and the token inspector closed (same files; one writer at a time). Test runner as in `odd/tasks/canvas-screen-sizes.md`. Work-unit commits only; push/PR are the user's decision.
 
 ## Specs
 
@@ -25,3 +25,4 @@ Source: L1 (handoff) and the artboard. Wording outside quotes is the parent's re
 
 - L1 (user, verbatim): "Implement the design artboard design/canvas-features/02-version-history.html / Artboard: design/canvas-features/02-version-history.html / Title: Version history and agent replies / Tradeoff: Ideas 2 and 6: compare and restore any earlier version, and read what the agent did per comment; adds a fourth tab and stored snapshots / Implement it in the project's real stack. Use the artboard as the visual spec: map its parts to the project's existing components and styles, and do not copy the artboard HTML verbatim. Take colors, typography, spacing, radius and shadows from design/system.md, the project's token source. Report progress with the gentle_design tool: action \"handoff\", target \"canvas-features/02-version-history.html\", status \"in_progress\" when you start; status \"implemented\" when it is done, with previewUrl set to the running app's loopback URL (localhost, 127.0.0.1 or [::1]) when one is running, so the canvas can compare it with the artboard. This design is not linked to an ODD feature document: size it under the project's ODD rules as usual. This handoff itself commits nothing."
 - L2: Received while canvas-screen-sizes T1/T2 were running. Queued behind it: same files, so no parallel writer. Parent defaults: 50 versions per artboard, `.history/` layout, resolution note ≤ 500 chars.
+- L3 (user, verbatim): "lo veo bien, continua" — token inspector accepted; start version history.
