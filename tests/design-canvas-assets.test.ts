@@ -358,7 +358,7 @@ test("a drag over an artboard pans the canvas, and in comment mode a click is ro
 
 	canvas.document.getElementById("gd-comment").dispatch("click");
 	click(first.shield!, 150, 130);
-	assert.equal(canvas.navMode.textContent, "Navigating", "comment mode picks instead of focusing");
+	assert.equal(canvas.navMode.textContent, "Click an element to comment · Esc", "comment mode picks instead of focusing");
 	// The frame shows a 400x300 artboard at half size: (150-100)/0.5, (130-100)/0.5.
 	assert.deepEqual(first.frame.contentWindow!.posted.at(-1), { type: "gd:pick-at", x: 100, y: 60 });
 });
@@ -707,4 +707,232 @@ test("an [::1] preview says browsers refuse to frame it, and keeps Open in new t
 	const message = canvas.document.getElementById("gd-compare-message");
 	assert.equal(message.textContent, "Browsers do not frame [::1] under the canvas policy (CSP has no IPv6 sources): use Open in new tab, or report the preview on localhost.");
 	assert.equal(canvas.document.getElementById("gd-compare-open").href, "http://[::1]:3000/");
+});
+
+// Brand rail (S1-S5, S10, S11): tool rail, shortcuts, mode chip.
+
+type Canvas = Awaited<ReturnType<typeof loadCanvas>>;
+
+/** The fake DOM starts every element visible; index.html starts the popover hidden. */
+async function loadRail(firstHeight = 300, extraReplies: Record<string, unknown> = {}) {
+	const canvas = await loadCanvas(firstHeight, extraReplies);
+	canvas.document.getElementById("gd-popover").hidden = true;
+	return canvas;
+}
+
+/** A key press delivered to the document's keydown listeners, as the browser would from `target`. */
+function press(canvas: Canvas, key: string, init: Record<string, unknown> = {}, target?: FakeElement) {
+	const event: any = { key, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, target: target ?? canvas.document.body, defaultPrevented: false, preventDefault() { event.defaultPrevented = true; }, ...init };
+	for (const listener of canvas.document.listeners.get("keydown") ?? []) listener(event);
+	return event;
+}
+
+const pressed = (canvas: Canvas, id: string) => canvas.document.getElementById(id).getAttribute("aria-pressed");
+const COMMENT_CHIP = "Click an element to comment · Esc";
+
+test("the rail's Navigate and Comment form a pressed pair over the comment mode, and the chip says which", async () => {
+	const canvas = await loadRail();
+	const navigate = canvas.document.getElementById("gd-tool-navigate");
+	const comment = canvas.document.getElementById("gd-comment");
+	assert.equal(pressed(canvas, "gd-tool-navigate"), "true");
+	assert.equal(pressed(canvas, "gd-comment"), "false");
+	assert.equal(canvas.navMode.textContent, "Navigating");
+
+	comment.dispatch("click");
+	assert.equal(pressed(canvas, "gd-comment"), "true");
+	assert.equal(pressed(canvas, "gd-tool-navigate"), "false");
+	assert.equal(canvas.navMode.textContent, COMMENT_CHIP);
+	assert.ok(canvas.world.classes.has("gd-commenting"));
+	assert.deepEqual(canvas.frames()[0].contentWindow!.posted.at(-1), { type: "gd:mode", enabled: true });
+
+	navigate.dispatch("click");
+	assert.equal(pressed(canvas, "gd-comment"), "false");
+	assert.equal(pressed(canvas, "gd-tool-navigate"), "true");
+	assert.equal(canvas.navMode.textContent, "Navigating");
+	assert.ok(!canvas.world.classes.has("gd-commenting"));
+	assert.deepEqual(canvas.frames()[0].contentWindow!.posted.at(-1), { type: "gd:mode", enabled: false });
+
+	// The Comment tool keeps toggling, and Navigate while navigating changes nothing.
+	comment.dispatch("click");
+	comment.dispatch("click");
+	assert.equal(pressed(canvas, "gd-comment"), "false");
+	navigate.dispatch("click");
+	assert.equal(pressed(canvas, "gd-tool-navigate"), "true");
+	assert.equal(canvas.navMode.textContent, "Navigating");
+});
+
+test("the mode chip names focus mode over comment mode, and returns to the right text on exit", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	assert.equal(canvas.navMode.textContent, COMMENT_CHIP);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	click(first.shield!, 200, 200);
+	assert.equal(canvas.navMode.textContent, COMMENT_CHIP, "a routed pick, not focus, in comment mode");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	click(first.shield!, 200, 200);
+	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit", "focus text wins while focused");
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(canvas.navMode.textContent, COMMENT_CHIP);
+});
+
+test("V, C, F, [, ] and ? drive the tools from the keyboard", async () => {
+	const canvas = await loadRail();
+	Object.defineProperty(canvas.world, "offsetWidth", { value: 2000 });
+	Object.defineProperty(canvas.world, "offsetHeight", { value: 400 });
+	const nav = canvas.document.getElementById("gd-nav");
+	const panel = canvas.document.getElementById("gd-panel");
+	const dialog = canvas.document.getElementById("gd-shortcuts");
+	let modal = 0;
+	(dialog as any).showModal = () => { modal++; dialog.setAttribute("open", ""); };
+
+	assert.equal(press(canvas, "c").defaultPrevented, true);
+	assert.equal(pressed(canvas, "gd-comment"), "true");
+	assert.equal(canvas.navMode.textContent, COMMENT_CHIP);
+	press(canvas, "v");
+	assert.equal(pressed(canvas, "gd-comment"), "false");
+	assert.equal(canvas.navMode.textContent, "Navigating");
+	press(canvas, "C");
+	assert.equal(pressed(canvas, "gd-comment"), "true", "the shortcuts ignore letter case");
+	press(canvas, "V");
+
+	canvas.viewport.dispatch("wheel", { deltaX: 0, deltaY: 40, deltaMode: 0, ctrlKey: true, metaKey: false, shiftKey: false, clientX: 300, clientY: 300 });
+	assert.notEqual(canvas.zoomLevel.textContent, "45%");
+	press(canvas, "f");
+	assert.equal(canvas.zoomLevel.textContent, "45%");
+
+	assert.equal(nav.hidden, false);
+	press(canvas, "[");
+	assert.equal(nav.hidden, true);
+	assert.equal(pressed(canvas, "gd-nav-toggle"), "false");
+	press(canvas, "[");
+	assert.equal(nav.hidden, false);
+	assert.equal(pressed(canvas, "gd-nav-toggle"), "true");
+
+	press(canvas, "]");
+	assert.equal(panel.hidden, true);
+	assert.equal(pressed(canvas, "gd-panel-toggle"), "false");
+	press(canvas, "]");
+	assert.equal(panel.hidden, false);
+
+	press(canvas, "?", { shiftKey: true });
+	assert.equal(modal, 1);
+	assert.ok(dialog.hasAttribute("open"));
+});
+
+test("shortcuts with a modifier, and the buttons of the rail, reach the same tools", async () => {
+	const canvas = await loadRail();
+	const dialog = canvas.document.getElementById("gd-shortcuts");
+	(dialog as any).showModal = () => dialog.setAttribute("open", "");
+	press(canvas, "c", { ctrlKey: true });
+	press(canvas, "c", { metaKey: true });
+	press(canvas, "c", { altKey: true });
+	assert.equal(pressed(canvas, "gd-comment"), "false", "browser chords are left alone");
+
+	canvas.document.getElementById("gd-nav-toggle").dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-nav").hidden, true);
+	assert.equal(pressed(canvas, "gd-nav-toggle"), "false");
+	canvas.document.getElementById("gd-shortcuts-open").dispatch("click");
+	assert.ok(dialog.hasAttribute("open"));
+	// Single keys do nothing while the dialog is open, except ? which closes it.
+	press(canvas, "c");
+	assert.equal(pressed(canvas, "gd-comment"), "false");
+});
+
+test("single-key shortcuts are ignored while typing, with the popover open, and in focus mode, except Shift+Esc", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	const typing = ["input", "textarea", "select"].map((tag) => canvas.document.createElement(tag));
+	for (const field of typing) {
+		for (const key of ["c", "v", "f", "[", "]", "?"]) press(canvas, key, {}, field);
+	}
+	assert.equal(pressed(canvas, "gd-comment"), "false", "typing never switches tools");
+	assert.equal(canvas.document.getElementById("gd-nav").hidden, false);
+	assert.equal(canvas.document.getElementById("gd-panel").hidden, false);
+
+	const popover = canvas.document.getElementById("gd-popover");
+	popover.hidden = false;
+	press(canvas, "c");
+	press(canvas, "]");
+	assert.equal(pressed(canvas, "gd-comment"), "false", "no shortcuts while the popover is open");
+	assert.equal(canvas.document.getElementById("gd-panel").hidden, false);
+	popover.hidden = true;
+
+	click(first.shield!, 200, 200);
+	const transform = canvas.world.style.transform;
+	for (const key of ["c", "v", "f", "[", "]", "?", "0", "+", "-"]) {
+		const event = press(canvas, key);
+		assert.equal(event.defaultPrevented, false, `${key} is left alone in focus mode`);
+	}
+	assert.equal(pressed(canvas, "gd-comment"), "false");
+	assert.equal(canvas.document.getElementById("gd-nav").hidden, false);
+	assert.equal(canvas.world.style.transform, transform);
+	assert.match(canvas.navMode.textContent, /^Using:/);
+	press(canvas, "Escape", { shiftKey: true });
+	assert.equal(canvas.navMode.textContent, "Navigating", "Shift+Esc still leaves focus mode");
+	press(canvas, "c");
+	assert.equal(pressed(canvas, "gd-comment"), "true", "shortcuts work again outside focus mode");
+});
+
+test("the Design system tool is disabled without a system board and focuses it when there is one", async () => {
+	const without = await loadRail();
+	assert.equal(without.document.getElementById("gd-rail-system").disabled, true);
+
+	const canvas = await loadRail(300, { "/t/api/system": { exists: true, file: "system.html", width: 1440, height: 1200 } });
+	const system = canvas.document.getElementById("gd-rail-system");
+	assert.equal(system.disabled, false);
+	system.dispatch("click");
+	assert.equal(canvas.navMode.textContent, "Using: Design system · Shift+Esc to exit");
+	// Overview is off while focused, and back on after.
+	const fit = canvas.document.getElementById("gd-rail-fit");
+	assert.equal(fit.disabled, true);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(fit.disabled, false);
+});
+
+test("the rail Fit and the artboard count follow the canvas", async () => {
+	const canvas = await loadRail();
+	Object.defineProperty(canvas.world, "offsetWidth", { value: 2000 });
+	Object.defineProperty(canvas.world, "offsetHeight", { value: 400 });
+	canvas.viewport.dispatch("wheel", { deltaX: 0, deltaY: 40, deltaMode: 0, ctrlKey: true, metaKey: false, shiftKey: false, clientX: 300, clientY: 300 });
+	canvas.document.getElementById("gd-rail-fit").dispatch("click");
+	assert.equal(canvas.zoomLevel.textContent, "45%");
+	assert.equal(canvas.document.getElementById("gd-nav-title").textContent, "Artboards · 2");
+});
+
+test("index.html: one sprite, named icon buttons with shortcut titles, a shortcuts dialog and a labeled rail", () => {
+	const html = read("index.html");
+	assert.equal(html.split("<symbol ").length - 1, new Set(html.match(/<symbol id="[^"]+"/g)).size, "sprite ids are unique");
+	assert.equal(html.split("<svg ").filter((part) => /aria-hidden="true"/.test(part.split(">")[0]) && /<symbol/.test(part)).length, 1, "a single sprite");
+	for (const match of html.matchAll(/<use href="#([^"]+)"/g)) assert.ok(html.includes(`<symbol id="${match[1]}"`), `${match[1]} exists in the sprite`);
+	const iconButtons = [...html.matchAll(/<button\b([^>]*)>\s*<svg[^>]*><use [^>]*\/><\/svg>\s*<\/button>/g)];
+	assert.ok(iconButtons.length >= 8);
+	for (const [, attributes] of iconButtons) {
+		assert.match(attributes, /aria-label="[^"]+"/);
+		assert.match(attributes, /title="[^"]+"/);
+	}
+	for (const [id, shortcut] of [["gd-tool-navigate", "V"], ["gd-comment", "C"], ["gd-rail-fit", "F"], ["gd-nav-toggle", "["], ["gd-shortcuts-open", "?"]] as const) {
+		assert.match(html, new RegExp(`id="${id.replace(/[[\]]/g, "\\$&")}"[^>]*title="[^"]*\\(${shortcut.replace(/[[\]?]/g, "\\$&")}\\)"`), `${id} names ${shortcut}`);
+	}
+	assert.match(html, /<nav class="gd-rail" aria-label="Tools"/);
+	assert.match(html, /<dialog id="gd-shortcuts"[^>]*aria-labelledby=/);
+	assert.match(html, /<aside id="gd-nav"[^>]*aria-labelledby="gd-nav-title"/);
+	assert.match(html, /id="gd-nav-list"/);
+	assert.ok(!/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/u.test(html), "no emoji icons");
+});
+
+test("canvas.css takes its colors from the brand tokens: no raw hex outside :root, except the artboard's white", () => {
+	const css = read("canvas.css");
+	const root = css.match(/:root\s*{[^}]*}/)![0];
+	for (const [token, value] of [["--bg", "#1a1218"], ["--bg-deep", "#000000"], ["--surface", "#20161e"], ["--surface-1", "#241822"], ["--surface-2", "#342230"], ["--border", "#342230"], ["--border-soft", "#ffffff17"], ["--text", "#f6eff3"], ["--text-muted", "#a78e9b"], ["--text-faint", "#76616b"], ["--accent", "#f095c8"], ["--accent-strong", "#ff76c3"], ["--accent-soft", "#ffb1dd"], ["--success", "#b4e7c7"], ["--warning", "#e0c27a"], ["--error", "#ff718f"], ["--info", "#a9c7ee"]] as const) {
+		assert.ok(root.includes(`${token}: ${value}`), `${token} is ${value}`);
+	}
+	assert.match(root, /--font-sans: Inter,/);
+	assert.match(root, /--font-mono: "IosevkaTerm NF"/);
+	const outside = css.replace(root, "");
+	assert.deepEqual([...outside.matchAll(/#[0-9a-fA-F]{3,8}\b(?![\w-])/g)].map((match) => match[0]).filter((value) => value !== "#fff"), []);
+	assert.match(css, /prefers-reduced-motion: no-preference/);
+	assert.match(css, /outline: 2px solid var\(--accent\)/);
 });

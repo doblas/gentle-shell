@@ -10,6 +10,28 @@
 	<script src="{{BASE}}assets/canvas.js" defer></script>
 </head>
 <body>
+	<svg class="gd-sprite" width="0" height="0" aria-hidden="true" focusable="false">
+		<symbol id="i-pointer" viewBox="0 0 24 24"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></symbol>
+		<symbol id="i-comment" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+		<symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+		<symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+		<symbol id="i-fit" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></symbol>
+		<symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
+		<symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></symbol>
+		<symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+		<symbol id="i-keys" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+		<symbol id="i-palette" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="8" cy="10" r="1"/><circle cx="12" cy="7" r="1"/><circle cx="16" cy="10" r="1"/><path d="M12 21a3 3 0 0 1 0-6h2"/></symbol>
+	</svg>
+	<nav class="gd-rail" aria-label="Tools">
+		<span class="gd-mark" aria-hidden="true">GD</span>
+		<button type="button" id="gd-tool-navigate" class="gd-tool" aria-pressed="true" aria-label="Navigate" aria-keyshortcuts="V" title="Navigate (V)"><svg class="gd-i"><use href="#i-pointer"/></svg></button>
+		<button type="button" id="gd-comment" class="gd-tool" aria-pressed="false" aria-label="Comment" aria-keyshortcuts="C" title="Comment (C)"><svg class="gd-i"><use href="#i-comment"/></svg></button>
+		<span class="gd-sep" aria-hidden="true"></span>
+		<button type="button" id="gd-rail-fit" class="gd-tool" aria-label="Overview: fit all artboards" aria-keyshortcuts="F" title="Overview: fit all (F)"><svg class="gd-i"><use href="#i-grid"/></svg></button>
+		<button type="button" id="gd-nav-toggle" class="gd-tool" aria-pressed="true" aria-controls="gd-nav" aria-label="Artboard list" aria-keyshortcuts="[" title="Artboard list ([)"><svg class="gd-i"><use href="#i-layers"/></svg></button>
+		<button type="button" id="gd-rail-system" class="gd-tool" aria-label="Design system board" title="Design system board" disabled><svg class="gd-i"><use href="#i-palette"/></svg></button>
+		<button type="button" id="gd-shortcuts-open" class="gd-tool gd-bottom" aria-haspopup="dialog" aria-label="Keyboard shortcuts" aria-keyshortcuts="?" title="Keyboard shortcuts (?)"><svg class="gd-i"><use href="#i-keys"/></svg></button>
+	</nav>
 	<header class="gd-bar" role="toolbar" aria-label="Design canvas controls">
 		<h1 class="gd-title" id="gd-title">Gentle Design</h1>
 		<label class="gd-field" id="gd-design-field">
@@ -17,27 +39,26 @@
 			<select id="gd-design" aria-label="Design"></select>
 		</label>
 		<p id="gd-feature" class="gd-feature" hidden></p>
-		<div class="gd-group" role="group" aria-label="Zoom">
-			<button type="button" id="gd-zoom-out" aria-label="Zoom out">&minus;</button>
+		<span class="gd-spacer"></span>
+		<div class="gd-group gd-zoom" role="group" aria-label="Zoom">
+			<button type="button" id="gd-zoom-out" aria-label="Zoom out" title="Zoom out (-)"><svg class="gd-i"><use href="#i-minus"/></svg></button>
 			<output id="gd-zoom-level" aria-live="polite" aria-label="Zoom level">100%</output>
-			<button type="button" id="gd-zoom-in" aria-label="Zoom in">+</button>
-			<button type="button" id="gd-fit">Fit</button>
+			<button type="button" id="gd-zoom-in" aria-label="Zoom in" title="Zoom in (+)"><svg class="gd-i"><use href="#i-plus"/></svg></button>
+			<button type="button" id="gd-fit" aria-label="Fit all" title="Fit all (0)"><svg class="gd-i"><use href="#i-fit"/></svg></button>
 		</div>
-		<p id="gd-nav-mode" class="gd-nav-mode" role="status" aria-live="polite">Navigating</p>
-		<button type="button" id="gd-comment" class="gd-toggle" aria-pressed="false">Comment</button>
-		<div class="gd-group" role="radiogroup" aria-label="When a comment is sent to the session">
-			<label class="gd-radio"><input type="radio" name="gd-send-mode" id="gd-mode-send" value="send"> Send now</label>
-			<label class="gd-radio"><input type="radio" name="gd-send-mode" id="gd-mode-collect" value="collect"> Collect</label>
-		</div>
-		<button type="button" id="gd-send-all" disabled>Send all (0)</button>
-		<button type="button" id="gd-panel-toggle" class="gd-toggle" aria-pressed="true" aria-controls="gd-panel">Comments</button>
+		<button type="button" id="gd-panel-toggle" class="gd-toggle" aria-pressed="true" aria-controls="gd-panel" aria-keyshortcuts="]" title="Review panel (])">Comments</button>
 		<p id="gd-status" class="gd-status" role="status" aria-live="polite"></p>
 	</header>
 	<div class="gd-main">
+		<aside id="gd-nav" class="gd-nav" aria-labelledby="gd-nav-title">
+			<h2 id="gd-nav-title" class="gd-nav-title">Artboards · 0</h2>
+			<ol id="gd-nav-list" class="gd-nav-list"></ol>
+		</aside>
 		<main id="gd-viewport" class="gd-viewport" aria-label="Artboards" tabindex="0">
 			<div id="gd-world" class="gd-world"></div>
 			<p id="gd-empty" class="gd-empty" hidden></p>
 			<button type="button" id="gd-back" class="gd-back" aria-keyshortcuts="Shift+Escape" title="Back to canvas (Shift+Esc)" hidden>Back to canvas</button>
+			<p id="gd-nav-mode" class="gd-nav-mode" role="status" aria-live="polite">Navigating</p>
 		</main>
 		<aside id="gd-panel" class="gd-panel" aria-labelledby="gd-panel-title">
 			<h2 id="gd-panel-title" class="gd-panel-title">Comments</h2>
@@ -47,6 +68,13 @@
 			</div>
 			<p id="gd-panel-empty" class="gd-panel-empty">No comments yet. Turn on Comment mode and click an element.</p>
 			<ol id="gd-comment-list" class="gd-comment-list" aria-label="Comments"></ol>
+			<div class="gd-side-foot">
+				<div class="gd-sendmode" role="radiogroup" aria-label="When a comment is sent to the session">
+					<label class="gd-radio"><input type="radio" name="gd-send-mode" id="gd-mode-send" value="send"><span>Send now</span></label>
+					<label class="gd-radio"><input type="radio" name="gd-send-mode" id="gd-mode-collect" value="collect"><span>Collect</span></label>
+				</div>
+				<button type="button" id="gd-send-all" class="gd-primary" disabled>Send all (0)</button>
+			</div>
 		</aside>
 		<section id="gd-compare" class="gd-compare" aria-labelledby="gd-compare-title" hidden>
 			<div class="gd-compare-bar">
@@ -84,5 +112,22 @@
 			</div>
 		</form>
 	</div>
+	<dialog id="gd-shortcuts" class="gd-dialog" aria-labelledby="gd-shortcuts-title">
+		<h2 id="gd-shortcuts-title" class="gd-dialog-title">Keyboard shortcuts</h2>
+		<dl class="gd-keys">
+			<dt><kbd>V</kbd></dt><dd>Navigate</dd>
+			<dt><kbd>C</kbd></dt><dd>Comment on an element</dd>
+			<dt><kbd>F</kbd> or <kbd>0</kbd></dt><dd>Fit all artboards</dd>
+			<dt><kbd>+</kbd> <kbd>-</kbd></dt><dd>Zoom in and out</dd>
+			<dt><kbd>&larr;</kbd> <kbd>&rarr;</kbd> <kbd>&uarr;</kbd> <kbd>&darr;</kbd></dt><dd>Pan (Shift for larger steps)</dd>
+			<dt><kbd>[</kbd></dt><dd>Show or hide the artboard list</dd>
+			<dt><kbd>]</kbd></dt><dd>Show or hide the review panel</dd>
+			<dt><kbd>Esc</kbd></dt><dd>Leave Comment mode or close the comment box</dd>
+			<dt><kbd>Shift</kbd> + <kbd>Esc</kbd></dt><dd>Back to canvas from an artboard or Compare</dd>
+			<dt><kbd>?</kbd></dt><dd>This list</dd>
+		</dl>
+		<p class="gd-dialog-note">Single keys are off while you type, while the comment box is open and while an artboard is in use.</p>
+		<div class="gd-dialog-actions"><button type="button" id="gd-shortcuts-close" class="gd-primary">Close</button></div>
+	</dialog>
 </body>
 </html>

@@ -8,6 +8,8 @@
 // drags and clicks always reach the canvas; a click on a shield enters focus mode,
 // which shows that artboard at 100% and lets it own the pointer and the keyboard
 // until "Back to canvas" or Shift+Esc restores the previous view.
+// A left tool rail (Navigate, Comment, Overview, artboard list, design system, shortcuts) and the
+// single-key shortcuts behind it; the mode chip in the viewport names the active mode.
 // Handoffs (design/<slug>/handoffs.json) show live on each artboard's header: the
 // handoff state, the chosen artboard and its alternatives, and, once implemented
 // with a loopback previewUrl, a Compare view of the artboard next to the running app.
@@ -43,6 +45,7 @@
 	const COMPARE_GAP = 24;
 	const COMPARE_PADDING = 24;
 	const TOAST_MS = 5000;
+	const COMMENT_CHIP = "Click an element to comment · Esc";
 
 	const $ = (id) => document.getElementById(id);
 	const els = {
@@ -55,6 +58,15 @@
 		zoomLevel: $("gd-zoom-level"),
 		fit: $("gd-fit"),
 		navMode: $("gd-nav-mode"),
+		toolNavigate: $("gd-tool-navigate"),
+		railFit: $("gd-rail-fit"),
+		navToggle: $("gd-nav-toggle"),
+		railSystem: $("gd-rail-system"),
+		shortcutsOpen: $("gd-shortcuts-open"),
+		shortcuts: $("gd-shortcuts"),
+		shortcutsClose: $("gd-shortcuts-close"),
+		nav: $("gd-nav"),
+		navTitle: $("gd-nav-title"),
 		back: $("gd-back"),
 		comment: $("gd-comment"),
 		status: $("gd-status"),
@@ -291,6 +303,7 @@
 	els.zoomIn.addEventListener("click", () => zoomAtCenter(1.25));
 	els.zoomOut.addEventListener("click", () => zoomAtCenter(0.8));
 	els.fit.addEventListener("click", fit);
+	els.railFit.addEventListener("click", fit);
 
 	// ---- navigation and focus modes ---------------------------------------
 
@@ -377,11 +390,20 @@
 			if (!active && board.viewHeight !== board.artboard.height) setFrameHeight(board, board.artboard.height);
 			sendFocus(board);
 		}
-		for (const control of [els.zoomOut, els.zoomIn, els.fit]) control.disabled = Boolean(focused);
+		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit]) control.disabled = Boolean(focused);
 		els.design.disabled = Boolean(focused) || state.designCount === 0;
 		els.back.hidden = !focused;
-		els.navMode.textContent = focused ? `Using: ${focused.artboard.title} · Shift+Esc to exit` : "Navigating";
+		els.railSystem.disabled = !state.systemBoard;
+		els.navTitle.textContent = `Artboards · ${state.boards.length}`;
+		renderNavMode();
+	}
+
+	/** The floating chip: focus mode, comment mode or plain navigation. */
+	function renderNavMode() {
+		const focused = state.focus;
+		els.navMode.textContent = focused ? `Using: ${focused.artboard.title} · Shift+Esc to exit` : state.commenting ? COMMENT_CHIP : "Navigating";
 		els.navMode.classList.toggle("gd-using", Boolean(focused));
+		els.navMode.classList.toggle("gd-commenting-chip", !focused && state.commenting);
 	}
 
 	function enterFocus(board) {
@@ -421,6 +443,8 @@
 		exitFocus();
 		els.world.replaceChildren();
 		state.boards = [];
+		els.navTitle.textContent = "Artboards · 0";
+		els.railSystem.disabled = !state.systemBoard;
 		els.empty.textContent = text;
 		els.empty.hidden = false;
 	}
@@ -796,7 +820,7 @@
 		els.compare.hidden = false;
 		els.viewport.inert = true;
 		els.panel.inert = true;
-		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.design]) control.disabled = true;
+		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit, els.railSystem, els.design]) control.disabled = true;
 		layoutCompare();
 		els.compareBack.focus();
 	}
@@ -1241,6 +1265,28 @@
 
 	els.panelToggle.addEventListener("click", () => setPanel(els.panel.hidden));
 
+	function setNav(show) {
+		els.nav.hidden = !show;
+		els.navToggle.setAttribute("aria-pressed", String(show));
+	}
+
+	els.navToggle.addEventListener("click", () => setNav(els.nav.hidden));
+	els.railSystem.addEventListener("click", () => { if (state.systemBoard) enterFocus(state.systemBoard); });
+
+	function openShortcuts() {
+		if (typeof els.shortcuts.showModal === "function") els.shortcuts.showModal();
+		else els.shortcuts.setAttribute("open", "");
+	}
+
+	function closeShortcuts() {
+		if (typeof els.shortcuts.close === "function") els.shortcuts.close();
+		else els.shortcuts.removeAttribute("open");
+		els.shortcutsOpen.focus();
+	}
+
+	els.shortcutsOpen.addEventListener("click", openShortcuts);
+	els.shortcutsClose.addEventListener("click", closeShortcuts);
+
 	function readRects(data) {
 		if (!Array.isArray(data.rects) || data.rects.length > LIMITS.pins) return null;
 		const rects = new Map();
@@ -1254,9 +1300,16 @@
 		return rects;
 	}
 
+	/** Navigate and Comment are one pressed pair. */
+	function renderTools() {
+		els.comment.setAttribute("aria-pressed", String(state.commenting));
+		els.toolNavigate.setAttribute("aria-pressed", String(!state.commenting));
+	}
+
 	function setCommenting(enabled) {
 		state.commenting = enabled;
-		els.comment.setAttribute("aria-pressed", String(enabled));
+		renderTools();
+		renderNavMode();
 		els.world.classList.toggle("gd-commenting", enabled);
 		state.boards.forEach(sendMode);
 		setStatus(enabled ? "Comment mode: click an element in an artboard" : "", false);
@@ -1267,6 +1320,37 @@
 	}
 
 	els.comment.addEventListener("click", () => setCommenting(!state.commenting));
+	els.toolNavigate.addEventListener("click", () => setCommenting(false));
+
+	// Single-key shortcuts. They never fire while typing, with a browser chord, while the comment
+	// box or the shortcuts list is open, in Compare, or in focus mode (the artboard owns the keyboard
+	// there; Shift+Esc is handled apart).
+	const TYPING_TAGS = ["input", "textarea", "select"];
+	document.addEventListener("keydown", (event) => {
+		if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+		const target = event.target;
+		if (target && (TYPING_TAGS.includes(target.localName) || target.isContentEditable)) return;
+		if (els.shortcuts.hasAttribute("open")) {
+			if (event.key === "?") {
+				event.preventDefault();
+				closeShortcuts();
+			}
+			return;
+		}
+		if (!els.popover.hidden || state.focus || state.compare) return;
+		const actions = {
+			v: () => setCommenting(false),
+			c: () => setCommenting(true),
+			f: fit,
+			"[": () => setNav(els.nav.hidden),
+			"]": () => setPanel(els.panel.hidden),
+			"?": openShortcuts,
+		};
+		const action = actions[event.key.length === 1 ? event.key.toLowerCase() : ""];
+		if (!action) return;
+		event.preventDefault();
+		action();
+	});
 
 	function isFiniteNumber(value) {
 		return typeof value === "number" && Number.isFinite(value);
@@ -1492,6 +1576,7 @@
 	else window.addEventListener("resize", () => centerFocus());
 
 	setMode(state.mode);
+	renderTools();
 	start();
 	connectEvents();
 })();
