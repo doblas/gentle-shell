@@ -8,6 +8,7 @@
 // drags and clicks always reach the canvas; a click on a shield enters focus mode,
 // which shows that artboard at 100% and lets it own the pointer and the keyboard
 // until "Back to canvas" or Shift+Esc restores the previous view.
+// A minimap in the viewport's bottom right (M) shows every board and the visible area; clicking or dragging in it pans.
 // A left tool rail (Navigate, Comment, Overview, artboard list, design system, shortcuts) and the
 // single-key shortcuts behind it; the mode chip in the viewport names the active mode.
 // Handoffs (design/<slug>/handoffs.json) show live on each artboard's header: the
@@ -25,6 +26,8 @@
 	// Room below a focused artboard for the floating "Back to canvas" button.
 	const BACK_SPACE = 64;
 	const CLICK_SLOP = 4;
+	// The minimap: its map box in CSS px (canvas.css gives .gd-minimap-map the same size) and the pad kept free around the blocks.
+	const MINIMAP = { width: 204, height: 96, pad: 6, minBlock: 2 };
 	const LIMITS = { selector: 500, excerpt: 300, comment: 2000, pins: 500, tokens: 500, versions: 50, historyArtboards: 256, screenshotBytes: 5 * 1024 * 1024 };
 	const SCREENSHOT_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 	const MODE_KEY = "gentle-design:send-mode";
@@ -139,6 +142,9 @@
 		handoffTitle: $("gd-handoff-title"),
 		timeline: $("gd-timeline"),
 		back: $("gd-back"),
+		minimap: $("gd-minimap"),
+		minimapMap: $("gd-minimap-map"),
+		minimapView: $("gd-minimap-view"),
 		comment: $("gd-comment"),
 		status: $("gd-status"),
 		viewport: $("gd-viewport"),
@@ -219,6 +225,8 @@
 		mode: storedMode(),
 		activeId: null,
 		designCount: 0,
+		// The minimap's switch (M); it also hides in focus mode, Compare and a version comparison.
+		minimap: true,
 		// The focused board, and the view to restore when focus mode ends.
 		focus: null,
 		savedView: null,
@@ -381,6 +389,7 @@
 		els.world.style.setProperty("--gd-inv-zoom", String(1 / state.zoom));
 		els.zoomLevel.textContent = `${Math.round(state.zoom * 100)}%`;
 		for (const board of allBoards()) board.wrapper.classList.toggle("gd-compact", board.artboard.width * state.zoom < COMPACT_BOARD_WIDTH);
+		renderMinimap();
 	}
 
 	/** Zoom so the world point under (px, py) in viewport coordinates stays put. */
@@ -418,6 +427,124 @@
 		applyView();
 		closePopover();
 	}
+
+	// ---- minimap ----------------------------------------------------------
+
+	/** What the minimap shows is whatever the world lays out, in order: the boards and any placeholder board (class gd-placeholder). */
+	function minimapEntries() {
+		const boards = allBoards();
+		const entries = [];
+		for (const wrapper of Array.from(els.world.children)) {
+			const board = boards.find((candidate) => candidate.wrapper === wrapper);
+			if (board) entries.push({ wrapper, board });
+			else if (wrapper.classList.contains("gd-placeholder")) entries.push({ wrapper, board: null });
+		}
+		return entries;
+	}
+
+	/** Where the world box (0, 0) lands in the map, and how big a world px is there: the boards' bounds fitted to the map. */
+	function minimapScale(rects) {
+		const minX = Math.min(...rects.map((rect) => rect.x));
+		const minY = Math.min(...rects.map((rect) => rect.y));
+		const width = Math.max(...rects.map((rect) => rect.x + rect.width)) - minX;
+		const height = Math.max(...rects.map((rect) => rect.y + rect.height)) - minY;
+		const scale = Math.min((MINIMAP.width - MINIMAP.pad * 2) / width, (MINIMAP.height - MINIMAP.pad * 2) / height);
+		return { scale, x: (MINIMAP.width - width * scale) / 2 - minX * scale, y: (MINIMAP.height - height * scale) / 2 - minY * scale };
+	}
+
+	const rounded = (value) => `${Number(value.toFixed(2))}px`;
+
+	function minimapVisible() {
+		return state.minimap && !state.focus && !state.compare && !state.vcompare && allBoards().length > 0;
+	}
+
+	function minimapBlock(entry) {
+		const block = document.createElement("span");
+		block.className = "gd-minimap-block";
+		block.setAttribute("aria-hidden", "true");
+		block.title = entry.board ? `${entry.board.system ? "" : `${String(entry.board.number).padStart(2, "0")} · `}${entry.board.artboard.title}` : "New direction";
+		return block;
+	}
+
+	/** The world, the boards and the visible area, drawn small. Blocks are plain boxes: the artboard list stays the keyboard path. */
+	function renderMinimap() {
+		const visible = minimapVisible();
+		els.minimap.hidden = !visible;
+		if (!visible) return;
+		const chosen = chosenBoard();
+		const entries = minimapEntries()
+			.map((entry) => ({ ...entry, rect: { x: entry.wrapper.offsetLeft, y: entry.wrapper.offsetTop, width: entry.wrapper.offsetWidth, height: entry.wrapper.offsetHeight } }))
+			.filter((entry) => entry.rect.width > 0 && entry.rect.height > 0);
+		const count = state.boards.length;
+		els.minimapMap.setAttribute("aria-label", `Position of the visible area among ${count} ${count === 1 ? "artboard" : "artboards"}. Click or drag to move the view; use the artboard list with the keyboard.`);
+		const blocks = entries.map((entry, index) => {
+			const old = els.minimapMap.children[index];
+			const block = old && old !== els.minimapView && old.entry === entry.wrapper ? old : minimapBlock(entry);
+			block.entry = entry.wrapper;
+			return block;
+		});
+		const map = minimapScale(entries.length > 0 ? entries.map((entry) => entry.rect) : [{ x: 0, y: 0, width: 1, height: 1 }]);
+		entries.forEach((entry, index) => {
+			const block = blocks[index];
+			block.classList.toggle("gd-minimap-system", Boolean(entry.board && entry.board.system));
+			block.classList.toggle("gd-minimap-chosen", Boolean(entry.board && entry.board === chosen));
+			block.classList.toggle("gd-minimap-placeholder", !entry.board);
+			block.style.left = rounded(map.x + entry.rect.x * map.scale);
+			block.style.top = rounded(map.y + entry.rect.y * map.scale);
+			block.style.width = rounded(Math.max(MINIMAP.minBlock, entry.rect.width * map.scale));
+			block.style.height = rounded(Math.max(MINIMAP.minBlock, entry.rect.height * map.scale));
+		});
+		const children = [...blocks, els.minimapView];
+		// Only when the set of boards changed: a pan only moves the outline, and re-attaching nodes on every pointer move is wasted work.
+		if (Array.from(els.minimapMap.children).some((child, index) => child !== children[index]) || els.minimapMap.children.length !== children.length) els.minimapMap.replaceChildren(...children);
+		// The visible area in world px, pinned inside the map so it still points the way when the view is far away.
+		const viewport = els.viewport.getBoundingClientRect();
+		const clamp = (value, limit) => Math.min(limit, Math.max(0, value));
+		const left = clamp(map.x - (state.x / state.zoom) * map.scale, MINIMAP.width);
+		const top = clamp(map.y - (state.y / state.zoom) * map.scale, MINIMAP.height);
+		const right = clamp(map.x + ((viewport.width - state.x) / state.zoom) * map.scale, MINIMAP.width);
+		const bottom = clamp(map.y + ((viewport.height - state.y) / state.zoom) * map.scale, MINIMAP.height);
+		els.minimapView.style.left = rounded(left);
+		els.minimapView.style.top = rounded(top);
+		els.minimapView.style.width = rounded(right - left);
+		els.minimapView.style.height = rounded(bottom - top);
+		state.minimapMap = map;
+	}
+
+	function setMinimap(show) {
+		state.minimap = show;
+		renderMinimap();
+	}
+
+	/** Centers the view on the world point under a pointer in the map (zoom stays). */
+	function panToMinimap(event) {
+		const map = state.minimapMap;
+		if (!map || map.scale <= 0) return;
+		const rect = els.minimapMap.getBoundingClientRect();
+		const worldX = (event.clientX - rect.left - map.x) / map.scale;
+		const worldY = (event.clientY - rect.top - map.y) / map.scale;
+		const viewport = els.viewport.getBoundingClientRect();
+		state.x = viewport.width / 2 - worldX * state.zoom;
+		state.y = viewport.height / 2 - worldY * state.zoom;
+		applyView();
+		closePopover();
+	}
+
+	let minimapDrag = null;
+	els.minimapMap.addEventListener("pointerdown", (event) => {
+		if (event.button !== 0) return;
+		minimapDrag = event.pointerId;
+		els.minimapMap.setPointerCapture(event.pointerId);
+		panToMinimap(event);
+	});
+	els.minimapMap.addEventListener("pointermove", (event) => {
+		if (minimapDrag === event.pointerId) panToMinimap(event);
+	});
+	const endMinimapDrag = (event) => {
+		if (minimapDrag === event.pointerId) minimapDrag = null;
+	};
+	els.minimapMap.addEventListener("pointerup", endMinimapDrag);
+	els.minimapMap.addEventListener("pointercancel", endMinimapDrag);
 
 	function wheelPixels(delta, mode) {
 		return mode === 1 ? delta * 16 : mode === 2 ? delta * 400 : delta;
@@ -636,6 +763,7 @@
 		renderNav();
 		renderHistory();
 		renderNavMode();
+		renderMinimap();
 	}
 
 	/** The floating chip: focus mode, comment mode or plain navigation. */
@@ -696,6 +824,7 @@
 		state.boards = [];
 		els.railSystem.disabled = !state.systemBoard;
 		renderHandoffViews();
+		renderMinimap();
 		els.empty.textContent = text;
 		els.empty.hidden = false;
 	}
@@ -1257,6 +1386,7 @@
 
 	/** Everything outside the artboards that follows handoffs, boards and comments: navigator, Compare with app, timeline. */
 	function renderHandoffViews() {
+		renderMinimap();
 		renderCompareApp();
 		renderTimeline();
 		renderNav();
@@ -1599,6 +1729,7 @@
 		}, PREVIEW_TIMEOUT_MS);
 		app.src = preview;
 		state.compare = compare;
+		renderMinimap();
 		els.compareTitle.textContent = `Compare: ${title}`;
 		// A new tab with no opener and no Referer: the canvas URL carries the server token.
 		els.compareOpen.setAttribute("target", "_blank");
@@ -2821,6 +2952,7 @@
 		box.append(older.root, current.root, handle, shield);
 		const compare = { board, n: version.n, mode: "slider", pos: 50, enteredFocus, older, current, box, handle, shield };
 		state.vcompare = compare;
+		renderMinimap();
 		bindSplitInput({ shield, handle, box, position: () => compare.pos, move: setSlider });
 		els.versionsTitle.textContent = `Compare versions · ${board.artboard.title}`;
 		els.versionsStage.replaceChildren(box);
@@ -2914,6 +3046,7 @@
 		const compare = state.vcompare;
 		if (!compare) return;
 		state.vcompare = null;
+		renderMinimap();
 		els.versions.hidden = true;
 		els.versionsStage.replaceChildren();
 		els.world.inert = false;
@@ -3309,6 +3442,7 @@
 			v: () => setCommenting(false),
 			c: () => setCommenting(true),
 			f: fit,
+			m: () => setMinimap(!state.minimap),
 			"[": () => setNav(els.nav.hidden),
 			"]": () => setPanel(els.panel.hidden),
 			"?": openShortcuts,
@@ -3569,9 +3703,10 @@
 	window.addEventListener("resize", closePopover);
 	window.addEventListener("resize", layoutCompare);
 	window.addEventListener("resize", layoutVersions);
+	window.addEventListener("resize", renderMinimap);
 	window.addEventListener("resize", updateTabFades);
 	// The viewport also changes size when the comments panel opens or closes.
-	if (typeof ResizeObserver === "function") new ResizeObserver(() => { centerFocus(); layoutVersions(); }).observe(els.viewport);
+	if (typeof ResizeObserver === "function") new ResizeObserver(() => { centerFocus(); layoutVersions(); renderMinimap(); }).observe(els.viewport);
 	// Fires once on observe, then when fonts or the panel change the row: the fades are right from the first layout.
 	if (typeof ResizeObserver === "function") new ResizeObserver(updateTabFades).observe(els.tabs);
 	else window.addEventListener("resize", () => centerFocus());

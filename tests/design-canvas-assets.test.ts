@@ -4291,3 +4291,334 @@ test("T1/S5: docs/gentle-shell.md describes the Compare modes and says the canva
 	for (const needle of ["**Side by side**", "**Overlay**", "**App opacity**", "**Slider**", "**Design**", "**App**", "`Shift`", "remembers"]) assert.ok(line.includes(needle), needle);
 	assert.match(line, /cannot detect differences[^.]*each frame is its own origin/);
 });
+
+// ---- Minimap (canvas-minimap-variants-export T1/S1)
+
+const SYSTEM_REPLY = { "/t/api/system": { exists: true, file: "system.html", width: 800, height: 600 } };
+const miniPanel = (canvas: Canvas) => canvas.document.getElementById("gd-minimap");
+const miniMap = (canvas: Canvas) => canvas.document.getElementById("gd-minimap-map");
+const miniView = (canvas: Canvas) => canvas.document.getElementById("gd-minimap-view");
+const miniBlocks = (canvas: Canvas) => withClass(miniMap(canvas), "gd-minimap-block");
+const miniBox = (element: FakeElement) => ["left", "top", "width", "height"].map((key) => Number.parseFloat(element.style[key]));
+const near = (actual: number[], expected: number[]) => {
+	assert.equal(actual.length, expected.length);
+	actual.forEach((value, index) => assert.ok(Math.abs(value - expected[index]) < 0.05, `${JSON.stringify(actual)} is not ${JSON.stringify(expected)}`));
+};
+/** The fake DOM has no layout: give each world child its box in world px (the real page reads offsets). */
+function layoutWorld(canvas: Canvas, rects: number[][]) {
+	canvas.world.children.forEach((wrapper, index) => {
+		const [x, y, width, height] = rects[index];
+		wrapper.offsetLeft = x;
+		wrapper.offsetTop = y;
+		Object.defineProperty(wrapper, "offsetWidth", { value: width, configurable: true });
+		Object.defineProperty(wrapper, "offsetHeight", { value: height, configurable: true });
+	});
+}
+// 1920 x 840 world bounds into the 204 x 96 map with a 6 px pad: a scale of exactly 0.1 and a 6 px offset.
+const MINI_RECTS = [[0, 0, 800, 600], [880, 0, 400, 300], [1360, 0, 560, 840]];
+async function minimapCanvas(extraReplies: Record<string, unknown> = {}) {
+	const canvas = await loadRail(300, { ...SYSTEM_REPLY, ...extraReplies });
+	layoutWorld(canvas, MINI_RECTS);
+	// The map sits at (1000, 600) on the page.
+	miniMap(canvas).rect = { left: 1000, top: 600, width: 204, height: 96 };
+	canvas.windowEvent("resize");
+	return canvas;
+}
+const mapPointer = (canvas: Canvas, type: string, worldX: number, worldY: number, init: Record<string, unknown> = {}) =>
+	miniMap(canvas).dispatch(type, { button: 0, pointerId: 7, clientX: 1000 + 6 + worldX * 0.1, clientY: 600 + 6 + worldY * 0.1, ...init });
+
+test("T1/S1: the minimap draws every board as a block at its relative position and size, the system board first", async () => {
+	const canvas = await minimapCanvas();
+	const blocks = miniBlocks(canvas);
+	assert.equal(blocks.length, 3, "the system board and both artboards");
+	near(miniBox(blocks[0]), [6, 6, 80, 60]);
+	near(miniBox(blocks[1]), [94, 6, 40, 30]);
+	near(miniBox(blocks[2]), [142, 6, 56, 84]);
+	assert.ok(blocks[0].classes.has("gd-minimap-system"), "the first block is the system board");
+	assert.ok(!blocks[1].classes.has("gd-minimap-system") && !blocks[2].classes.has("gd-minimap-system"));
+	assert.equal(miniPanel(canvas).hidden, false);
+});
+
+test("T1/S1: blocks keep the world's aspect and are centered in the map", async () => {
+	const canvas = await loadRail(300, SYSTEM_REPLY);
+	// Wide and short bounds (4000 x 400): the width limits the scale to 0.048 and the height is centered.
+	layoutWorld(canvas, [[0, 0, 2000, 400], [2200, 0, 800, 400], [3200, 0, 800, 400]]);
+	canvas.windowEvent("resize");
+	const blocks = miniBlocks(canvas);
+	near(miniBox(blocks[0]), [6, 38.4, 96, 19.2]);
+	near(miniBox(blocks[2]), [159.6, 38.4, 38.4, 19.2]);
+});
+
+test("T1/S1: the chosen artboard's block is the accent one, live, and the others are not", async () => {
+	const canvas = await minimapCanvas();
+	assert.deepEqual(miniBlocks(canvas).map((block) => block.classes.has("gd-minimap-chosen")), [false, false, false]);
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": {} }));
+	assert.deepEqual(miniBlocks(canvas).map((block) => block.classes.has("gd-minimap-chosen")), [false, false, true]);
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.deepEqual(miniBlocks(canvas).map((block) => block.classes.has("gd-minimap-chosen")), [false, false, false]);
+});
+
+test("T1/S1: a placeholder board in the world is a dashed block, not an artboard", async () => {
+	const canvas = await minimapCanvas();
+	const placeholder = canvas.document.createElement("section");
+	placeholder.classList.add("gd-placeholder");
+	canvas.world.append(placeholder);
+	// Bounds grow to 2400 wide: the scale is 0.08.
+	layoutWorld(canvas, [...MINI_RECTS, [1960, 100, 440, 300]]);
+	canvas.windowEvent("resize");
+	const blocks = miniBlocks(canvas);
+	assert.equal(blocks.length, 4);
+	assert.ok(blocks[3].classes.has("gd-minimap-placeholder"));
+	assert.ok(blocks.slice(0, 3).every((block) => !block.classes.has("gd-minimap-placeholder")));
+	near(miniBox(blocks[3]), [162.8, 22.4, 35.2, 24]);
+});
+
+test("T1/S1: a board with no laid-out size draws no block", async () => {
+	const canvas = await loadRail(300, SYSTEM_REPLY);
+	canvas.windowEvent("resize");
+	assert.equal(miniBlocks(canvas).length, 0);
+	assert.equal(miniPanel(canvas).hidden, false, "the panel itself still shows while boards exist");
+});
+
+test("T1/S1: the visible area is an outlined rectangle that follows pan and zoom", async () => {
+	const canvas = await minimapCanvas();
+	// Initial view: world offset (48, 48) at 100% in a 1000 x 700 viewport shows world x -48..952, y -48..652.
+	canvas.viewport.dispatch("keydown", { key: "ArrowRight" });
+	canvas.viewport.dispatch("keydown", { key: "ArrowLeft" });
+	near(miniBox(miniView(canvas)), [1.2, 1.2, 100, 70]);
+	// A key pan of 50 px to the left moves the view 50 world px right.
+	canvas.viewport.dispatch("keydown", { key: "ArrowRight" });
+	near(miniBox(miniView(canvas)), [6.2, 1.2, 100, 70]);
+	canvas.viewport.dispatch("keydown", { key: "ArrowLeft" });
+	// Zoom in 25% around the center: x = -65, y = -27.5 shows world x 52..852, y 22..582.
+	canvas.viewport.dispatch("keydown", { key: "+" });
+	near(miniBox(miniView(canvas)), [11.2, 8.2, 80, 56]);
+	assert.equal(miniView(canvas).getAttribute("aria-hidden"), null, "the rectangle lives inside the map, which carries the name");
+});
+
+test("T1/S1: the visible-area rectangle is clipped to the map when the view is away from the boards", async () => {
+	const canvas = await minimapCanvas();
+	for (let i = 0; i < 40; i++) canvas.viewport.dispatch("keydown", { key: "ArrowRight", shiftKey: true });
+	const [left, top, width, height] = miniBox(miniView(canvas));
+	assert.ok(left >= 0 && top >= 0 && left + width <= 204.01 && top + height <= 96.01, "never outside the map");
+	assert.ok(left + width > 203.9 && width < 1, "pinned to the right edge, pointing to where the view went");
+	assert.ok(height > 60);
+});
+
+test("T1/S1: a click in the minimap centers the view on that world point; zoom stays", async () => {
+	const canvas = await minimapCanvas();
+	canvas.viewport.dispatch("keydown", { key: "+" });
+	const zoom = canvas.zoomLevel.textContent;
+	// Click world point (400, 300): at 125% the viewport's center (500, 350) goes there.
+	mapPointer(canvas, "pointerdown", 400, 300);
+	assert.equal(canvas.world.style.transform, "translate(0px, -25px) scale(1.25)");
+	mapPointer(canvas, "pointerup", 400, 300);
+	assert.equal(canvas.zoomLevel.textContent, zoom);
+	near(miniBox(miniView(canvas)), [6 + 0.1 * 0, 6 + 0.1 * 20, 80, 56]);
+	assert.equal(canvas.navMode.textContent, "Navigating", "a click in the map never focuses an artboard");
+});
+
+test("T1/S1: dragging in the minimap pans with the pointer until it is released", async () => {
+	const canvas = await minimapCanvas();
+	mapPointer(canvas, "pointerdown", 400, 300);
+	assert.equal(canvas.world.style.transform, "translate(100px, 50px) scale(1)");
+	mapPointer(canvas, "pointermove", 600, 400);
+	assert.equal(canvas.world.style.transform, "translate(-100px, -50px) scale(1)");
+	near(miniBox(miniView(canvas)), [16, 11, 100, 70]);
+	mapPointer(canvas, "pointerup", 600, 400);
+	mapPointer(canvas, "pointermove", 1000, 700);
+	assert.equal(canvas.world.style.transform, "translate(-100px, -50px) scale(1)", "moves after the release do nothing");
+});
+
+test("T1/S1: only the primary button pans, and another pointer's moves are ignored", async () => {
+	const canvas = await minimapCanvas();
+	const before = canvas.world.style.transform;
+	mapPointer(canvas, "pointerdown", 400, 300, { button: 2 });
+	assert.equal(canvas.world.style.transform, before);
+	mapPointer(canvas, "pointerdown", 400, 300);
+	const after = canvas.world.style.transform;
+	mapPointer(canvas, "pointermove", 900, 500, { pointerId: 8 });
+	assert.equal(canvas.world.style.transform, after);
+	mapPointer(canvas, "pointercancel", 400, 300);
+	mapPointer(canvas, "pointermove", 900, 500);
+	assert.equal(canvas.world.style.transform, after, "a cancelled drag ends too");
+});
+
+test("T1/S1: the minimap follows the view for every kind of pan, a resize and a change of boards", async () => {
+	const canvas = await minimapCanvas();
+	const view = () => miniBox(miniView(canvas));
+	canvas.viewport.dispatch("wheel", { deltaX: 100, deltaY: 0, deltaMode: 0, ctrlKey: false, metaKey: false, shiftKey: false, clientX: 300, clientY: 300 });
+	near(view(), [1.2 + 10, 1.2, 100, 70]);
+	canvas.viewport.rect = { left: 0, top: 50, width: 500, height: 700 };
+	canvas.windowEvent("resize");
+	near(view(), [11.2, 1.2, 50, 70]);
+	// A third artboard widens the world to 2400: everything is redrawn at 0.08.
+	(canvas.replies["/t/api/designs/alpha"] as { artboards: unknown[] }).artboards.push({ file: "03-c.html", title: "Third", tradeoff: "", width: 400, height: 300 });
+	await canvas.serverEvent("show", { slug: "alpha" });
+	// The reload replaced the artboards: the old blocks are gone and the new boards draw once the page has laid them out.
+	assert.equal(miniBlocks(canvas).length, 1, "only the system board, which survives the reload");
+	layoutWorld(canvas, [...MINI_RECTS, [1960, 0, 440, 300]]);
+	canvas.windowEvent("resize");
+	assert.equal(miniBlocks(canvas).length, 4);
+	near(miniBox(miniBlocks(canvas)[3]), [162.8, 14.4, 35.2, 24]);
+	assert.match(miniMap(canvas).getAttribute("aria-label")!, /among 3 artboards/);
+});
+
+test("T1/S1: M toggles the minimap with the other single keys' rules", async () => {
+	const canvas = await minimapCanvas();
+	assert.equal(press(canvas, "m").defaultPrevented, true);
+	assert.equal(miniPanel(canvas).hidden, true);
+	press(canvas, "M");
+	assert.equal(miniPanel(canvas).hidden, false, "case does not matter");
+	press(canvas, "m");
+	assert.equal(miniPanel(canvas).hidden, true);
+	press(canvas, "m");
+	assert.equal(miniPanel(canvas).hidden, false);
+	// Drawing continues while it was hidden, so it is right when it comes back.
+	press(canvas, "m");
+	canvas.viewport.dispatch("keydown", { key: "+" });
+	press(canvas, "m");
+	near(miniBox(miniView(canvas)), [11.2, 8.2, 80, 56]);
+});
+
+test("T1/S1: M is ignored while typing, with a chord, with the comment box or the shortcuts open, and in focus mode", async () => {
+	const canvas = await minimapCanvas();
+	for (const tag of ["input", "textarea", "select"]) press(canvas, "m", {}, canvas.document.createElement(tag));
+	for (const chord of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }]) press(canvas, "m", chord);
+	assert.equal(miniPanel(canvas).hidden, false, "typing and browser chords never toggle it");
+	canvas.document.getElementById("gd-popover").hidden = false;
+	press(canvas, "m");
+	canvas.document.getElementById("gd-popover").hidden = true;
+	canvas.document.getElementById("gd-shortcuts").setAttribute("open", "");
+	press(canvas, "m");
+	canvas.document.getElementById("gd-shortcuts").removeAttribute("open");
+	assert.equal(miniPanel(canvas).hidden, false, "the open comment box and shortcuts list leave it alone");
+
+	click(canvas.boards[1].shield!, 200, 200);
+	const event = press(canvas, "m");
+	assert.equal(event.defaultPrevented, false, "the focused artboard owns the keyboard");
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(miniPanel(canvas).hidden, false, "M in focus mode did not switch it off behind the scenes");
+});
+
+test("T1/S1: the minimap is hidden in focus mode and comes back, as it was, on Back to canvas", async () => {
+	const canvas = await minimapCanvas();
+	click(canvas.boards[1].shield!, 200, 200);
+	assert.equal(miniPanel(canvas).hidden, true);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(miniPanel(canvas).hidden, false);
+	press(canvas, "m");
+	click(canvas.boards[1].shield!, 200, 200);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(miniPanel(canvas).hidden, true, "a minimap switched off with M stays off after focus");
+});
+
+test("T1/S1: the minimap is hidden while Compare is open and returns when it closes", async () => {
+	const canvas = await loadRail(300, { ...SYSTEM_REPLY, "/t/api/designs/alpha/handoffs": handoffDoc("01-a.html", { "01-a.html": { status: "implemented", previewUrl: "http://localhost:5173/login" } }) });
+	layoutWorld(canvas, MINI_RECTS);
+	canvas.windowEvent("resize");
+	assert.equal(miniPanel(canvas).hidden, false);
+	withClass(canvas.world.children[1], "gd-compare-start")[0].dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-compare").hidden, false);
+	assert.equal(miniPanel(canvas).hidden, true);
+	canvas.document.getElementById("gd-compare-back").dispatch("click");
+	assert.equal(miniPanel(canvas).hidden, false);
+});
+
+test("T1/S1: the minimap is hidden while a version comparison is open and returns when it closes", async () => {
+	const canvas = await withHistory(HISTORY, SYSTEM_REPLY);
+	layoutWorld(canvas, MINI_RECTS);
+	canvas.windowEvent("resize");
+	assert.equal(miniPanel(canvas).hidden, false);
+	openHistory(canvas);
+	cardButton(canvas, "gd-version-compare", 3).dispatch("click");
+	assert.equal(versionsPanel(canvas).hidden, false);
+	assert.equal(miniPanel(canvas).hidden, true);
+	canvas.document.getElementById("gd-versions-close").dispatch("click");
+	assert.equal(versionsPanel(canvas).hidden, true);
+	// The comparison put the artboard in focus mode and closing it leaves it again.
+	assert.equal(miniPanel(canvas).hidden, false);
+});
+
+test("T1/S1: the minimap is hidden when there is nothing to show", async () => {
+	const canvas = await loadRail(300, { "/t/api/designs": { designs: [] } }, { slug: null });
+	assert.equal(miniPanel(canvas).hidden, true);
+});
+
+test("T1/S1: the map carries an accessible name with the artboard count, blocks are not focusable and the artboard list stays the keyboard path", async () => {
+	const canvas = await minimapCanvas();
+	const map = miniMap(canvas);
+	assert.match(map.getAttribute("aria-label")!, /^Position of the visible area among 2 artboards\. Click or drag to move the view; use the artboard list with the keyboard\.$/);
+	for (const block of miniBlocks(canvas)) {
+		assert.equal(block.getAttribute("tabindex"), null);
+		assert.notEqual(block.localName, "button");
+		assert.equal(block.getAttribute("role"), null);
+		assert.equal(block.getAttribute("aria-hidden"), "true");
+	}
+	assert.notEqual(miniView(canvas).localName, "button");
+	assert.equal(miniView(canvas).getAttribute("tabindex"), null);
+	assert.equal(navItems(canvas).length, 2, "the artboard list is still there");
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.equal(withClass(canvas.world, "gd-minimap-block").length, 0, "blocks live in the minimap, not in the world");
+});
+
+test("T1/S1: the label says 1 artboard in the singular", async () => {
+	const canvas = await loadRail(300, { "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "", artboards: [{ file: "01-a.html", title: "First", tradeoff: "", width: 400, height: 300 }] } });
+	layoutWorld(canvas, [[0, 0, 400, 300]]);
+	canvas.windowEvent("resize");
+	assert.match(miniMap(canvas).getAttribute("aria-label")!, /among 1 artboard\./);
+});
+
+test("T1/S1: a ResizeObserver on the viewport redraws the minimap too", async () => {
+	const observers: Array<() => void> = [];
+	class FakeResizeObserver {
+		constructor(callback: () => void) { observers.push(callback); }
+		observe() {}
+	}
+	const canvas = await loadRail(300, SYSTEM_REPLY, {}, { ResizeObserver: FakeResizeObserver });
+	layoutWorld(canvas, MINI_RECTS);
+	miniMap(canvas).rect = { left: 1000, top: 600, width: 204, height: 96 };
+	assert.equal(miniBlocks(canvas).length, 0, "nothing was drawn before a layout existed");
+	for (const callback of observers) callback();
+	assert.equal(miniBlocks(canvas).length, 3);
+});
+
+test("T1/S1: the shortcuts dialog lists M, and the markup carries the minimap", () => {
+	const html = read("index.html");
+	assert.match(html, /<dt><kbd>M<\/kbd><\/dt><dd>Show or hide the minimap<\/dd>/);
+	const section = html.match(/<section id="gd-minimap"[^>]*>[^]*?<\/section>/)![0];
+	assert.match(section, /^<section id="gd-minimap" class="gd-minimap" aria-labelledby="gd-minimap-title">/);
+	assert.match(section, /<h2 id="gd-minimap-title" class="gd-minimap-title"><span>Minimap<\/span><kbd[^>]*>M<\/kbd><\/h2>/);
+	assert.match(section, /<div id="gd-minimap-map" class="gd-minimap-map" role="img" aria-label="[^"]+">/);
+	assert.match(section, /<b id="gd-minimap-view" class="gd-minimap-view"><\/b>/);
+	assert.ok(!/tabindex|<button/.test(section), "nothing in the minimap takes the keyboard");
+	const viewport = html.slice(html.indexOf('<main id="gd-viewport"'), html.indexOf("</main>"));
+	assert.ok(viewport.includes('id="gd-minimap"'), "the minimap is inside the viewport, at its bottom right");
+	assert.ok(html.indexOf('id="gd-minimap"') < html.indexOf('id="gd-nav-mode"'), "before the mode chip, so the sibling rule can make room for it");
+	assert.ok(html.indexOf('id="gd-minimap"') < html.indexOf('id="gd-inspector"'), "the inspector panel paints over it");
+});
+
+test("T1/S1: canvas.css styles the minimap with tokens only, clear of the mode chip and the Back button, with no motion", () => {
+	const css = read("canvas.css");
+	const block = (selector: string) => {
+		const start = css.indexOf(`${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	for (const selector of [".gd-minimap", ".gd-minimap-title", ".gd-minimap-map", ".gd-minimap-block", ".gd-minimap-system", ".gd-minimap-chosen", ".gd-minimap-placeholder", ".gd-minimap-view"]) {
+		const text = block(selector);
+		assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(text), `${selector}: tokens only`);
+		assert.ok(!/transition|animation/.test(text), `${selector}: no motion`);
+	}
+	assert.match(block(".gd-minimap"), /position:\s*absolute[^}]*right:\s*16px[^}]*bottom:\s*16px/);
+	assert.match(block(".gd-minimap"), /background:\s*var\(--surface\)/);
+	assert.match(block(".gd-minimap-map"), /width:\s*204px[^}]*height:\s*96px/);
+	assert.match(block(".gd-minimap-map"), /overflow:\s*hidden/);
+	assert.match(block(".gd-minimap-map"), /touch-action:\s*none/);
+	assert.match(block(".gd-minimap-chosen"), /var\(--accent\)/);
+	assert.match(block(".gd-minimap-placeholder"), /dashed var\(--accent\)/);
+	assert.match(block(".gd-minimap-view"), /var\(--warning\)/);
+	assert.match(block(".gd-minimap-view"), /pointer-events:\s*none/);
+	// The centered mode chip gives way to the minimap while it shows.
+	assert.match(css, /\.gd-minimap:not\(\[hidden\]\) ~ \.gd-nav-mode\s*{[^}]*max-width:/);
+});

@@ -492,6 +492,74 @@ select {
 .gd-nav-mode.gd-commenting-chip::before, .gd-nav-mode.gd-using::before { background: var(--accent); }
 .gd-nav-mode.gd-using { color: var(--accent-soft); font-weight: 600; }
 
+/* The minimap: bottom right of the viewport, over the artboards, under the inspector. Its map is drawn by canvas.js in
+   this fixed size (MINIMAP in canvas.js); the view outline is warning-colored like the design's. */
+.gd-minimap {
+	position: absolute;
+	right: 16px;
+	bottom: 16px;
+	z-index: 5;
+	padding: 8px;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-panel);
+	cursor: default;
+}
+
+.gd-minimap-title {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin: 0 0 6px;
+	color: var(--text-muted);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: .06em;
+	text-transform: uppercase;
+}
+
+.gd-minimap-title kbd {
+	padding: 3px 5px;
+	border: 1px solid var(--border-soft);
+	border-bottom-width: 2px;
+	border-radius: 4px;
+	font: 11px/1 var(--font-mono);
+	letter-spacing: 0;
+}
+
+.gd-minimap-map {
+	position: relative;
+	width: 204px;
+	height: 96px;
+	overflow: hidden;
+	border-radius: 6px;
+	background: var(--bg);
+	cursor: pointer;
+	touch-action: none;
+}
+
+.gd-minimap-block {
+	position: absolute;
+	border-radius: 2px;
+	background: var(--text-muted);
+	opacity: .5;
+}
+
+.gd-minimap-system { background: var(--text-faint); }
+.gd-minimap-chosen { background: var(--accent); opacity: 1; }
+.gd-minimap-placeholder { background: transparent; border: 1px dashed var(--accent); opacity: 1; }
+
+.gd-minimap-view {
+	position: absolute;
+	border: 1.5px solid var(--warning);
+	border-radius: 4px;
+	pointer-events: none;
+}
+
+/* The centered mode chip gives way to the minimap (222 px wide, 16 px from the edge) while it shows. */
+.gd-minimap:not([hidden]) ~ .gd-nav-mode { max-width: max(120px, calc(100% - 508px)); }
+
 /* In focus mode the Back to canvas button owns the bottom center. */
 .gd-focused .gd-nav-mode {
 	left: 16px;
