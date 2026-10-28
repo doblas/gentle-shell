@@ -7,6 +7,7 @@ import { extname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DESIGN_COMMENTS_FILE, DESIGN_COMMENT_LIMITS, DESIGN_SCREENSHOT_TYPES, DesignCommentsError, MAX_DESIGN_SCREENSHOT_BYTES, createDesignCommentStore, describeViewport, isDesignCommentId, truncateUtf16, viewportProblem, type DesignViewport, type StoredDesignComment } from "./design-comments.ts";
 import { DESIGN_FEATURE_PATH, DesignHandoffsError, createDesignHandoffStore, sendDesignHandoff, type DesignHandoffDelivery } from "./design-handoffs.ts";
+import { readSystemTokens } from "./design-system-tokens.ts";
 
 // Loopback canvas host for gentle-design (S4-S6). Every route lives under a
 // per-server random token, the Host header must name this server, POSTs need
@@ -890,6 +891,10 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		if (head === SYSTEM_FILE && tail.length === 0) return serveSystem;
 		if (head === "api" && tail.length === 1 && tail[0] === "system") {
 			return async (_req, res) => reply(res, 200, { exists: (await resolveSystem()) !== undefined, file: SYSTEM_FILE, ...SYSTEM_BOARD });
+		}
+		if (head === "api" && tail.length === 2 && tail[0] === "system" && tail[1] === "tokens") {
+			// The inspector's tokens: design/system.md read-only, per request; it never fails the canvas.
+			return async (_req, res) => reply(res, 200, await readSystemTokens(designRoot));
 		}
 		if (head === "api" && tail[0] === "designs") {
 			if (tail.length === 1) return async (_req, res) => reply(res, 200, { designs: listDesignEntries(designRoot) });

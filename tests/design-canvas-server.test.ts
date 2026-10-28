@@ -1184,3 +1184,59 @@ test("S7: formatDesignCommentBatch names each comment's viewport, and only those
 	assert.equal(text.match(/Viewport:/g)?.length, 1);
 	assert.match(text, /\n   Excerpt: \(none\)\n   Comment:\n   Shorter\.\n/);
 });
+
+// Token inspector (T1): the tokens of design/system.md, read-only.
+
+const SYSTEM_MD = "# System\n\n## Colors\n\n| Token | Value |\n| --- | --- |\n| `--bg` | `#1a1218` |\n| `--accent` | `#f095c8` |\n";
+
+test("S1: GET api/system/tokens gives the tokens of design/system.md, and none when it is missing", async (t) => {
+	const { port, base, root } = await start(t);
+	const missing = await rawRequest(port, `${base}api/system/tokens`);
+	assert.equal(missing.status, 200);
+	assert.deepEqual(JSON.parse(missing.body), { exists: false, tokens: [] });
+	writeFileSync(join(root, "system.md"), SYSTEM_MD);
+	const present = await rawRequest(port, `${base}api/system/tokens`);
+	assert.equal(present.status, 200);
+	assert.match(String(present.headers["content-type"]), /^application\/json/);
+	assert.deepEqual(JSON.parse(present.body), { exists: true, tokens: [
+		{ name: "--bg", value: "#1a1218", section: "Colors", group: "color" },
+		{ name: "--accent", value: "#f095c8", section: "Colors", group: "color" },
+	] });
+	// The file is read on every request, so a change shows without restarting the server.
+	writeFileSync(join(root, "system.md"), `${SYSTEM_MD}| \`--text\` | \`#f6eff3\` |\n`);
+	assert.equal(JSON.parse((await rawRequest(port, `${base}api/system/tokens`)).body).tokens.length, 3);
+});
+
+test("S1: an empty, malformed, huge, linked or directory system.md never fails the route", async (t) => {
+	const { port, base, root } = await start(t);
+	const tokens = async () => rawRequest(port, `${base}api/system/tokens`);
+	writeFileSync(join(root, "system.md"), "");
+	assert.deepEqual(JSON.parse((await tokens()).body), { exists: true, tokens: [] });
+	writeFileSync(join(root, "system.md"), "| `--a\n|||`| `\u0000\n");
+	const malformed = await tokens();
+	assert.equal(malformed.status, 200);
+	assert.deepEqual(JSON.parse(malformed.body).tokens, []);
+	writeFileSync(join(root, "system.md"), `${SYSTEM_MD}${"x".repeat(300 * 1024)}`);
+	assert.deepEqual(JSON.parse((await tokens()).body), { exists: true, tokens: [], problem: "too-large" });
+	rmSync(join(root, "system.md"));
+	const outside = scratch(t, "gentle-design-tokens-outside-");
+	writeFileSync(join(outside, "system.md"), SYSTEM_MD);
+	symlinkSync(join(outside, "system.md"), join(root, "system.md"));
+	assert.deepEqual(JSON.parse((await tokens()).body), { exists: false, tokens: [] }, "a link out of the design root is not read");
+	rmSync(join(root, "system.md"));
+	mkdirSync(join(root, "system.md"));
+	assert.deepEqual(JSON.parse((await tokens()).body), { exists: false, tokens: [] });
+});
+
+test("S1: the tokens route keeps the Host, token, Origin and method rules, and system.md stays unserved", async (t) => {
+	const { port, base, root } = await start(t);
+	writeFileSync(join(root, "system.md"), SYSTEM_MD);
+	const path = "api/system/tokens";
+	assert.equal((await rawRequest(port, `${base}${path}`, { host: `evil.example:${port}` })).status, 421);
+	assert.equal((await rawRequest(port, `/wrong-token-0123456789/${path}`)).status, 404);
+	assert.equal((await rawRequest(port, `${base}${path}`, { headers: { Origin: "http://evil.example" } })).status, 403);
+	assert.equal((await rawRequest(port, `${base}${path}`, { headers: { Origin: "null" } })).status, 403, "a sandboxed artboard may not read the tokens");
+	assert.equal((await rawRequest(port, `${base}${path}`, { headers: { Origin: `http://localhost:${port}` } })).status, 200);
+	assert.equal((await rawRequest(port, `${base}${path}`, { method: "POST", headers: { Origin: `http://127.0.0.1:${port}`, "Content-Type": "application/json" }, body: "{}" })).status, 405);
+	for (const extra of ["api/system/tokens/x", "api/system/token", "system.md"]) assert.equal((await rawRequest(port, `${base}${extra}`)).status, 404, extra);
+});
