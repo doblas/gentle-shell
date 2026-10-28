@@ -140,6 +140,12 @@
 		<section id="gd-compare" class="gd-compare" aria-labelledby="gd-compare-title" hidden>
 			<div class="gd-compare-bar">
 				<h2 id="gd-compare-title" class="gd-compare-title">Compare</h2>
+				<div id="gd-compare-mode" class="gd-devices gd-compare-mode" role="group" aria-label="Compare mode">
+					<button type="button" id="gd-compare-mode-side" class="gd-size-button" aria-pressed="true">Side by side</button>
+					<button type="button" id="gd-compare-mode-overlay" class="gd-size-button" aria-pressed="false">Overlay</button>
+					<button type="button" id="gd-compare-mode-slider" class="gd-size-button" aria-pressed="false">Slider</button>
+				</div>
+				<label id="gd-compare-opacity-field" class="gd-compare-opacity" hidden><span>App opacity</span><input type="range" id="gd-compare-opacity" min="0" max="100" step="1" value="50" aria-valuetext="50%"><output id="gd-compare-opacity-value" for="gd-compare-opacity">50%</output></label>
 				<label class="gd-radio" id="gd-compare-fit-field" hidden><input type="checkbox" id="gd-compare-fit"> Scale to fit</label>
 				<a id="gd-compare-open" class="gd-compare-open" target="_blank" rel="noopener noreferrer">Open in new tab</a>
 				<button type="button" id="gd-compare-back" class="gd-primary" aria-keyshortcuts="Shift+Escape" title="Back to canvas (Shift+Esc)">Back to canvas</button>

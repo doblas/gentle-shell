@@ -170,6 +170,10 @@
 		compare: $("gd-compare"),
 		compareTitle: $("gd-compare-title"),
 		compareFit: $("gd-compare-fit"),
+		compareModes: { side: $("gd-compare-mode-side"), overlay: $("gd-compare-mode-overlay"), slider: $("gd-compare-mode-slider") },
+		compareOpacityField: $("gd-compare-opacity-field"),
+		compareOpacity: $("gd-compare-opacity"),
+		compareOpacityValue: $("gd-compare-opacity-value"),
 		compareFitField: $("gd-compare-fit-field"),
 		compareOpen: $("gd-compare-open"),
 		compareBack: $("gd-compare-back"),
@@ -243,8 +247,10 @@
 		inspectorHover: false,
 		// The handoffs.json of design `slug`; boards of another design ignore it.
 		handoffs: { slug: null, chosen: null, handoffs: {} },
-		// The open Compare view: { board, preview, artboardFrame, timer }.
+		// The open Compare view: { board, preview, artboardFrame, appFrame, design, app, handle, shield, pos, opacity, timer, loaded }.
 		compare: null,
+		// "side", "overlay" or "slider": the last Compare mode, kept while the canvas runs.
+		compareMode: "side",
 		toastTimer: 0,
 		// Failed resolve or reopen replies by comment id, shown in that comment's card.
 		cardErrors: new Map(),
@@ -1466,7 +1472,7 @@
 		label.className = "gd-compare-caption";
 		label.textContent = caption;
 		figure.append(label, frame);
-		return figure;
+		return { figure, label, caption };
 	}
 
 	function compareFrame(width, height, title) {
@@ -1484,12 +1490,18 @@
 		els.compareMessage.classList.toggle("gd-error", Boolean(isError));
 	}
 
-	/** 100% by default; past the window width, "Scale to fit" shrinks the pair to fit. */
+	/**
+	 * 100% by default; past the window width, "Scale to fit" shrinks the pair to fit.
+	 * Overlay and Slider stack the pair at one artboard's size, so they are as wide as one frame.
+	 */
 	function layoutCompare() {
 		const compare = state.compare;
 		if (!compare) return;
-		const { width } = compare.board.artboard;
-		const needed = width * 2 + COMPARE_GAP;
+		const { width, height } = compare.board.artboard;
+		const stacked = state.compareMode !== "side";
+		const needed = stacked ? width : width * 2 + COMPARE_GAP;
+		els.comparePanes.style.width = stacked ? `${width}px` : "";
+		els.comparePanes.style.height = stacked ? `${height}px` : "";
 		const available = els.compareStage.getBoundingClientRect().width - COMPARE_PADDING * 2;
 		const wide = needed > available;
 		els.compareFitField.hidden = !wide;
@@ -1497,7 +1509,62 @@
 		els.comparePanes.style.transform = scale === 1 ? "none" : `scale(${scale.toFixed(3)})`;
 		// The sizer keeps the scroll area at the scaled size.
 		els.compareSizer.style.width = scale === 1 ? "" : `${Math.ceil(needed * scale)}px`;
-		els.compareSizer.style.height = scale === 1 ? "" : `${Math.ceil(els.comparePanes.offsetHeight * scale)}px`;
+		els.compareSizer.style.height = scale === 1 ? "" : `${Math.ceil((stacked ? height : els.comparePanes.offsetHeight) * scale)}px`;
+	}
+
+	/** Side by side, Overlay or Slider: the same two frames restyled, so nothing reloads. */
+	function setCompareView(mode) {
+		const compare = state.compare;
+		if (!compare) return;
+		state.compareMode = mode;
+		els.comparePanes.dataset.mode = mode;
+		for (const [name, button] of Object.entries(els.compareModes)) button.setAttribute("aria-pressed", String(name === mode));
+		const stacked = mode !== "side";
+		compare.design.label.textContent = stacked ? "Design" : compare.design.caption;
+		compare.app.label.textContent = stacked ? "App" : compare.app.caption;
+		compare.handle.hidden = mode !== "slider";
+		compare.shield.hidden = mode !== "slider";
+		els.compareOpacityField.hidden = mode !== "overlay";
+		if (stacked) els.comparePanes.setAttribute("role", "group");
+		else els.comparePanes.removeAttribute("role");
+		setCompareOpacity(compare.opacity);
+		setCompareSplit(compare.pos);
+		layoutCompare();
+	}
+
+	/** App opacity, 0 to 100: how much of the app shows over the design in Overlay. */
+	function setCompareOpacity(value) {
+		const compare = state.compare;
+		if (!compare) return;
+		compare.opacity = Math.min(100, Math.max(0, Math.round(value)));
+		const text = `${compare.opacity}%`;
+		els.compareOpacity.value = String(compare.opacity);
+		els.compareOpacity.setAttribute("aria-valuetext", text);
+		els.compareOpacityValue.textContent = text;
+		compare.appFrame.style.opacity = state.compareMode === "overlay" ? String(compare.opacity / 100) : "";
+		describeCompare();
+	}
+
+	/** The Slider position, 0 to 100: the design shows left of the line, the app right of it. */
+	function setCompareSplit(value) {
+		const compare = state.compare;
+		if (!compare) return;
+		compare.pos = clampSlider(value);
+		compare.app.figure.style.clipPath = state.compareMode === "slider" ? `inset(0 0 0 ${compare.pos}%)` : "";
+		compare.handle.style.left = `${compare.pos}%`;
+		compare.handle.setAttribute("aria-valuenow", String(compare.pos));
+		compare.handle.setAttribute("aria-valuetext", `${compare.pos}%: Design on the left, App on the right`);
+		describeCompare();
+	}
+
+	/** The stacked pair is one group named for what it shows; side by side is two figures. */
+	function describeCompare() {
+		const compare = state.compare;
+		if (!compare) return;
+		const mode = state.compareMode;
+		if (mode === "overlay") els.comparePanes.setAttribute("aria-label", `Design and running app overlaid, app at ${compare.opacity}% opacity`);
+		else if (mode === "slider") els.comparePanes.setAttribute("aria-label", `Design and running app, split at ${compare.pos}%`);
+		else els.comparePanes.removeAttribute("aria-label");
 	}
 
 	/** The artboard (sandboxed as on the canvas) next to the running app, both at the artboard's size. */
@@ -1514,7 +1581,12 @@
 		artboardFrame.src = boardUrl(board);
 		const app = compareFrame(width, height, `Running app at ${preview}`);
 		app.setAttribute("sandbox", PREVIEW_SANDBOX);
-		const compare = { board, preview, artboardFrame, timer: 0, loaded: false };
+		const design = comparePane(`Design: ${board.artboard.file}`, artboardFrame);
+		const running = comparePane(`Implementation: ${preview}`, app);
+		const handle = splitHandle("Comparison position");
+		const shield = splitShield();
+		const compare = { board, preview, artboardFrame, appFrame: app, design, app: running, handle, shield, pos: 50, opacity: 50, timer: 0, loaded: false };
+		bindSplitInput({ shield, handle, box: els.comparePanes, position: () => compare.pos, move: setCompareSplit });
 		const failed = (text) => {
 			if (state.compare === compare) setCompareMessage(text, true);
 		};
@@ -1533,14 +1605,14 @@
 		els.compareOpen.setAttribute("rel", "noopener noreferrer");
 		els.compareOpen.href = preview;
 		setCompareMessage(new URL(preview).hostname === "[::1]" ? IPV6_HINT : PREVIEW_HINT, false);
-		els.comparePanes.replaceChildren(comparePane(`Design: ${board.artboard.file}`, artboardFrame), comparePane(`Implementation: ${preview}`, app));
+		els.comparePanes.replaceChildren(design.figure, running.figure, handle, shield);
 		els.compareFit.checked = false;
 		els.compare.hidden = false;
 		els.viewport.inert = true;
 		els.panel.inert = true;
 		els.nav.inert = true;
 		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit, els.railSystem, els.design, els.compareApp]) control.disabled = true;
-		layoutCompare();
+		setCompareView(state.compareMode);
 		els.compareBack.focus();
 	}
 
@@ -1564,6 +1636,14 @@
 
 	els.compareBack.addEventListener("click", () => exitCompare(true));
 	els.compareFit.addEventListener("change", layoutCompare);
+	for (const [mode, button] of Object.entries(els.compareModes)) button.addEventListener("click", () => setCompareView(mode));
+	els.compareOpacity.addEventListener("input", () => {
+		const compare = state.compare;
+		if (!compare) return;
+		const text = String(els.compareOpacity.value).trim();
+		// Anything that is not a number leaves the opacity as it was.
+		setCompareOpacity(text !== "" && Number.isFinite(Number(text)) ? Number(text) : compare.opacity);
+	});
 
 	function showFeature(manifest) {
 		const feature = manifest && typeof manifest.feature === "string" ? manifest.feature : "";
@@ -2659,6 +2739,70 @@
 		return { root, label, box, scale, frame };
 	}
 
+	// ---- the split line shared by the version comparison and Compare's Slider mode
+
+	/** A slider position, 0 to 100, to one decimal. */
+	function clampSlider(value) {
+		return Math.min(100, Math.max(0, Math.round(value * 10) / 10));
+	}
+
+	/** The vertical line with its knob: a named, focusable slider whose value the caller keeps (aria-valuenow and -valuetext). */
+	function splitHandle(label) {
+		const handle = document.createElement("div");
+		handle.className = "gd-versions-handle";
+		handle.setAttribute("role", "slider");
+		handle.setAttribute("tabindex", "0");
+		handle.setAttribute("aria-label", label);
+		handle.setAttribute("aria-orientation", "horizontal");
+		handle.setAttribute("aria-valuemin", "0");
+		handle.setAttribute("aria-valuemax", "100");
+		const knob = document.createElement("span");
+		knob.className = "gd-versions-knob";
+		knob.setAttribute("aria-hidden", "true");
+		knob.textContent = "↔";
+		handle.append(knob);
+		return handle;
+	}
+
+	/** Frames take pointer events themselves, so a transparent shield over them carries the drag. */
+	function splitShield() {
+		const shield = document.createElement("div");
+		shield.className = "gd-versions-shield";
+		shield.setAttribute("aria-hidden", "true");
+		return shield;
+	}
+
+	/** Pointer drag on the shield and arrows (Shift for a bigger step), Home and End on the handle; `move` gets the new position. */
+	function bindSplitInput({ shield, handle, box, position, move }) {
+		let dragging = null;
+		const fromPointer = (clientX) => {
+			const rect = box.getBoundingClientRect();
+			return rect.width > 0 ? ((clientX - rect.left) / rect.width) * 100 : position();
+		};
+		shield.addEventListener("pointerdown", (event) => {
+			if (event.button !== 0) return;
+			dragging = event.pointerId;
+			shield.setPointerCapture?.(event.pointerId);
+			move(fromPointer(event.clientX));
+			handle.focus();
+		});
+		shield.addEventListener("pointermove", (event) => {
+			if (dragging === event.pointerId) move(fromPointer(event.clientX));
+		});
+		const endDrag = (event) => {
+			if (dragging === event.pointerId) dragging = null;
+		};
+		shield.addEventListener("pointerup", endDrag);
+		shield.addEventListener("pointercancel", endDrag);
+		handle.addEventListener("keydown", (event) => {
+			const step = event.shiftKey ? SLIDER_BIG_STEP : SLIDER_STEP;
+			const next = { ArrowLeft: position() - step, ArrowDown: position() - step, ArrowRight: position() + step, ArrowUp: position() + step, Home: 0, End: 100 }[event.key];
+			if (next === undefined) return;
+			event.preventDefault();
+			move(next);
+		});
+	}
+
 	function startVersionCompare(board, version) {
 		const versions = boardVersions(board);
 		const newest = versions[versions.length - 1];
@@ -2672,53 +2816,12 @@
 		const box = document.createElement("div");
 		box.className = "gd-versions-compare";
 		box.setAttribute("role", "group");
-		const handle = document.createElement("div");
-		handle.className = "gd-versions-handle";
-		handle.setAttribute("role", "slider");
-		handle.setAttribute("tabindex", "0");
-		handle.setAttribute("aria-label", "Comparison position");
-		handle.setAttribute("aria-orientation", "horizontal");
-		handle.setAttribute("aria-valuemin", "0");
-		handle.setAttribute("aria-valuemax", "100");
-		const knob = document.createElement("span");
-		knob.className = "gd-versions-knob";
-		knob.setAttribute("aria-hidden", "true");
-		knob.textContent = "↔";
-		handle.append(knob);
-		// Frames take pointer events themselves, so a transparent shield over them carries the drag.
-		const shield = document.createElement("div");
-		shield.className = "gd-versions-shield";
-		shield.setAttribute("aria-hidden", "true");
+		const handle = splitHandle("Comparison position");
+		const shield = splitShield();
 		box.append(older.root, current.root, handle, shield);
 		const compare = { board, n: version.n, mode: "slider", pos: 50, enteredFocus, older, current, box, handle, shield };
 		state.vcompare = compare;
-		let dragging = null;
-		const fromPointer = (clientX) => {
-			const rect = box.getBoundingClientRect();
-			return rect.width > 0 ? ((clientX - rect.left) / rect.width) * 100 : compare.pos;
-		};
-		shield.addEventListener("pointerdown", (event) => {
-			if (event.button !== 0) return;
-			dragging = event.pointerId;
-			shield.setPointerCapture?.(event.pointerId);
-			setSlider(fromPointer(event.clientX));
-			handle.focus();
-		});
-		shield.addEventListener("pointermove", (event) => {
-			if (dragging === event.pointerId) setSlider(fromPointer(event.clientX));
-		});
-		const endDrag = (event) => {
-			if (dragging === event.pointerId) dragging = null;
-		};
-		shield.addEventListener("pointerup", endDrag);
-		shield.addEventListener("pointercancel", endDrag);
-		handle.addEventListener("keydown", (event) => {
-			const step = event.shiftKey ? SLIDER_BIG_STEP : SLIDER_STEP;
-			const next = { ArrowLeft: compare.pos - step, ArrowDown: compare.pos - step, ArrowRight: compare.pos + step, ArrowUp: compare.pos + step, Home: 0, End: 100 }[event.key];
-			if (next === undefined) return;
-			event.preventDefault();
-			setSlider(next);
-		});
+		bindSplitInput({ shield, handle, box, position: () => compare.pos, move: setSlider });
 		els.versionsTitle.textContent = `Compare versions · ${board.artboard.title}`;
 		els.versionsStage.replaceChildren(box);
 		els.versions.hidden = false;
@@ -2745,7 +2848,7 @@
 	function setSlider(value) {
 		const compare = state.vcompare;
 		if (!compare) return;
-		compare.pos = Math.min(100, Math.max(0, Math.round(value * 10) / 10));
+		compare.pos = clampSlider(value);
 		compare.current.box.style.clipPath = compare.mode === "slider" ? `inset(0 0 0 ${compare.pos}%)` : "";
 		compare.handle.style.left = `${compare.pos}%`;
 		compare.handle.setAttribute("aria-valuenow", String(compare.pos));
