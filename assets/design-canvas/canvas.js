@@ -48,6 +48,30 @@
 	const COMPARE_GAP = 24;
 	const COMPARE_PADDING = 24;
 	const TOAST_MS = 5000;
+	// What the server can deliver; an older page config without it means everything.
+	const DELIVERY = { comment: true, batch: true, implement: true, ...(config.delivery && typeof config.delivery === "object" ? config.delivery : {}) };
+	const OPEN_HINT = "open the canvas from your session with /gentle:design open";
+	// Every reason code the canvas routes can answer: the cause and the way out. The raw code stays as the detail.
+	const REASONS = {
+		"batch-delivery-unavailable": `This canvas is not connected to a Pi session, so comments cannot be sent. They stay saved; ${OPEN_HINT}, then use Send all.`,
+		"implement-unavailable": `This canvas is not connected to a Pi session, so it cannot hand the artboard off. ${OPEN_HINT[0].toUpperCase()}${OPEN_HINT.slice(1)}.`,
+		"delivery-failed": "The session did not accept the message. Your comments stay saved and unsent; check that the session is running, then try again.",
+		"too-many-comments": "This design has too many comments. Resolve or delete some in comments.json, then try again.",
+		"too-many-handoffs": "This design has too many handoffs recorded. Remove old ones from handoffs.json, then try again.",
+		"invalid-comments": "comments.json for this design is not valid, so it cannot be changed. Fix or remove the file, then try again.",
+		"invalid-handoffs": "handoffs.json for this design is not valid, so it cannot be changed. Fix or remove the file, then try again.",
+		"invalid-comment": "This comment was rejected by the server. Write 1 to 2000 characters and try again.",
+		"invalid-handoff": "This handoff was rejected by the server. Reload the canvas and try again.",
+		"invalid-screenshot": "The screenshot was rejected. Attach a PNG, JPEG, WebP or GIF image of at most 5 MB, or remove it.",
+		"body-too-large": "The request was too large. Remove the screenshot or shorten the comment, then try again with something smaller.",
+		"file-too-large": "That file is too large for the canvas to show. Make the artboard or asset smaller.",
+		"not-found": "That item no longer exists. Reload the canvas to see the current state.",
+		"too-many-streams": "Too many canvas tabs are open. Close the ones you do not use, then reload this one.",
+		internal: `An unexpected error happened in the canvas server. Try again; if it keeps failing, reopen it: ${OPEN_HINT}.`,
+		forbidden: "The server refused this request. Reload the canvas page, or reopen it with /gentle:design open.",
+		misdirected: "The server refused this request. Reload the canvas page, or reopen it with /gentle:design open.",
+		network: `The canvas could not reach its server; it may have been stopped. Reopen it: ${OPEN_HINT}.`,
+	};
 	const COMMENT_CHIP = "Click an element to comment · Esc";
 	const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 	const TAB_NAMES = ["open", "resolved", "brief"];
@@ -108,6 +132,7 @@
 		modeSend: $("gd-mode-send"),
 		modeCollect: $("gd-mode-collect"),
 		sendAll: $("gd-send-all"),
+		sendNote: $("gd-send-note"),
 		panelToggle: $("gd-panel-toggle"),
 		panel: $("gd-panel"),
 		filterOpen: $("gd-filter-open"),
@@ -166,12 +191,88 @@
 		// The open Compare view: { board, preview, artboardFrame, timer }.
 		compare: null,
 		toastTimer: 0,
+		// Failed resolve or reopen replies by comment id, shown in that comment's card.
+		cardErrors: new Map(),
 	};
 
 	function setStatus(text, isError) {
 		els.status.textContent = text;
 		els.status.classList.toggle("gd-error", Boolean(isError));
 	}
+
+	/**
+	 * A failed reply in words: { text: cause and way out, detail: the raw code (and the server's own reason) }.
+	 * `reply` is what postJson returns; a code without a sentence gets a generic one that still names it.
+	 */
+	function explain(reply) {
+		const body = reply && reply.body && typeof reply.body === "object" ? reply.body : {};
+		const code = typeof body.error === "string" && body.error ? body.error : `http-${reply ? reply.status : 0}`;
+		const reason = typeof body.reason === "string" && body.reason ? body.reason : "";
+		let text = Object.prototype.hasOwnProperty.call(REASONS, code) ? REASONS[code] : "";
+		if (!text && code.startsWith("invalid-")) text = "The server rejected the request as invalid. Reload the canvas and try again.";
+		if (!text) text = `Something went wrong. Try again; if it keeps failing, reopen the canvas: ${OPEN_HINT}.`;
+		return { text, detail: reason ? `${code}: ${reason}` : code };
+	}
+
+	/** A sprite icon; the SVG namespace comes from the page's own icon in the footer alert. */
+	function icon(name, className) {
+		const SVG_NS = document.getElementById("gd-send-alert-icon").namespaceURI;
+		const svg = document.createElementNS(SVG_NS, "svg");
+		svg.setAttribute("class", className);
+		svg.setAttribute("aria-hidden", "true");
+		const use = document.createElementNS(SVG_NS, "use");
+		use.setAttribute("href", `#${name}`);
+		svg.append(use);
+		return svg;
+	}
+
+	/** An inline error next to the action that failed: icon, sentence, small code, and a dismiss button. */
+	function createAlert() {
+		const root = document.createElement("div");
+		root.className = "gd-alert";
+		root.setAttribute("role", "alert");
+		root.hidden = true;
+		const body = document.createElement("div");
+		body.className = "gd-alert-body";
+		const text = document.createElement("p");
+		text.className = "gd-alert-text";
+		const detail = document.createElement("small");
+		detail.className = "gd-alert-detail";
+		body.append(text, detail);
+		const dismiss = document.createElement("button");
+		dismiss.type = "button";
+		dismiss.className = "gd-alert-dismiss";
+		dismiss.setAttribute("aria-label", "Dismiss");
+		dismiss.title = "Dismiss";
+		dismiss.append(icon("i-x", "gd-i"));
+		root.append(icon("i-alert", "gd-i gd-alert-icon"), body, dismiss);
+		return alertParts(root, text, detail, dismiss);
+	}
+
+	function alertParts(root, text, detail, dismiss) {
+		const parts = { root, text, detail, dismiss };
+		dismiss.addEventListener("click", () => {
+			hideAlert(parts);
+			if (parts.onDismiss) parts.onDismiss();
+		});
+		return parts;
+	}
+
+	function showAlert(parts, reply) {
+		const info = explain(reply);
+		parts.text.textContent = info.text;
+		parts.detail.textContent = info.detail;
+		parts.root.title = info.detail;
+		parts.root.hidden = false;
+	}
+
+	function hideAlert(parts) {
+		parts.root.hidden = true;
+		parts.text.textContent = "";
+		parts.detail.textContent = "";
+	}
+
+	const sendAlert = alertParts($("gd-send-alert"), $("gd-send-alert-text"), $("gd-send-alert-detail"), $("gd-send-alert-dismiss"));
 
 	/** A confirmation that stays on screen for a few seconds, beyond the status line. */
 	function showToast(text, isError) {
@@ -594,6 +695,8 @@
 	}
 
 	/** "Implement this" with an inline confirm step; the system board never gets one. */
+	let implementNotes = 0;
+
 	function createImplementControl(slug, artboard) {
 		const box = document.createElement("div");
 		box.className = "gd-implement";
@@ -617,12 +720,25 @@
 		no.type = "button";
 		no.textContent = "Cancel";
 		confirm.append(question, yes, no);
+		const alert = createAlert();
+		let note = null;
+		if (!DELIVERY.implement) {
+			// No session to hand off to: say so up front instead of failing on click.
+			const info = explain({ status: 501, body: { error: "implement-unavailable" } });
+			start.disabled = true;
+			start.title = info.detail;
+			note = chip("gd-implement-note", info.text);
+			note.id = `gd-implement-note-${++implementNotes}`;
+			start.setAttribute("aria-describedby", note.id);
+		}
 		const close = (focus) => {
 			confirm.hidden = true;
 			start.hidden = false;
 			if (focus) start.focus();
 		};
 		start.addEventListener("click", () => {
+			if (start.disabled) return;
+			hideAlert(alert);
 			start.hidden = true;
 			confirm.hidden = false;
 			yes.disabled = false;
@@ -637,24 +753,23 @@
 		});
 		yes.addEventListener("click", async () => {
 			yes.disabled = true;
-			const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/implement`, { file: artboard.file }).catch((error) => ({ ok: false, body: { error: error.message } }));
+			hideAlert(alert);
+			const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/implement`, { file: artboard.file });
 			if (reply.ok) {
 				const queued = reply.body.queued === true;
 				const text = queued
 					? `Queued: the session will implement ${artboard.title} after its current task.`
 					: `Sent: the session is implementing ${artboard.title} now.`;
-				setStatus(text, false);
 				showToast(text, false);
 				// The server recorded it before answering; the handoffs.json change event confirms it.
 				noteHandoff(slug, artboard.file, queued);
 			} else {
-				const text = `Not sent: ${reply.body.reason || reply.body.error || "error"}`;
-				setStatus(text, true);
-				showToast(text, true);
+				showAlert(alert, reply);
+				showToast(alert.text.textContent, true);
 			}
 			close(true);
 		});
-		box.append(start, confirm);
+		box.append(start, confirm, ...(note ? [note] : []), alert.root);
 		return box;
 	}
 
@@ -1289,7 +1404,7 @@
 		els.tabPanel.setAttribute("aria-labelledby", tabButtons()[TAB_NAMES.indexOf(state.tab)].id);
 		const unsent = open.filter((comment) => comment.sentAt === null).length;
 		els.sendAll.textContent = `Send all (${unsent})`;
-		els.sendAll.disabled = unsent === 0;
+		els.sendAll.disabled = unsent === 0 || !DELIVERY.batch;
 		const brief = state.tab === "brief";
 		els.brief.hidden = !brief;
 		els.list.hidden = brief;
@@ -1347,12 +1462,19 @@
 			actions.className = "gd-comment-actions";
 			const toggle = document.createElement("button");
 			toggle.type = "button";
+			toggle.className = "gd-comment-toggle";
 			const next = comment.status === "open" ? "resolved" : "open";
 			toggle.textContent = next === "resolved" ? "Resolve" : "Reopen";
 			toggle.setAttribute("aria-label", `${toggle.textContent} comment ${commentNumber(comment)}`);
 			toggle.addEventListener("click", () => setCommentStatus(comment.id, next));
 			actions.append(toggle);
 			item.append(show, actions);
+			if (state.cardErrors.has(comment.id)) {
+				const alert = createAlert();
+				showAlert(alert, state.cardErrors.get(comment.id));
+				alert.onDismiss = () => { state.cardErrors.delete(comment.id); };
+				item.append(alert.root);
+			}
 			return item;
 		}));
 	}
@@ -1403,12 +1525,18 @@
 	}
 
 	async function postJson(path, body) {
-		const response = await fetch(base + path, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			cache: "no-store",
-			body: JSON.stringify(body),
-		});
+		let response;
+		try {
+			response = await fetch(base + path, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				cache: "no-store",
+				body: JSON.stringify(body),
+			});
+		} catch (error) {
+			// The request itself failed: the server is gone or unreachable.
+			return { status: 0, ok: false, body: { error: "network", reason: error instanceof Error ? error.message : String(error) } };
+		}
 		let reply = null;
 		try { reply = await response.json(); } catch { reply = null; }
 		return { status: response.status, ok: response.ok, body: reply || {} };
@@ -1416,9 +1544,14 @@
 
 	async function setCommentStatus(id, status) {
 		const slug = state.slug;
-		const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/comments/${encodeURIComponent(id)}/status`, { status }).catch((error) => ({ ok: false, body: { error: error.message } }));
-		if (!reply.ok) setStatus(`Comment not updated: ${reply.body.reason || reply.body.error || "error"}`, true);
-		else setStatus(status === "resolved" ? "Comment resolved" : "Comment reopened", false);
+		if (state.cardErrors.delete(id)) renderList();
+		const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/comments/${encodeURIComponent(id)}/status`, { status });
+		if (!reply.ok) {
+			// The failure stays in that comment's card until it is dismissed or the next attempt.
+			state.cardErrors.set(id, reply);
+			renderList();
+			els.list.querySelector(`[data-id="${CSS.escape(id)}"] .gd-comment-toggle`)?.focus();
+		} else showToast(status === "resolved" ? "Comment resolved" : "Comment reopened", false);
 		await loadComments();
 	}
 
@@ -1426,10 +1559,12 @@
 		const slug = state.slug;
 		if (!slug) return;
 		els.sendAll.disabled = true;
-		const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/comments/send-all`, {}).catch((error) => ({ ok: false, body: { error: error.message } }));
-		if (!reply.ok) setStatus(`Comments not sent: ${reply.body.reason || reply.body.error || "error"}`, true);
-		else setStatus(reply.body.sent ? `Sent ${reply.body.sent} comment${reply.body.sent === 1 ? "" : "s"} to the session` : "No unsent comments", false);
+		hideAlert(sendAlert);
+		const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/comments/send-all`, {});
+		if (!reply.ok) showAlert(sendAlert, reply);
+		else showToast(reply.body.sent ? `Sent ${reply.body.sent} comment${reply.body.sent === 1 ? "" : "s"} to the session` : "No unsent comments", false);
 		await loadComments();
+		renderList();
 	});
 
 	function setMode(mode) {
@@ -1516,7 +1651,6 @@
 		renderNavMode();
 		els.world.classList.toggle("gd-commenting", enabled);
 		state.boards.forEach(sendMode);
-		setStatus(enabled ? "Comment mode: click an element in an artboard" : "", false);
 		if (!enabled) {
 			setHoverBoard(null);
 			closePopover();
@@ -1575,6 +1709,7 @@
 		state.pick = { board, ...pick };
 		els.target.textContent = `${board.artboard.file} · ${pick.selector}`;
 		els.message.textContent = "";
+		els.message.title = "";
 		els.message.classList.remove("gd-error");
 		els.send.disabled = false;
 		els.popover.hidden = false;
@@ -1706,33 +1841,27 @@
 		els.message.classList.remove("gd-error");
 		els.message.textContent = "Sending…";
 		const shot = state.shot;
-		try {
-			const response = await fetch(`${base}api/comments`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				cache: "no-store",
-				body: JSON.stringify({ slug: pick.board.slug, file: pick.board.artboard.file, selector: pick.selector, excerpt: pick.excerpt, comment, mode: state.mode, ...(shot ? { screenshot: shot } : {}) }),
-			});
-			let reply = {};
-			try { reply = await response.json(); } catch { /* keep the status */ }
-			// Delivery can fail after the comment was saved; it then waits for "Send all".
-			const savedOnly = response.status === 500 && reply.saved === true;
-			if (response.status !== 202 && response.status !== 201 && !savedOnly) throw new Error(reply.reason || reply.error || `HTTP ${response.status}`);
-			loadComments();
+		const reply = await postJson("api/comments", { slug: pick.board.slug, file: pick.board.artboard.file, selector: pick.selector, excerpt: pick.excerpt, comment, mode: state.mode, ...(shot ? { screenshot: shot } : {}) });
+		// Delivery can fail after the comment was saved; it then waits for "Send all".
+		const savedOnly = reply.status === 500 && reply.body.saved === true;
+		if (!reply.ok && !savedOnly) {
 			if (state.pick !== pick) return;
-			els.text.value = "";
-			if (state.shot === shot) clearShot();
-			const done = savedOnly ? "Saved, but not sent to the session" : response.status === 201 ? "Saved; use Send all to send it" : "Sent to the session";
-			els.message.textContent = done;
-			els.message.classList.toggle("gd-error", savedOnly);
-			setStatus(done, savedOnly);
-			state.closeTimer = setTimeout(closePopover, savedOnly ? 2500 : 1200);
-		} catch (error) {
-			if (state.pick !== pick) return;
+			const info = explain(reply);
 			els.send.disabled = false;
-			els.message.textContent = `Not sent: ${error.message}`;
+			els.message.textContent = info.text;
+			els.message.title = info.detail;
 			els.message.classList.add("gd-error");
+			return;
 		}
+		loadComments();
+		if (state.pick !== pick) return;
+		els.text.value = "";
+		if (state.shot === shot) clearShot();
+		const done = savedOnly ? "Saved, but not sent to the session. Use Send all to try again." : reply.status === 201 ? "Saved; use Send all to send it" : "Sent to the session";
+		els.message.textContent = done;
+		els.message.title = savedOnly ? explain(reply).detail : "";
+		els.message.classList.toggle("gd-error", savedOnly);
+		state.closeTimer = setTimeout(closePopover, savedOnly ? 2500 : 1200);
 	});
 
 	window.addEventListener("message", (event) => {
@@ -1781,6 +1910,12 @@
 
 	setMode(state.mode);
 	renderTools();
+	if (!DELIVERY.batch) {
+		const info = explain({ status: 501, body: { error: "batch-delivery-unavailable" } });
+		els.sendNote.textContent = info.text;
+		els.sendNote.title = info.detail;
+		els.sendNote.hidden = false;
+	}
 	start();
 	connectEvents();
 })();

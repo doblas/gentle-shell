@@ -557,7 +557,7 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 	function canvasPage(res: ServerResponse, slug: string | null): void {
 		const html = template
 			.replaceAll("{{BASE}}", escapeHtml(base))
-			.replace("{{CONFIG}}", () => scriptJson({ base, slug }));
+			.replace("{{CONFIG}}", () => scriptJson({ base, slug, delivery: { comment: true, batch: Boolean(options.onComments), implement: Boolean(options.onImplement) } }));
 		reply(res, 200, html, { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": CANVAS_CSP });
 	}
 

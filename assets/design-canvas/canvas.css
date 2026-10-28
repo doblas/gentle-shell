@@ -33,6 +33,8 @@
 	--paper: #ffffff;
 	--success-halo: #b4e7c726;
 	--error-halo: #ff718f26;
+	--error-wash: #ff718f1a;
+	--error-line: #ff718f80;
 	--info-halo: #a9c7ee33;
 	--info-line: #a9c7ee66;
 	--warning-line: #e0c27a66;
@@ -876,6 +878,37 @@ button:disabled { opacity: 0.5; cursor: default; }
 .gd-sendmode .gd-radio input { position: absolute; opacity: 0; }
 .gd-sendmode .gd-radio:has(input:checked) { background: var(--surface-2); color: var(--text); }
 .gd-sendmode .gd-radio:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Feedback next to the action: the Send all explanation and its failure alert. */
+.gd-send-note, .gd-implement-note {
+	margin: 0;
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
+.gd-implement-note { max-width: 32ch; text-align: right; white-space: normal; }
+
+.gd-alert {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	padding: 8px 8px 8px 10px;
+	border: 1px solid var(--error-line);
+	border-radius: var(--radius-sm);
+	background: var(--error-wash);
+	color: var(--text);
+	font-size: 13px;
+	text-align: left;
+	white-space: normal;
+}
+
+.gd-alert-icon { margin-top: 2px; color: var(--error); }
+.gd-alert-body { flex: 1; min-width: 0; }
+.gd-alert-text { margin: 0; overflow-wrap: anywhere; }
+.gd-alert-detail { display: block; margin-top: 2px; color: var(--text-muted); font: 11px var(--font-mono); overflow-wrap: anywhere; }
+.gd-alert-dismiss { min-width: 28px; min-height: 28px; padding: 0; color: var(--text-muted); border-color: transparent; }
+.gd-comment-item > .gd-alert { margin: 0 12px 12px; }
+.gd-implement .gd-alert { max-width: 36ch; }
+
 .gd-side-foot .gd-primary { width: 100%; min-height: 46px; font-size: 15px; }
 
 .gd-comment-list {

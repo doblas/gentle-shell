@@ -71,7 +71,10 @@ class FakeElement {
 	offsetTop = 0;
 	get offsetWidth() { return 0; }
 	get offsetHeight() { return 0; }
-	setAttribute(name: string, value: unknown) { this.attributes.set(name, String(value)); }
+	setAttribute(name: string, value: unknown) {
+		this.attributes.set(name, String(value));
+		if (name === "class") this.className = String(value);
+	}
 	getAttribute(name: string) { return this.attributes.get(name) ?? null; }
 	hasAttribute(name: string) { return this.attributes.has(name); }
 	removeAttribute(name: string) { this.attributes.delete(name); }
@@ -130,6 +133,7 @@ class FakeDocument {
 		this.activeElement = this.body;
 	}
 	createElement(tag: string) { return new FakeElement(tag, this); }
+	createElementNS(_namespace: string, tag: string) { return new FakeElement(tag, this); }
 	getElementById(id: string) {
 		let element = this.byId.get(id);
 		if (!element) {
@@ -147,9 +151,11 @@ class FakeDocument {
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknown> = {}) {
+async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknown> = {}, config: Record<string, unknown> = {}) {
 	const document = new FakeDocument();
-	document.getElementById("gd-config").textContent = JSON.stringify({ base: "/t/", slug: "alpha" });
+	document.getElementById("gd-config").textContent = JSON.stringify({ base: "/t/", slug: "alpha", ...config });
+	// Hidden in index.html until a delivery problem is shown.
+	for (const id of ["gd-send-note", "gd-send-alert"]) document.getElementById(id).hidden = true;
 	const viewport = document.getElementById("gd-viewport");
 	const world = document.getElementById("gd-world");
 	viewport.append(world);
@@ -200,7 +206,11 @@ async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknow
 		fetch: async (url: string, init?: { method?: string; body?: string }) => {
 			if (init?.method === "POST") posts.push({ url, body: JSON.parse(init.body ?? "null") });
 			fetched.push(url);
-			return { ok: url in replies, status: url in replies ? 200 : 404, json: async () => replies[url] ?? {} };
+			// `__throw` makes the request itself fail; `__http` sets the status of the reply.
+			const reply = replies[url] as Record<string, unknown> | undefined;
+			if (reply && "__throw" in reply) throw new TypeError(String(reply.__throw));
+			const status = reply && typeof reply.__http === "number" ? reply.__http : url in replies ? 200 : 404;
+			return { ok: status < 400, status, json: async () => reply ?? {} };
 		},
 		EventSource: class {
 			addEventListener(type: string, listener: Listener) {
@@ -714,8 +724,8 @@ test("an [::1] preview says browsers refuse to frame it, and keeps Open in new t
 type Canvas = Awaited<ReturnType<typeof loadCanvas>>;
 
 /** The fake DOM starts every element visible; index.html starts the popover hidden. */
-async function loadRail(firstHeight = 300, extraReplies: Record<string, unknown> = {}) {
-	const canvas = await loadCanvas(firstHeight, extraReplies);
+async function loadRail(firstHeight = 300, extraReplies: Record<string, unknown> = {}, config: Record<string, unknown> = {}) {
+	const canvas = await loadCanvas(firstHeight, extraReplies, config);
 	canvas.document.getElementById("gd-popover").hidden = true;
 	return canvas;
 }
@@ -1202,4 +1212,253 @@ test("zoomed out, each artboard collapses its handoff row and Implement this so 
 	assert.deepEqual(compact(), [true, true]);
 	for (let step = 0; step < 8; step += 1) wheel(-50);
 	assert.deepEqual(compact(), [false, false]);
+});
+
+// Readable errors, feedback next to the action, status line scope, delivery capabilities (S12-S15).
+
+const SEND_ALL = "/t/api/designs/alpha/comments/send-all";
+const IMPLEMENT = "/t/api/designs/alpha/implement";
+const unsentComment = comment("u1", "01-a.html");
+const alertOf = (canvas: Canvas, prefix: string) => ({
+	root: canvas.document.getElementById(`${prefix}`),
+	text: canvas.document.getElementById(`${prefix}-text`),
+	detail: canvas.document.getElementById(`${prefix}-detail`),
+	dismiss: canvas.document.getElementById(`${prefix}-dismiss`),
+});
+const sendAllFails = async (canvas: Canvas, reply: Record<string, unknown>) => {
+	canvas.replies[SEND_ALL] = reply;
+	canvas.document.getElementById("gd-send-all").dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	return alertOf(canvas, "gd-send-alert");
+};
+const statusLine = (canvas: Canvas) => canvas.document.getElementById("gd-status");
+
+// Every code the canvas routes can answer, with the sentence's cause and way out.
+const CODES: Array<[string, number, RegExp]> = [
+	["batch-delivery-unavailable", 501, /not connected to a Pi session[^]*saved[^]*\/gentle:design open/],
+	["implement-unavailable", 501, /not connected to a Pi session[^]*\/gentle:design open/],
+	["delivery-failed", 500, /session did not accept[^]*saved[^]*try/i],
+	["too-many-comments", 409, /too many comments[^]*resolve/i],
+	["too-many-handoffs", 409, /too many handoffs/i],
+	["invalid-comments", 422, /comments\.json[^]*not valid/i],
+	["invalid-handoffs", 422, /handoffs\.json[^]*not valid/i],
+	["invalid-comment", 400, /comment[^]*rejected/i],
+	["invalid-handoff", 400, /handoff[^]*rejected/i],
+	["invalid-screenshot", 400, /screenshot[^]*PNG, JPEG, WebP or GIF/i],
+	["body-too-large", 413, /too large[^]*smaller/i],
+	["file-too-large", 413, /too large/i],
+	["not-found", 404, /no longer exists[^]*reload/i],
+	["too-many-streams", 503, /too many canvas tabs[^]*close/i],
+	["internal", 500, /unexpected error[^]*canvas server/i],
+	["invalid-status", 400, /rejected the request as invalid/i],
+	["forbidden", 403, /refused[^]*reload/i],
+];
+
+test("S12: every reason code becomes a sentence with its cause and way out, and the raw code stays as the detail", async () => {
+	const seen = new Set<string>();
+	for (const [code, status, pattern] of CODES) {
+		const canvas = await loadRail(300, commentsDoc(unsentComment));
+		const alert = await sendAllFails(canvas, { __http: status, error: code });
+		assert.equal(alert.root.hidden, false, code);
+		assert.match(alert.text.textContent, pattern, code);
+		assert.doesNotMatch(alert.text.textContent, /Something went wrong/, `${code} is mapped, not a fallback`);
+		assert.ok(alert.detail.textContent.includes(code), `${code} stays as the small detail`);
+		assert.ok(alert.root.title.includes(code), `${code} stays in the title`);
+		assert.ok(!seen.has(alert.text.textContent) || code.startsWith("invalid-s") || code === "implement-unavailable", `${code} has its own sentence`);
+		seen.add(alert.text.textContent);
+	}
+});
+
+test("S12: the server's own reason text is kept in the detail, an unknown code falls back to a generic sentence with it, and a network failure says so", async () => {
+	const withReason = await loadRail(300, commentsDoc(unsentComment));
+	const reasoned = await sendAllFails(withReason, { __http: 409, error: "too-many-comments", reason: "comments.json has 500 comments" });
+	assert.ok(reasoned.detail.textContent.includes("comments.json has 500 comments"));
+
+	const unknown = await loadRail(300, commentsDoc(unsentComment));
+	const generic = await sendAllFails(unknown, { __http: 418, error: "teapot" });
+	assert.match(generic.text.textContent, /^Something went wrong/);
+	assert.match(generic.text.textContent, /\/gentle:design open/);
+	assert.ok(generic.detail.textContent.includes("teapot"));
+
+	const bare = await loadRail(300, commentsDoc(unsentComment));
+	const status = await sendAllFails(bare, { __http: 502 });
+	assert.match(status.text.textContent, /^Something went wrong/);
+	assert.ok(status.detail.textContent.includes("502"), "an answer without a code names its HTTP status");
+
+	const offline = await loadRail(300, commentsDoc(unsentComment));
+	const network = await sendAllFails(offline, { __throw: "Failed to fetch" });
+	assert.match(network.text.textContent, /could not reach[^]*\/gentle:design open/i);
+	assert.ok(network.detail.textContent.includes("Failed to fetch"));
+});
+
+test("S13: a failed Send all shows an alert above the button, dismissible, cleared on the next attempt, and a success is a toast", async () => {
+	const html = read("index.html");
+	assert.match(html, /<div id="gd-send-alert" class="gd-alert" role="alert" hidden>[^]*<use href="#i-alert"\/>[^]*id="gd-send-alert-dismiss"[^>]*aria-label="Dismiss/);
+	assert.ok(html.indexOf('id="gd-send-alert"') < html.indexOf('id="gd-send-all"'), "above Send all");
+	assert.match(html, /<symbol id="i-alert"/);
+	assert.match(html, /<symbol id="i-x"/);
+
+	const canvas = await loadRail(300, commentsDoc(unsentComment));
+	const alert = alertOf(canvas, "gd-send-alert");
+	assert.equal(alert.root.hidden, true, "no alert before an attempt");
+	await sendAllFails(canvas, { __http: 501, error: "batch-delivery-unavailable" });
+	assert.equal(alert.root.hidden, false);
+	alert.dismiss.dispatch("click");
+	assert.equal(alert.root.hidden, true, "the dismiss button closes it");
+
+	await sendAllFails(canvas, { __http: 501, error: "batch-delivery-unavailable" });
+	assert.equal(alert.root.hidden, false);
+	canvas.replies[SEND_ALL] = { ok: true, sent: 1, ids: ["u1"] };
+	canvas.document.getElementById("gd-send-all").dispatch("click");
+	assert.equal(alert.root.hidden, true, "the next attempt clears it at once");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.equal(alert.root.hidden, true);
+	const toast = canvas.document.getElementById("gd-toast");
+	assert.equal(toast.hidden, false);
+	assert.equal(toast.textContent, "Sent 1 comment to the session");
+	assert.equal(statusLine(canvas).textContent, "", "S14: no result in the status line");
+});
+
+test("S13: a failed resolve shows the alert inside that comment's card, dismissible and cleared by the next attempt", async () => {
+	const canvas = await loadRail(300, commentsDoc(comment("c1", "01-a.html"), comment("c2", "01-a.html")));
+	const list = canvas.document.getElementById("gd-comment-list");
+	const visible = () => withClass(list, "gd-alert").filter((alert) => !alert.hidden).length;
+	const resolve = (index: number) => findAll(list, (element) => element.localName === "button" && element.textContent === "Resolve")[index];
+	canvas.replies["/t/api/designs/alpha/comments/c1/status"] = { __http: 404, error: "not-found" };
+	resolve(0).dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	const cards = withClass(list, "gd-comment-item");
+	assert.equal(withClass(cards[0], "gd-alert").length, 1, "the alert is in the failing card");
+	assert.equal(withClass(cards[1], "gd-alert").length, 0, "and only there");
+	const alert = withClass(cards[0], "gd-alert")[0];
+	assert.equal(alert.getAttribute("role"), "alert");
+	assert.match(texts(alert, "gd-alert-text")[0], /no longer exists/i);
+	assert.ok(texts(alert, "gd-alert-detail")[0].includes("not-found"));
+	assert.equal(withClass(alert, "gd-i").length, 2, "an error icon and the dismiss icon, from the sprite");
+	assert.equal(statusLine(canvas).textContent, "", "S14");
+
+	// Re-rendering the list (a comments.json change) keeps the alert until it is dismissed.
+	await canvas.serverEvent("change", { slug: "alpha", file: "comments.json" });
+	assert.equal(withClass(withClass(list, "gd-comment-item")[0], "gd-alert").length, 1);
+	findAll(withClass(list, "gd-comment-item")[0], (element) => element.classes.has("gd-alert-dismiss"))[0].dispatch("click");
+	assert.equal(visible(), 0, "dismissed");
+
+	resolve(0).dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.equal(visible(), 1);
+	canvas.replies["/t/api/designs/alpha/comments/c1/status"] = { ok: true };
+	resolve(0).dispatch("click");
+	assert.equal(visible(), 0, "the next attempt clears it");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.equal(canvas.document.getElementById("gd-toast").textContent, "Comment resolved");
+});
+
+test("S13: a failed Implement this shows the alert in that artboard's implement control, plus the toast", async () => {
+	const canvas = await loadRail();
+	const [control] = withClass(boardsOf(canvas)[0], "gd-implement");
+	const attempt = async () => {
+		withClass(control, "gd-implement-start")[0].dispatch("click");
+		withClass(control, "gd-primary")[0].dispatch("click");
+		for (let i = 0; i < 5; i++) await flush();
+	};
+	canvas.replies[IMPLEMENT] = { __http: 501, error: "implement-unavailable" };
+	await attempt();
+	const alerts = withClass(control, "gd-alert");
+	assert.equal(alerts.length, 1);
+	assert.equal(alerts[0].getAttribute("role"), "alert");
+	assert.equal(alerts[0].hidden, false);
+	assert.match(texts(control, "gd-alert-text")[0], /not connected to a Pi session/);
+	assert.equal(withClass(boardsOf(canvas)[1], "gd-alert").length, 1, "each artboard has its own, hidden until it fails");
+	assert.equal(withClass(boardsOf(canvas)[1], "gd-alert")[0].hidden, true);
+	assert.match(canvas.document.getElementById("gd-toast").textContent, /not connected to a Pi session/, "the toast repeats it");
+	assert.equal(statusLine(canvas).textContent, "", "S14");
+	withClass(control, "gd-alert-dismiss")[0].dispatch("click");
+	assert.equal(alerts[0].hidden, true);
+
+	await attempt();
+	assert.equal(alerts[0].hidden, false);
+	canvas.replies[IMPLEMENT] = { ok: true, slug: "alpha", file: "01-a.html", queued: false };
+	await attempt();
+	assert.equal(alerts[0].hidden, true, "the next attempt clears it");
+	assert.equal(canvas.document.getElementById("gd-toast").textContent, "Sent: the session is implementing First now.");
+});
+
+test("S12/S13: the comment popover keeps its message line, in S12 wording", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	canvas.message(first.frame.contentWindow, { type: "gd:pick", selector: "#cta", excerpt: "", rect: { x: 1, y: 2, width: 3, height: 4 } });
+	const message = canvas.document.getElementById("gd-popover-message");
+	canvas.document.getElementById("gd-popover-text").value = "Bigger";
+	canvas.replies["/t/api/comments"] = { __http: 400, error: "invalid-screenshot", reason: "too big" };
+	canvas.document.getElementById("gd-popover-form").dispatch("submit");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.match(message.textContent, /screenshot[^]*PNG, JPEG, WebP or GIF/i);
+	assert.ok(message.classes.has("gd-error"));
+	assert.ok(message.title.includes("invalid-screenshot"));
+	assert.equal(canvas.document.getElementById("gd-popover").hidden, false, "the popover stays open to retry");
+	assert.equal(statusLine(canvas).textContent, "", "S14");
+
+	canvas.replies["/t/api/comments"] = { __throw: "Failed to fetch" };
+	canvas.document.getElementById("gd-popover-form").dispatch("submit");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.match(message.textContent, /could not reach/i);
+
+	canvas.replies["/t/api/comments"] = { __http: 500, error: "delivery-failed", saved: true, sent: false };
+	canvas.document.getElementById("gd-popover-form").dispatch("submit");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.match(message.textContent, /^Saved, but not sent/);
+	assert.ok(message.classes.has("gd-error"));
+	assert.equal(statusLine(canvas).textContent, "", "S14");
+});
+
+test("S14: the top status line keeps canvas state (live reload) and Comment mode no longer wipes it", async () => {
+	const canvas = await loadRail();
+	await canvas.serverEvent("error", {});
+	assert.equal(statusLine(canvas).textContent, "Live reload disconnected, retrying…");
+	assert.ok(statusLine(canvas).classes.has("gd-error"));
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	assert.equal(statusLine(canvas).textContent, "Live reload disconnected, retrying…", "toggling Comment mode leaves canvas state alone");
+	await canvas.serverEvent("open", {});
+	assert.equal(statusLine(canvas).textContent, "", "reconnecting clears it");
+});
+
+test("S15: without batch delivery Send all is disabled up front and the footer explains why; Implement this explains too", async () => {
+	const delivery = { comment: true, batch: false, implement: false };
+	const canvas = await loadRail(300, commentsDoc(unsentComment), { delivery });
+	const sendAll = canvas.document.getElementById("gd-send-all");
+	const note = canvas.document.getElementById("gd-send-note");
+	assert.equal(sendAll.disabled, true, "an unsent comment does not enable it");
+	assert.equal(note.hidden, false);
+	assert.match(note.textContent, /not connected to a Pi session[^]*\/gentle:design open/);
+	assert.ok(note.title.includes("batch-delivery-unavailable"));
+	assert.match(read("index.html"), /id="gd-send-all"[^>]*aria-describedby="gd-send-note"/);
+	assert.equal(canvas.document.getElementById("gd-send-alert").hidden, true);
+
+	const [control] = withClass(boardsOf(canvas)[0], "gd-implement");
+	const start = withClass(control, "gd-implement-start")[0];
+	assert.equal(start.disabled, true);
+	assert.match(texts(control, "gd-implement-note")[0], /not connected to a Pi session/);
+	assert.ok(start.title.includes("implement-unavailable"));
+	assert.equal(start.getAttribute("aria-describedby"), withClass(control, "gd-implement-note")[0].id);
+	start.dispatch("click");
+	assert.equal(canvas.fetched.filter((url) => url === IMPLEMENT).length, 0, "nothing is sent");
+});
+
+test("S15: with every delivery available, or no capabilities in the config, nothing is disabled or explained", async () => {
+	for (const config of [{}, { delivery: { comment: true, batch: true, implement: true } }]) {
+		const canvas = await loadRail(300, commentsDoc(unsentComment), config);
+		assert.equal(canvas.document.getElementById("gd-send-all").disabled, false);
+		assert.equal(canvas.document.getElementById("gd-send-note").hidden, true);
+		const [control] = withClass(boardsOf(canvas)[0], "gd-implement");
+		assert.equal(withClass(control, "gd-implement-start")[0].disabled, false);
+		assert.deepEqual(texts(control, "gd-implement-note"), []);
+	}
+});
+
+test("S15: only the missing delivery is disabled", async () => {
+	const canvas = await loadRail(300, commentsDoc(unsentComment), { delivery: { comment: true, batch: true, implement: false } });
+	assert.equal(canvas.document.getElementById("gd-send-all").disabled, false);
+	assert.equal(withClass(withClass(boardsOf(canvas)[0], "gd-implement")[0], "gd-implement-start")[0].disabled, true);
 });

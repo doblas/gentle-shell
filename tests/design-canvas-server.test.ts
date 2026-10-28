@@ -154,11 +154,11 @@ test("the canvas page carries a strict CSP and a JSON config, never inline code"
 	assert.ok(!csp.includes("unsafe-inline") && !csp.includes("unsafe-eval"));
 	const config = /<script id="gd-config" type="application\/json">([^<]*)<\/script>/.exec(page.body);
 	assert.ok(config, "config script present");
-	assert.deepEqual(JSON.parse(config[1]), { base, slug: null });
+	assert.deepEqual(JSON.parse(config[1]), { base, slug: null, delivery: { comment: true, batch: true, implement: true } });
 	assert.ok(page.body.includes(`src="${base}assets/canvas.js"`));
 	const slugPage = await rawRequest(port, `${base}d/alpha/`);
 	assert.equal(slugPage.status, 200);
-	assert.deepEqual(JSON.parse(/<script id="gd-config" type="application\/json">([^<]*)<\/script>/.exec(slugPage.body)![1]), { base, slug: "alpha" });
+	assert.deepEqual(JSON.parse(/<script id="gd-config" type="application\/json">([^<]*)<\/script>/.exec(slugPage.body)![1]), { base, slug: "alpha", delivery: { comment: true, batch: true, implement: true } });
 	assert.equal((await rawRequest(port, `${base}d/Bad_Slug/`)).status, 404);
 	assert.equal((await rawRequest(port, `${base}d/alpha/extra`)).status, 404);
 	assert.equal((await rawRequest(port, base, { method: "POST" })).status, 405);
@@ -1097,4 +1097,30 @@ test("a batch attaches at most six screenshots, in order, and names the rest for
 	assert.deepEqual(content, [{ type: "text", text }, ...[0, 2, 3, 4, 5, 6].map((index) => ({ type: "image", data: `data${index}`, mimeType: "image/png" }))]);
 	const plain = batch.map(({ screenshot: _drop, ...rest }) => rest);
 	assert.equal(designCommentBatchContent(plain), formatDesignCommentBatch(plain));
+});
+
+test("the page config tells the canvas which deliveries exist, and the 501 checks stay", async (t) => {
+	const { root } = fixture(t);
+	const configOf = async (port: number, token: string) => JSON.parse(/<script id="gd-config" type="application\/json">([^<]*)<\/script>/.exec((await rawRequest(port, `/${token}/`)).body)![1]);
+
+	const bare = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, randomToken: () => TOKEN });
+	t.after(() => bare.close());
+	assert.deepEqual((await configOf(bare.port, TOKEN)).delivery, { comment: true, batch: false, implement: false });
+	const batchOnly = await postJson(bare.port, "api/designs/alpha/comments/send-all", {});
+	// Nothing unsent: the batch capability is only checked when there is something to deliver.
+	assert.equal(batchOnly.status, 200);
+	await postComment(bare.port, { ...VALID, mode: "collect" });
+	const refused = await postJson(bare.port, "api/designs/alpha/comments/send-all", {});
+	assert.equal(refused.status, 501);
+	assert.equal(JSON.parse(refused.body).error, "batch-delivery-unavailable");
+	const noImplement = await postJson(bare.port, "api/designs/alpha/implement", { file: "01-a.html" });
+	assert.equal(noImplement.status, 501);
+	assert.equal(JSON.parse(noImplement.body).error, "implement-unavailable");
+
+	const batch = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onComments: () => {}, randomToken: () => "b".repeat(32) });
+	t.after(() => batch.close());
+	assert.deepEqual((await configOf(batch.port, "b".repeat(32))).delivery, { comment: true, batch: true, implement: false });
+	const implement = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onImplement: () => ({ queued: false }), randomToken: () => "i".repeat(32) });
+	t.after(() => implement.close());
+	assert.deepEqual((await configOf(implement.port, "i".repeat(32))).delivery, { comment: true, batch: false, implement: true });
 });
