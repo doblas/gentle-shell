@@ -1093,9 +1093,15 @@ button:disabled { opacity: 0.5; cursor: default; }
 	padding: 10px 12px 0;
 	overflow-x: auto;
 	overflow-y: hidden;
-	scrollbar-width: thin;
+	scrollbar-width: none;
 	box-shadow: inset 0 -1px 0 var(--border);
 }
+
+.gd-tabs::-webkit-scrollbar { display: none; }
+/* The fades only show which side has more tabs; the mask uses alpha, so any opaque token works. */
+.gd-tabs-more-end { mask-image: linear-gradient(to left, transparent, var(--bg) 32px); }
+.gd-tabs-more-start { mask-image: linear-gradient(to right, transparent, var(--bg) 32px); }
+.gd-tabs-more-start.gd-tabs-more-end { mask-image: linear-gradient(to right, transparent, var(--bg) 32px, var(--bg) calc(100% - 32px), transparent); }
 
 .gd-tab {
 	flex: none;

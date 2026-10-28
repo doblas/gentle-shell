@@ -3198,8 +3198,19 @@
 	function setTab(name) {
 		state.tab = name;
 		renderList();
+		updateTabFades();
 	}
 
+	/** The tab row scrolls when it is wider than the panel; each edge with tabs behind it fades (L10, A2). */
+	function updateTabFades() {
+		const tabs = els.tabs;
+		const left = Number(tabs.scrollLeft) || 0;
+		const hidden = (Number(tabs.scrollWidth) || 0) - (Number(tabs.clientWidth) || 0);
+		tabs.classList.toggle("gd-tabs-more-start", left > 1);
+		tabs.classList.toggle("gd-tabs-more-end", left < hidden - 1);
+	}
+
+	els.tabs.addEventListener("scroll", updateTabFades);
 	tabButtons().forEach((tab, index) => tab.addEventListener("click", () => setTab(TAB_NAMES[index])));
 	// Arrow keys, Home and End move between the tabs, wrapping around.
 	els.tabs.addEventListener("keydown", (event) => {
@@ -3210,6 +3221,7 @@
 		event.preventDefault();
 		setTab(TAB_NAMES[next]);
 		tabButtons()[next].focus();
+		tabButtons()[next].scrollIntoView({ block: "nearest", inline: "nearest" });
 	});
 	function setPanel(show) {
 		els.panel.hidden = !show;
@@ -3555,6 +3567,7 @@
 	window.addEventListener("resize", closePopover);
 	window.addEventListener("resize", layoutCompare);
 	window.addEventListener("resize", layoutVersions);
+	window.addEventListener("resize", updateTabFades);
 	// The viewport also changes size when the comments panel opens or closes.
 	if (typeof ResizeObserver === "function") new ResizeObserver(() => { centerFocus(); layoutVersions(); }).observe(els.viewport);
 	else window.addEventListener("resize", () => centerFocus());

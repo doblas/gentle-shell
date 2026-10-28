@@ -3896,6 +3896,45 @@ test("S2: five tabs never squeeze their labels into each other: the tab row scro
 	assert.match(css, /\.gd-tab\s*{[^}]*flex:\s*none/);
 });
 
+test("L10 (A2): the tab row hides its scrollbar and fades only the edges that have more tabs behind them", async () => {
+	const css = read("canvas.css");
+	assert.match(css, /\.gd-tabs\s*{[^}]*scrollbar-width:\s*none/);
+	assert.match(css, /\.gd-tabs::-webkit-scrollbar\s*{[^}]*display:\s*none/);
+	for (const name of ["gd-tabs-more-start", "gd-tabs-more-end"]) {
+		const block = css.match(new RegExp(`\\.${name}[^{]*{[^}]*}`))?.[0] ?? "";
+		assert.match(block, /mask-image:\s*linear-gradient/, `${name} fades its edge`);
+		assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(block), `${name}: tokens only`);
+	}
+	const canvas = await loadCanvas();
+	const tabs = canvas.document.getElementById("gd-tabs");
+	const fades = () => ["gd-tabs-more-start", "gd-tabs-more-end"].filter((name) => tabs.classes.has(name)).join(" ");
+	Object.assign(tabs, { scrollWidth: 503, clientWidth: 359, scrollLeft: 0 });
+	tabs.dispatch("scroll");
+	assert.equal(fades(), "gd-tabs-more-end", "at the start only the right edge fades");
+	tabs.scrollLeft = 60;
+	tabs.dispatch("scroll");
+	assert.equal(fades(), "gd-tabs-more-start gd-tabs-more-end", "in the middle both edges fade");
+	tabs.scrollLeft = 144;
+	tabs.dispatch("scroll");
+	assert.equal(fades(), "gd-tabs-more-start", "at the end only the left edge fades");
+	// Counts change the row's width: choosing a tab re-renders and re-checks, without a scroll event.
+	Object.assign(tabs, { scrollWidth: 359, scrollLeft: 0 });
+	canvas.document.getElementById("gd-filter-resolved").dispatch("click");
+	assert.equal(fades(), "", "a row that fits has no fade");
+});
+
+test("L10 (A2): moving between tabs with the keyboard scrolls the chosen tab into view", async () => {
+	const canvas = await loadCanvas();
+	const doc = canvas.document;
+	const scrolled: Array<[string, unknown]> = [];
+	for (const id of ["gd-filter-open", "gd-filter-resolved", "gd-tab-history", "gd-tab-checks", "gd-tab-brief"]) {
+		// The options object comes from the canvas's own realm: compare its content.
+		doc.getElementById(id).scrollIntoView = (options: unknown) => scrolled.push([id, JSON.parse(JSON.stringify(options))]);
+	}
+	doc.getElementById("gd-tabs").dispatch("keydown", { key: "End" });
+	assert.deepEqual(scrolled, [["gd-tab-brief", { block: "nearest", inline: "nearest" }]]);
+});
+
 // ---- Compare modes (canvas-compare-overlay T1): Side by side, Overlay and Slider over the artboard and the running app
 
 const PREVIEW = "http://localhost:5173/login";
