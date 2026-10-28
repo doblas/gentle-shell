@@ -2987,6 +2987,8 @@
 		const resolved = state.comments.filter((comment) => comment.status === "resolved");
 		els.countOpen.textContent = String(open.length);
 		els.countResolved.textContent = String(resolved.length);
+		// New counts change how wide the row is without resizing it.
+		updateTabFades();
 		TAB_NAMES.forEach((name, index) => {
 			const tab = tabButtons()[index];
 			tab.setAttribute("aria-selected", String(state.tab === name));
@@ -3570,6 +3572,8 @@
 	window.addEventListener("resize", updateTabFades);
 	// The viewport also changes size when the comments panel opens or closes.
 	if (typeof ResizeObserver === "function") new ResizeObserver(() => { centerFocus(); layoutVersions(); }).observe(els.viewport);
+	// Fires once on observe, then when fonts or the panel change the row: the fades are right from the first layout.
+	if (typeof ResizeObserver === "function") new ResizeObserver(updateTabFades).observe(els.tabs);
 	else window.addEventListener("resize", () => centerFocus());
 
 	setMode(state.mode);

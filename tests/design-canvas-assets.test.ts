@@ -3923,6 +3923,24 @@ test("L10 (A2): the tab row hides its scrollbar and fades only the edges that ha
 	assert.equal(fades(), "", "a row that fits has no fade");
 });
 
+test("L10 (A2): the fade is right from the first layout: the tab row is watched for size changes", async () => {
+	const observed: Array<{ target: any; callback: () => void }> = [];
+	class FakeResizeObserver {
+		callback: () => void;
+		constructor(callback: () => void) { this.callback = callback; }
+		observe(target: any) { observed.push({ target, callback: this.callback }); }
+	}
+	const canvas = await loadCanvas(300, {}, {}, { ResizeObserver: FakeResizeObserver });
+	const tabs = canvas.document.getElementById("gd-tabs");
+	const watch = observed.find((entry) => entry.target === tabs);
+	assert.ok(watch, "the tab row is observed");
+	// A browser calls the observer once when it starts observing, and again whenever fonts or the panel change the size.
+	Object.assign(tabs, { scrollWidth: 503, clientWidth: 359, scrollLeft: 0 });
+	watch!.callback();
+	assert.equal(tabs.classes.has("gd-tabs-more-end"), true);
+	assert.equal(tabs.classes.has("gd-tabs-more-start"), false);
+});
+
 test("L10 (A2): moving between tabs with the keyboard scrolls the chosen tab into view", async () => {
 	const canvas = await loadCanvas();
 	const doc = canvas.document;
