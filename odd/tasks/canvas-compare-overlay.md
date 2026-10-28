@@ -13,7 +13,7 @@ Branch: `feat/canvas-compare-overlay`, started after the queued canvas features 
 
 ## Tasks
 
-- [ ] T1 S1-S5 — modes, overlay opacity, slider, docs, tests. Route: gentle-ai-worker. Commit: —
+- [x] T1 S1-S5 — modes, overlay opacity, slider, docs, tests. Route: gentle-ai-worker. Commit: 0fa66c113
 - [ ] T2 S1-S5 — full suite, visual check, handoff implemented with a preview canvas URL. Route: inline. Commit: —
 
 ## Log
@@ -22,3 +22,4 @@ Branch: `feat/canvas-compare-overlay`, started after the queued canvas features 
 - L2 (user choice, verbatim option): "Superposición y deslizador, sin detección (recomendado)" — Difference mode and the differences list are out: cross-origin frames cannot be read, and screenshot capture would need a headless browser dependency.
 - L3: Queue order: screen sizes → token inspector → version history → compare overlay.
 - L4: Started on feat/canvas-compare-overlay from feat/canvas-version-history (3fbcbbe5c) after version history closed. Run tests/design-canvas-assets.test.ts only under a memory cap (see canvas-version-history L6). The review tab row now scrolls (e3a47ed91).
+- L5: T1 by gentle-ai-worker, committed 0fa66c113 (548 lines, 339 of them tests; 14 of 15 new tests RED first, the S4 ones made to fail by asserting the switch). Parent re-ran design-canvas-assets 184, design-canvas-server 82, gentle-design 81: all pass. Worker decisions accepted: opacity and split reset to 50% on each Compare (only the mode is remembered); opacity uses a native range input (browser keys); Overlay keeps the app frame interactive (no shield), only Slider shields; shared split helpers extracted from the version comparison with its tests unchanged.
