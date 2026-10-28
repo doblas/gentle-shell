@@ -526,6 +526,8 @@ select {
 
 .gd-artboard-label {
 	position: relative;
+	/* Above the frame box that follows it, so an implement alert can drop over the artboard. */
+	z-index: 2;
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
@@ -885,7 +887,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 	font-size: 12px;
 }
 
-.gd-implement-note { max-width: 32ch; text-align: right; white-space: normal; }
+.gd-implement-note { display: block; max-width: 32ch; text-align: right; white-space: normal; cursor: help; }
 
 .gd-alert {
 	display: flex;
@@ -907,7 +909,10 @@ button:disabled { opacity: 0.5; cursor: default; }
 .gd-alert-detail { display: block; margin-top: 2px; color: var(--text-muted); font: 11px var(--font-mono); overflow-wrap: anywhere; }
 .gd-alert-dismiss { min-width: 28px; min-height: 28px; padding: 0; color: var(--text-muted); border-color: transparent; }
 .gd-comment-item > .gd-alert { margin: 0 12px 12px; }
-.gd-implement .gd-alert { max-width: 36ch; }
+/* The implement control sits at the bottom of the artboard header and grows upward, so its
+   alert drops over the artboard instead of running off the top of the canvas. */
+.gd-implement { position: relative; }
+.gd-implement .gd-alert { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: 36ch; max-width: 36ch; white-space: normal; background: linear-gradient(var(--error-wash), var(--error-wash)), var(--surface); box-shadow: var(--shadow-panel); }
 
 .gd-side-foot .gd-primary { width: 100%; min-height: 46px; font-size: 15px; }
 
@@ -1154,7 +1159,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 .gd-toast {
 	position: fixed;
 	left: 50%;
-	bottom: 24px;
+	/* Top of the canvas, so it never covers Back to canvas or the mode chip at the bottom. */
+	top: 72px;
 	z-index: 20;
 	max-width: min(560px, calc(100vw - 32px));
 	padding: 10px 16px;

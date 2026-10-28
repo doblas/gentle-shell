@@ -204,11 +204,18 @@
 	 * A failed reply in words: { text: cause and way out, detail: the raw code (and the server's own reason) }.
 	 * `reply` is what postJson returns; a code without a sentence gets a generic one that still names it.
 	 */
-	function explain(reply) {
+	// Sentences that depend on the action: a refused handoff is taken back, so it is not "unsent comments".
+	const ACTION_REASONS = {
+		implement: { "delivery-failed": "The session did not accept the handoff, so it was not recorded. Check that the session is running, then use Implement this again." },
+	};
+
+	/** `action` picks an action-specific sentence over the generic one, when it has one. */
+	function explain(reply, action) {
 		const body = reply && reply.body && typeof reply.body === "object" ? reply.body : {};
 		const code = typeof body.error === "string" && body.error ? body.error : `http-${reply ? reply.status : 0}`;
 		const reason = typeof body.reason === "string" && body.reason ? body.reason : "";
-		let text = Object.prototype.hasOwnProperty.call(REASONS, code) ? REASONS[code] : "";
+		const specific = action && ACTION_REASONS[action] && Object.prototype.hasOwnProperty.call(ACTION_REASONS[action], code) ? ACTION_REASONS[action][code] : "";
+		let text = specific || (Object.prototype.hasOwnProperty.call(REASONS, code) ? REASONS[code] : "");
 		if (!text && code.startsWith("invalid-")) text = "The server rejected the request as invalid. Reload the canvas and try again.";
 		if (!text) text = `Something went wrong. Try again; if it keeps failing, reopen the canvas: ${OPEN_HINT}.`;
 		return { text, detail: reason ? `${code}: ${reason}` : code };
@@ -258,8 +265,8 @@
 		return parts;
 	}
 
-	function showAlert(parts, reply) {
-		const info = explain(reply);
+	function showAlert(parts, reply, action) {
+		const info = explain(reply, action);
 		parts.text.textContent = info.text;
 		parts.detail.textContent = info.detail;
 		parts.root.title = info.detail;
@@ -727,7 +734,11 @@
 			const info = explain({ status: 501, body: { error: "implement-unavailable" } });
 			start.disabled = true;
 			start.title = info.detail;
-			note = chip("gd-implement-note", info.text);
+			// A short visible line keeps the artboard header readable; the full sentence stays
+			// in the tooltip and, for screen readers, in the visually hidden rest of the note.
+			note = chip("gd-implement-note", "Canvas not connected to a Pi session.");
+			note.title = info.text;
+			note.append(chip("gd-visually-hidden", ` ${info.text}`));
 			note.id = `gd-implement-note-${++implementNotes}`;
 			start.setAttribute("aria-describedby", note.id);
 		}
@@ -764,7 +775,7 @@
 				// The server recorded it before answering; the handoffs.json change event confirms it.
 				noteHandoff(slug, artboard.file, queued);
 			} else {
-				showAlert(alert, reply);
+				showAlert(alert, reply, "implement");
 				showToast(alert.text.textContent, true);
 			}
 			close(true);

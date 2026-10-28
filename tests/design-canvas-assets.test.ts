@@ -1440,6 +1440,8 @@ test("S15: without batch delivery Send all is disabled up front and the footer e
 	const start = withClass(control, "gd-implement-start")[0];
 	assert.equal(start.disabled, true);
 	assert.match(texts(control, "gd-implement-note")[0], /not connected to a Pi session/);
+	// The visible line stays short so it never runs over the artboard header; the full way out is in its tooltip.
+	assert.match(withClass(control, "gd-implement-note")[0].title, /\/gentle:design open/);
 	assert.ok(start.title.includes("implement-unavailable"));
 	assert.equal(start.getAttribute("aria-describedby"), withClass(control, "gd-implement-note")[0].id);
 	start.dispatch("click");
@@ -1461,4 +1463,18 @@ test("S15: only the missing delivery is disabled", async () => {
 	const canvas = await loadRail(300, commentsDoc(unsentComment), { delivery: { comment: true, batch: true, implement: false } });
 	assert.equal(canvas.document.getElementById("gd-send-all").disabled, false);
 	assert.equal(withClass(withClass(boardsOf(canvas)[0], "gd-implement")[0], "gd-implement-start")[0].disabled, true);
+});
+
+test("S12: a handoff the session refuses is explained as a handoff that was not recorded, never as unsent comments", async () => {
+	const canvas = await loadRail();
+	const [control] = withClass(boardsOf(canvas)[0], "gd-implement");
+	canvas.replies[IMPLEMENT] = { __http: 500, error: "delivery-failed" };
+	withClass(control, "gd-implement-start")[0].dispatch("click");
+	withClass(control, "gd-primary")[0].dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	const text = texts(control, "gd-alert-text")[0];
+	assert.match(text, /did not accept the handoff[^]*not recorded[^]*Implement this again/);
+	assert.doesNotMatch(text, /comments/i);
+	assert.equal(texts(control, "gd-alert-detail")[0], "delivery-failed");
+	assert.equal(canvas.document.getElementById("gd-toast").textContent, text);
 });
