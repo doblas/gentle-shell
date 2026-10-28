@@ -7,6 +7,7 @@ import { extname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DESIGN_COMMENTS_FILE, DESIGN_COMMENT_LIMITS, DESIGN_SCREENSHOT_TYPES, DesignCommentsError, MAX_DESIGN_SCREENSHOT_BYTES, createDesignCommentStore, describeViewport, isDesignCommentId, truncateUtf16, viewportProblem, type DesignViewport, type StoredDesignComment } from "./design-comments.ts";
 import { DESIGN_FEATURE_PATH, DesignHandoffsError, createDesignHandoffStore, sendDesignHandoff, type DesignHandoffDelivery } from "./design-handoffs.ts";
+import { DesignHistoryError, createDesignHistoryStore, type DesignObservation } from "./design-history.ts";
 import { readSystemTokens } from "./design-system-tokens.ts";
 
 // Loopback canvas host for gentle-design (S4-S6). Every route lives under a
@@ -137,6 +138,16 @@ class HttpError extends Error {
 		this.reason = reason;
 		this.body = body;
 	}
+}
+
+/** .history failures as HTTP: a broken index or version file is 422 and is never overwritten. */
+function historyFailure(error: unknown): never {
+	if (!(error instanceof DesignHistoryError)) throw error;
+	if (error.code === "not-found") throw new HttpError(404, "not-found");
+	if (error.code === "invalid-file") throw new HttpError(422, "invalid-history", { error: "invalid-history", reason: error.message });
+	if (error.code === "limit") throw new HttpError(409, "history-limit", { error: "history-limit", reason: error.message });
+	if (error.code === "too-large") throw new HttpError(413, "file-too-large", { error: "file-too-large", reason: error.message });
+	throw new HttpError(400, "invalid-history-input", { error: "invalid-history-input", reason: error.message });
 }
 
 /** Store failures as HTTP: a broken comments.json is 422 and is never overwritten. */
@@ -470,6 +481,11 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 	const designRoot = options.designRoot;
 	const store = createDesignCommentStore(designRoot);
 	const handoffs = createDesignHandoffStore(designRoot);
+	const history = createDesignHistoryStore(designRoot);
+	/** Why an artboard's versions are not stored (too big), by `slug/file`; shown in the history reply. */
+	const historyWarnings = new Map<string, string>();
+	/** History writes started by events and page loads, so close() can wait for them. */
+	const background = new Set<Promise<unknown>>();
 	// Deliveries of one design run one at a time (send-now and send-all), so a
 	// comment is never delivered twice: a send-all waits for an in-flight send-now.
 	const sending = new Map<string, Promise<unknown>>();
@@ -614,6 +630,11 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		} finally {
 			await handle.close();
 		}
+		sendArtboard(req, res, content, type);
+	}
+
+	/** An artboard resource, or a stored version of one: sandboxed, with the inspector in HTML. */
+	function sendArtboard(req: IncomingMessage, res: ServerResponse, content: Buffer, type: string): void {
 		const body = type.startsWith("text/html")
 			? injectInspector(content.toString("utf8"), `<script src="${escapeHtml(base)}assets/inspector.js"></script>`)
 			: content;
@@ -757,6 +778,40 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		reply(res, 202, { ok: true, slug, file, queued });
 	}
 
+	/** The design's history, after a catch-up over its manifest's artboards; `warnings` name files too big to store. */
+	async function readHistory(res: ServerResponse, slug: string): Promise<void> {
+		const manifest = await readManifest(slug);
+		await observeDesign(slug, manifest).catch(historyFailure);
+		const document = await history.read(slug).catch(historyFailure);
+		const warnings = [...historyWarnings].filter(([key]) => key.startsWith(`${slug}/`)).map(([, message]) => message);
+		reply(res, 200, { ...document, warnings });
+	}
+
+	/**
+	 * `history/<slug>/<n>/<file>`: version n of an artboard (only when the index lists it), or, for a version's own
+	 * relative assets, the design's current file of that name. The number only decorates the URL of an asset.
+	 */
+	async function serveVersion(req: IncomingMessage, res: ServerResponse, slug: string, n: number, segments: string[]): Promise<void> {
+		const last = segments[segments.length - 1];
+		if (extname(last).toLowerCase() !== ".html") return serveFile(req, res, slug, segments);
+		const found = await history.readVersion(slug, segments.join("/"), n).catch(historyFailure);
+		if (!found) throw new HttpError(404, "not-found");
+		sendArtboard(req, res, found.data, FILE_TYPES[".html"]);
+	}
+
+	async function restoreVersion(req: IncomingMessage, res: ServerResponse, slug: string): Promise<void> {
+		const body = await readJsonObject(req);
+		const segments = relativeSegments(body.file);
+		if (!segments) throw new HttpError(400, "invalid-file");
+		const file = segments.join("/");
+		if (!Number.isSafeInteger(body.n) || (body.n as number) < 1) throw new HttpError(400, "invalid-version");
+		const manifest = await readManifest(slug);
+		if (!manifest.artboards.some((artboard) => artboard.file === file)) throw new HttpError(400, "invalid-file", { error: "invalid-file", reason: `${file} is not an artboard of design/${slug}` });
+		const result = await history.restore(slug, file, body.n as number).catch(historyFailure);
+		for (const version of [result.saved, result.version]) if (version) announceVersion(slug, file, version.n);
+		reply(res, 200, { ok: true, slug, file, restoredFrom: result.restoredFrom, saved: result.saved?.n, version: result.version?.n });
+	}
+
 	async function serveScreenshot(res: ServerResponse, slug: string, id: string): Promise<void> {
 		const image = await store.readScreenshot(slug, id).catch(storeFailure);
 		if (!image) throw new HttpError(404, "not-found");
@@ -769,6 +824,33 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		const { updated } = await store.setStatus(slug, [id], body.status).catch(storeFailure);
 		if (updated.length === 0) throw new HttpError(404, "not-found");
 		reply(res, 200, { ok: true, comment: updated[0] });
+	}
+
+	// ---- version history (.history, S1/S3/S4) ----
+
+	function announceVersion(slug: string, file: string, n: number): void {
+		broadcast(`event: history\ndata: ${JSON.stringify({ slug, file, n })}\n\n`);
+	}
+
+	/** Stores the artboard's current content when it is new, tells the pages, and keeps the too-big warning current. */
+	async function observeArtboard(slug: string, file: string): Promise<DesignObservation> {
+		const result = await history.observe(slug, file);
+		const key = `${slug}/${file}`;
+		if (result.status === "skipped") historyWarnings.set(key, result.message);
+		else historyWarnings.delete(key);
+		if (result.status === "created") announceVersion(slug, file, result.version.n);
+		return result;
+	}
+
+	/** Every artboard of the manifest: the first time one is seen its content is v1, and a change missed so far becomes a version. */
+	async function observeDesign(slug: string, manifest: DesignManifest): Promise<void> {
+		for (const artboard of manifest.artboards) await observeArtboard(slug, artboard.file);
+	}
+
+	/** Runs a history task nobody waits for; its failure (a corrupt index...) is reported by the history reply, not here. */
+	function inBackground(task: () => Promise<unknown>): void {
+		const running: Promise<unknown> = task().catch(() => {}).finally(() => background.delete(running));
+		background.add(running);
 	}
 
 	function broadcast(chunk: string): void {
@@ -791,6 +873,13 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		pending.set(key, setTimeout(() => {
 			pending.delete(key);
 			broadcast(`event: change\ndata: ${JSON.stringify({ slug, file })}\n\n`);
+			// An artboard of the manifest changed: its new content is the next version (S1).
+			if (slug !== null && file.endsWith(".html")) {
+				inBackground(async () => {
+					const manifest = await readManifest(slug);
+					if (manifest.artboards.some((artboard) => artboard.file === file)) await observeArtboard(slug, file);
+				});
+			}
 		}, DEBOUNCE_MS));
 	}
 
@@ -852,7 +941,7 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		// Browsers send Origin on cross-origin reads; only this server's pages may read it.
 		// Sandboxed artboards fetch their own subresources with `Origin: null`.
 		const requestOrigin = req.headers.origin;
-		const artboardSubresource = rest[0] === "files" || (rest.length === 1 && rest[0] === SYSTEM_FILE) || (rest.length === 2 && rest[0] === "assets" && rest[1] === "inspector.js");
+		const artboardSubresource = rest[0] === "files" || rest[0] === "history" || (rest.length === 1 && rest[0] === SYSTEM_FILE) || (rest.length === 2 && rest[0] === "assets" && rest[1] === "inspector.js");
 		const trusted = requestOrigin === undefined || ownOrigins.has(requestOrigin) || (requestOrigin === "null" && artboardSubresource);
 		if (!trusted) return reply(res, 403, { error: "forbidden" });
 		return get!(req, res);
@@ -866,6 +955,10 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		if (rest.length === 4 && rest[0] === "api" && rest[1] === "designs" && rest[3] === "implement") {
 			const slug = safeSegment(rest[2]);
 			return slug && SLUG.test(slug) ? (req, res) => implement(req, res, slug) : undefined;
+		}
+		if (rest.length === 5 && rest[0] === "api" && rest[1] === "designs" && rest[3] === "history" && rest[4] === "restore") {
+			const slug = safeSegment(rest[2]);
+			return slug && SLUG.test(slug) ? (req, res) => restoreVersion(req, res, slug) : undefined;
 		}
 		if (rest.length < 5 || rest[0] !== "api" || rest[1] !== "designs" || rest[3] !== "comments") return undefined;
 		const slug = safeSegment(rest[2]);
@@ -900,7 +993,12 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 			if (tail.length === 1) return async (_req, res) => reply(res, 200, { designs: listDesignEntries(designRoot) });
 			if (tail.length === 2) {
 				const slug = safeSegment(tail[1]);
-				return slug && SLUG.test(slug) ? async (_req, res) => reply(res, 200, await readManifest(slug)) : undefined;
+				return slug && SLUG.test(slug) ? async (_req, res) => {
+					const manifest = await readManifest(slug);
+					reply(res, 200, manifest);
+					// The canvas is loading this design: the first time its artboards are seen, they become v1.
+					inBackground(() => observeDesign(slug, manifest));
+				} : undefined;
 			}
 			if (tail.length === 3 && tail[2] === "comments") {
 				const slug = safeSegment(tail[1]);
@@ -911,10 +1009,20 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 				const id = safeSegment(tail[3]);
 				return slug && SLUG.test(slug) && id && isDesignCommentId(id) ? (_req, res) => serveScreenshot(res, slug, id) : undefined;
 			}
+			if (tail.length === 3 && tail[2] === "history") {
+				const slug = safeSegment(tail[1]);
+				return slug && SLUG.test(slug) ? (_req, res) => readHistory(res, slug) : undefined;
+			}
 			if (tail.length === 3 && tail[2] === "handoffs") {
 				const slug = safeSegment(tail[1]);
 				return slug && SLUG.test(slug) ? async (_req, res) => reply(res, 200, await handoffs.read(slug).catch(handoffFailure)) : undefined;
 			}
+		}
+		if (head === "history" && tail.length >= 3) {
+			const slug = safeSegment(tail[0]);
+			const number = /^[1-9][0-9]{0,8}$/.test(tail[1]) ? Number(tail[1]) : null;
+			const segments = tail.slice(2).map(safeSegment);
+			return slug && SLUG.test(slug) && number !== null && segments.every((segment) => segment !== null) ? (req, res) => serveVersion(req, res, slug, number, segments as string[]) : undefined;
 		}
 		if (head === "files" && tail.length >= 2) {
 			const slug = safeSegment(tail[0]);
@@ -954,13 +1062,20 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 			clients.clear();
 			server.close(() => resolve());
 			server.closeAllConnections();
-		});
+		}).then(() => Promise.allSettled([...background])).then(() => undefined);
 		return closing;
 	}
 
 	function show(slug: string | null): number {
 		if (slug !== null && (typeof slug !== "string" || !SLUG.test(slug))) throw new Error("slug must be kebab-case or null");
 		if (closing) return 0;
+		if (slug !== null) {
+			// The canvas is about to load this design: store v1 of its artboards before anything changes them.
+			try {
+				const manifest = readDesignManifest(designRoot, slug);
+				inBackground(() => observeDesign(slug, manifest));
+			} catch { /* no such design, or a broken manifest: there is nothing to snapshot */ }
+		}
 		broadcast(`event: show\ndata: ${JSON.stringify({ slug })}\n\n`);
 		return clients.size;
 	}

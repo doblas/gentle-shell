@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1239,4 +1239,302 @@ test("S1: the tokens route keeps the Host, token, Origin and method rules, and s
 	assert.equal((await rawRequest(port, `${base}${path}`, { headers: { Origin: `http://localhost:${port}` } })).status, 200);
 	assert.equal((await rawRequest(port, `${base}${path}`, { method: "POST", headers: { Origin: `http://127.0.0.1:${port}`, "Content-Type": "application/json" }, body: "{}" })).status, 405);
 	for (const extra of ["api/system/tokens/x", "api/system/token", "system.md"]) assert.equal((await rawRequest(port, `${base}${extra}`)).status, 404, extra);
+});
+
+// Version history (T1): .history snapshots, version routes, restore.
+
+const HERO_V1 = "<!doctype html><html><body><h1>Hero</h1></body></html>";
+const HERO_V2 = "<!doctype html><html><body><h1>Hero two</h1></body></html>";
+const historyBytes = (root: string, path: string) => readFileSync(join(root, "alpha", ".history", path), "utf8");
+type HistoryReply = { version: number; artboards: Record<string, { versions: Array<{ n: number; source: string; createdAt: string; sha256: string }> }>; warnings: string[] };
+const getHistory = async (port: number, base: string, slug = "alpha") => rawRequest(port, `${base}api/designs/${slug}/history`);
+const parsedHistory = async (port: number, base: string) => JSON.parse((await getHistory(port, base)).body) as HistoryReply;
+
+test("S1: GET history gives every manifest artboard its first version, v1 being the content seen then", async (t) => {
+	const { port, base, root } = await start(t);
+	const reply = await getHistory(port, base);
+	assert.equal(reply.status, 200);
+	assert.match(String(reply.headers["content-type"]), /^application\/json/);
+	const history = JSON.parse(reply.body) as HistoryReply;
+	assert.equal(history.version, 1);
+	assert.deepEqual(Object.keys(history.artboards).sort(), ["01-hero.html", "02-bare.html"], "only the manifest's artboards");
+	assert.deepEqual(history.artboards["01-hero.html"].versions.map((version) => [version.n, version.source]), [[1, "hand"]]);
+	assert.deepEqual(history.warnings, []);
+	assert.equal(historyBytes(root, "01-hero.html/1.html"), HERO_V1);
+	assert.equal(historyBytes(root, "02-bare.html/1.html"), "<h1>Bare</h1>");
+	// Asking again changes nothing.
+	assert.deepEqual(await parsedHistory(port, base), history);
+	// The files in design/ other than the manifest's artboards never get history.
+	assert.equal(existsSync(join(root, "alpha", ".history", "sub")), false);
+});
+
+test("S1: GET history catches up with a change made while no event was seen: it becomes the next version", async (t) => {
+	const { port, base, root } = await start(t);
+	await getHistory(port, base);
+	writeFileSync(join(root, "alpha", "01-hero.html"), HERO_V2);
+	const history = await parsedHistory(port, base);
+	assert.deepEqual(history.artboards["01-hero.html"].versions.map((version) => version.n), [1, 2]);
+	assert.equal(historyBytes(root, "01-hero.html/2.html"), HERO_V2);
+	assert.equal(history.artboards["02-bare.html"].versions.length, 1);
+});
+
+test("S1: GET history of an unknown design is 404, of a broken manifest 422, and a corrupt index is 422 and left untouched", async (t) => {
+	const { port, base, root } = await start(t);
+	assert.equal((await getHistory(port, base, "missing")).status, 404);
+	assert.equal((await getHistory(port, base, "Alpha")).status, 404);
+	assert.equal((await getHistory(port, base, "broken")).status, 422);
+	mkdirSync(join(root, "alpha", ".history"));
+	for (const bytes of ["{ not json", JSON.stringify({ version: 2, artboards: {} })]) {
+		writeFileSync(join(root, "alpha", ".history", "index.json"), bytes);
+		const reply = await getHistory(port, base);
+		assert.equal(reply.status, 422);
+		assert.equal(JSON.parse(reply.body).error, "invalid-history");
+		assert.equal(readFileSync(join(root, "alpha", ".history", "index.json"), "utf8"), bytes, "never overwritten");
+		assert.deepEqual(readdirSync(join(root, "alpha", ".history")), ["index.json"]);
+	}
+});
+
+test("S1/S3/S4: the history routes keep the Host, token, Origin, content-type and method rules", async (t) => {
+	const { port, base, root } = await start(t);
+	await getHistory(port, base);
+	const gets = ["api/designs/alpha/history", "history/alpha/1/01-hero.html"];
+	for (const path of gets) {
+		assert.equal((await rawRequest(port, `${base}${path}`, { host: `evil.example:${port}` })).status, 421, path);
+		assert.equal((await rawRequest(port, `/wrong-token-0123456789/${path}`)).status, 404, path);
+		assert.equal((await rawRequest(port, `${base}${path}`, { headers: { Origin: "http://evil.example" } })).status, 403, path);
+		assert.equal((await rawRequest(port, `${base}${path}`, { headers: { Origin: `http://localhost:${port}` } })).status, 200, path);
+		assert.equal((await rawRequest(port, `${base}${path}`, { method: "POST", headers: { Origin: `http://127.0.0.1:${port}`, "Content-Type": "application/json" }, body: "{}" })).status, 405, path);
+	}
+	// The API itself is not for sandboxed artboards; their own versions (subresources) are.
+	assert.equal((await rawRequest(port, `${base}api/designs/alpha/history`, { headers: { Origin: "null" } })).status, 403);
+	assert.equal((await rawRequest(port, `${base}history/alpha/1/01-hero.html`, { headers: { Origin: "null" } })).status, 200);
+	// Restore is a write: the server's own Origin and a JSON body are required, and it only answers POST.
+	const path = `/${TOKEN}/api/designs/alpha/history/restore`;
+	const body = JSON.stringify({ file: "01-hero.html", n: 1 });
+	const own = { Origin: `http://127.0.0.1:${port}`, "Content-Type": "application/json" };
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { "Content-Type": "application/json" }, body })).status, 403, "no Origin");
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { ...own, Origin: "http://evil.example" }, body })).status, 403);
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { ...own, Origin: "null" }, body })).status, 403);
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { ...own, "Content-Type": "text/plain" }, body })).status, 415);
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: own, host: `evil.example:${port}`, body })).status, 421);
+	assert.equal((await rawRequest(port, path)).status, 405);
+	assert.equal((await rawRequest(port, `/wrong-token-0123456789/api/designs/alpha/history/restore`, { method: "POST", headers: own, body })).status, 404);
+	assert.equal(readFileSync(join(root, "alpha", "01-hero.html"), "utf8"), HERO_V1, "no refused request wrote anything");
+	assert.deepEqual(readdirSync(join(root, "alpha", ".history", "01-hero.html")), ["1.html"]);
+});
+
+test("S3: a version is served read-only as an artboard: sandboxed, with the inspector, only for versions the index lists", async (t) => {
+	const { port, base, root } = await start(t);
+	await getHistory(port, base);
+	writeFileSync(join(root, "alpha", "01-hero.html"), HERO_V2);
+	await getHistory(port, base);
+	const inspector = `<script src="${base}assets/inspector.js"></script>`;
+	const v1 = await rawRequest(port, `${base}history/alpha/1/01-hero.html?v=3`);
+	assert.equal(v1.status, 200);
+	assert.equal(v1.body, HERO_V1.replace("</body>", `${inspector}</body>`), "the old content, not the current one");
+	assert.match(String(v1.headers["content-type"]), /^text\/html/);
+	assert.match(String(v1.headers["content-security-policy"]), /^sandbox allow-scripts;/);
+	assert.match(String(v1.headers["content-security-policy"]), /connect-src 'none'/);
+	assert.match(String(v1.headers["content-security-policy"]), new RegExp(`frame-ancestors http://127\\.0\\.0\\.1:${port} http://localhost:${port}`));
+	assert.equal(v1.headers["cross-origin-resource-policy"], undefined, "like an artboard: the opaque-origin frame must be able to load it");
+	assert.equal(v1.headers["cache-control"], "no-store");
+	assert.equal(v1.headers["x-content-type-options"], "nosniff");
+	assert.equal((await rawRequest(port, `${base}history/alpha/2/01-hero.html`)).body, HERO_V2.replace("</body>", `${inspector}</body>`));
+	assert.equal((await rawRequest(port, `${base}history/alpha/1/02-bare.html`)).body, `<h1>Bare</h1>${inspector}`, "another artboard's own v1");
+	// Everything else is 404: versions the index does not list, files the history does not know, odd paths.
+	const refused = [
+		"history/alpha/3/01-hero.html", "history/alpha/0/01-hero.html", "history/alpha/01/01-hero.html", "history/alpha/-1/01-hero.html", "history/alpha/x/01-hero.html", "history/alpha/99999999999/01-hero.html",
+		"history/alpha/1/sub/inner.html", "history/alpha/1/missing.html", "history/alpha/1/index.json", "history/alpha/1/.history/index.json", "history/alpha/1/%2e%2e/beta/01-a.html",
+		"history/alpha/1/../01-hero.html", "history/alpha/1/01-hero.html/x", "history/alpha/1/escape.html", "history/alpha/1/linkdir/secret.html", "history/alpha/1/notes.txt",
+		"history/Alpha/1/01-hero.html", "history/missing/1/01-hero.html", "history/alpha/1", "history/alpha", "history/alpha/1/", "history/alpha/1/01-hero.html%00.txt", "history/alpha/1/%E0%A4%A",
+	];
+	for (const path of refused) assert.ok([400, 404].includes((await rawRequest(port, `${base}${path}`)).status), path);
+	assert.equal((await rawRequest(port, `${base}history/alpha/3/01-hero.html`)).status, 404);
+	// The old files route does not expose .history either.
+	for (const path of ["files/alpha/.history/index.json", "files/alpha/.history/01-hero.html/1.html"]) assert.equal((await rawRequest(port, `${base}${path}`)).status, 404, path);
+});
+
+test("S3: a version's relative assets resolve to the design's current files, with the same types and containment as artboards", async (t) => {
+	const { port, base } = await start(t);
+	await getHistory(port, base);
+	const css = await rawRequest(port, `${base}history/alpha/1/styles.css`);
+	assert.equal(css.status, 200);
+	assert.equal(css.body, "h1{color:red}");
+	assert.equal(css.headers["content-type"], "text/css; charset=utf-8");
+	assert.equal((await rawRequest(port, `${base}history/alpha/1/logo.svg`)).status, 200);
+	assert.equal((await rawRequest(port, `${base}history/alpha/1/notes.txt`)).status, 404);
+	assert.equal((await rawRequest(port, `${base}history/alpha/1/linkdir/secret.html`)).status, 404);
+});
+
+test("S3: a version whose content file was replaced by a link is not served", async (t) => {
+	const { port, base, root } = await start(t);
+	await getHistory(port, base);
+	const outside = scratch(t, "gentle-design-history-outside-");
+	writeFileSync(join(outside, "secret.html"), "<p>secret</p>");
+	rmSync(join(root, "alpha", ".history", "01-hero.html", "1.html"));
+	symlinkSync(join(outside, "secret.html"), join(root, "alpha", ".history", "01-hero.html", "1.html"));
+	const reply = await rawRequest(port, `${base}history/alpha/1/01-hero.html`);
+	assert.equal(reply.status, 422);
+	assert.ok(!reply.body.includes("secret"));
+});
+
+test("S4: restore writes a version back, saving the current content first; the restore itself is a new version", async (t) => {
+	const { port, base, root } = await start(t);
+	await getHistory(port, base);
+	writeFileSync(join(root, "alpha", "01-hero.html"), HERO_V2);
+	await getHistory(port, base);
+	writeFileSync(join(root, "alpha", "01-hero.html"), "<h1>an edit nobody saw yet</h1>");
+	const reply = await postJson(port, "api/designs/alpha/history/restore", { file: "01-hero.html", n: 1 });
+	assert.equal(reply.status, 200);
+	const body = JSON.parse(reply.body);
+	assert.deepEqual({ ...body, savedAt: undefined }, { ok: true, slug: "alpha", file: "01-hero.html", restoredFrom: 1, saved: 3, version: 4, savedAt: undefined });
+	assert.equal(readFileSync(join(root, "alpha", "01-hero.html"), "utf8"), HERO_V1, "the artboard file has the old content");
+	const history = await parsedHistory(port, base);
+	assert.deepEqual(history.artboards["01-hero.html"].versions.map((version) => [version.n, version.source]), [[1, "hand"], [2, "hand"], [3, "hand"], [4, "restore"]]);
+	assert.equal(historyBytes(root, "01-hero.html/3.html"), "<h1>an edit nobody saw yet</h1>", "nothing is lost");
+	assert.equal(historyBytes(root, "01-hero.html/4.html"), HERO_V1);
+	assert.deepEqual(history.artboards["02-bare.html"].versions.length, 1, "other artboards are untouched");
+	// Restoring what the artboard already holds changes nothing.
+	const again = JSON.parse((await postJson(port, "api/designs/alpha/history/restore", { file: "01-hero.html", n: 4 })).body);
+	assert.deepEqual({ ok: again.ok, saved: again.saved, version: again.version }, { ok: true, saved: undefined, version: undefined });
+});
+
+test("S4: restore refuses files outside the manifest, bad input and unknown versions, and changes nothing", async (t) => {
+	const { port, base, root } = await start(t);
+	await getHistory(port, base);
+	writeFileSync(join(root, "alpha", "01-hero.html"), HERO_V2);
+	await getHistory(port, base);
+	const state = () => ({
+		page: readFileSync(join(root, "alpha", "01-hero.html"), "utf8"),
+		index: readFileSync(join(root, "alpha", ".history", "index.json"), "utf8"),
+		files: readdirSync(join(root, "alpha", ".history", "01-hero.html")).sort(),
+		inner: readFileSync(join(root, "alpha", "sub", "inner.html"), "utf8"),
+	});
+	const before = state();
+	const restore = (body: unknown, slug = "alpha") => postJson(port, `api/designs/${slug}/history/restore`, body);
+	// A file that exists in design/ but is not an artboard of the manifest.
+	for (const file of ["sub/inner.html", "alias.html", "escape.html", "missing.html", "../beta/01-a.html", "styles.css", "/etc/passwd", ".history/index.json", "01-hero.html/../02-bare.html", 7, null, ""]) {
+		const reply = await restore({ file, n: 1 });
+		assert.equal(reply.status, 400, JSON.stringify(file));
+		assert.equal(JSON.parse(reply.body).error, "invalid-file");
+	}
+	for (const n of [0, -1, 1.5, "1", null, undefined, Number.MAX_SAFE_INTEGER + 1]) assert.equal((await restore({ file: "01-hero.html", n })).status, 400, String(n));
+	assert.equal((await restore({ file: "01-hero.html", n: 9 })).status, 404, "unknown version");
+	assert.equal((await restore({ file: "02-bare.html", n: 2 })).status, 404);
+	assert.equal((await restore({ file: "01-hero.html", n: 1 }, "missing")).status, 404);
+	assert.equal((await restore({ file: "01-a.html", n: 1 }, "broken")).status, 422);
+	assert.equal((await rawRequest(port, `/${TOKEN}/api/designs/alpha/history/restore`, { method: "POST", headers: { Origin: `http://127.0.0.1:${port}`, "Content-Type": "application/json" }, body: "{ nope" })).status, 400);
+	assert.equal((await rawRequest(port, `/${TOKEN}/api/designs/alpha/history/restore`, { method: "POST", headers: { Origin: `http://127.0.0.1:${port}`, "Content-Type": "application/json" }, body: "[]" })).status, 400);
+	assert.deepEqual(state(), before);
+	// A damaged version file is refused and the artboard stays as it was.
+	writeFileSync(join(root, "alpha", ".history", "01-hero.html", "1.html"), "<h1>tampered</h1>");
+	const before2 = state();
+	const damaged = await restore({ file: "01-hero.html", n: 1 });
+	assert.equal(damaged.status, 422);
+	assert.equal(JSON.parse(damaged.body).error, "invalid-history");
+	assert.deepEqual(state(), before2);
+	// So is a corrupt index.
+	writeFileSync(join(root, "alpha", ".history", "index.json"), "{ not json");
+	assert.equal((await restore({ file: "01-hero.html", n: 2 })).status, 422);
+	assert.equal(readFileSync(join(root, "alpha", ".history", "index.json"), "utf8"), "{ not json");
+	assert.equal(readFileSync(join(root, "alpha", "01-hero.html"), "utf8"), HERO_V2);
+});
+
+test("S1: seeing a design (its manifest loaded, or a show) stores v1 of its artboards, and announces it", async (t) => {
+	const { port, base, root, server } = await start(t);
+	const events = openEvents(port);
+	t.after(() => events.req.destroy());
+	await events.ready;
+	await events.waitFor(/: connected\n\n/);
+	assert.equal((await rawRequest(port, `${base}api/designs/alpha`)).status, 200);
+	await events.waitFor(/event: history\ndata: \{"slug":"alpha","file":"01-hero\.html","n":1\}\n\n/);
+	await events.waitFor(/event: history\ndata: \{"slug":"alpha","file":"02-bare\.html","n":1\}\n\n/);
+	assert.equal(historyBytes(root, "01-hero.html/1.html"), HERO_V1);
+	// show() of another design does the same for that design.
+	assert.equal(existsSync(join(root, "beta", ".history")), false);
+	server.show("beta");
+	await events.waitFor(/event: history\ndata: \{"slug":"beta","file":"01-a\.html","n":1\}\n\n/);
+	assert.equal(readFileSync(join(root, "beta", ".history", "01-a.html", "1.html"), "utf8"), "<p>beta</p>");
+	// A broken design or a system-only show stores nothing and does not fail.
+	server.show(null);
+	assert.equal((await rawRequest(port, `${base}api/designs/broken`)).status, 422);
+	assert.equal(existsSync(join(root, "broken", ".history")), false);
+});
+
+test("S1: a change event on a manifest artboard stores the new content as the next version; other files and .history writes do not", async (t) => {
+	const { port, base, root } = await start(t);
+	await rawRequest(port, `${base}api/designs/alpha`);
+	await getHistory(port, base);
+	const events = openEvents(port);
+	t.after(() => events.req.destroy());
+	await events.ready;
+	await events.waitFor(/: connected\n\n/);
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	writeFileSync(join(root, "alpha", "01-hero.html"), HERO_V2);
+	await events.waitFor(/event: change\ndata: \{"slug":"alpha","file":"01-hero\.html"\}\n\n/);
+	await events.waitFor(/event: history\ndata: \{"slug":"alpha","file":"01-hero\.html","n":2\}\n\n/);
+	assert.equal(historyBytes(root, "01-hero.html/2.html"), HERO_V2);
+	// A save with the same content, a shared stylesheet and a file that is not an artboard add no version.
+	writeFileSync(join(root, "alpha", "01-hero.html"), HERO_V2);
+	writeFileSync(join(root, "alpha", "styles.css"), "h1{color:blue}");
+	writeFileSync(join(root, "alpha", "sub", "inner.html"), "<p>changed</p>");
+	await events.waitFor(/"file":"sub\/inner\.html"\}\n\n/);
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	const history = await parsedHistory(port, base);
+	assert.deepEqual(history.artboards["01-hero.html"].versions.map((version) => version.n), [1, 2]);
+	assert.deepEqual(Object.keys(history.artboards).sort(), ["01-hero.html", "02-bare.html"]);
+});
+
+test("S1: the first change event of an artboard nobody looked at stores its content as v1", async (t) => {
+	const { port, root } = await start(t);
+	const events = openEvents(port);
+	t.after(() => events.req.destroy());
+	await events.ready;
+	await events.waitFor(/: connected\n\n/);
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	writeFileSync(join(root, "alpha", "02-bare.html"), "<h1>Bare, edited</h1>");
+	await events.waitFor(/event: history\ndata: \{"slug":"alpha","file":"02-bare\.html","n":1\}\n\n/);
+	assert.equal(historyBytes(root, "02-bare.html/1.html"), "<h1>Bare, edited</h1>");
+});
+
+test("S4: a restore announces its versions and the artboard write reaches the canvas as a normal change, adding nothing more", async (t) => {
+	const { port, base, root } = await start(t);
+	await getHistory(port, base);
+	writeFileSync(join(root, "alpha", "01-hero.html"), HERO_V2);
+	await getHistory(port, base);
+	const events = openEvents(port);
+	t.after(() => events.req.destroy());
+	await events.ready;
+	await events.waitFor(/: connected\n\n/);
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	assert.equal((await postJson(port, "api/designs/alpha/history/restore", { file: "01-hero.html", n: 1 })).status, 200);
+	await events.waitFor(/event: history\ndata: \{"slug":"alpha","file":"01-hero\.html","n":3\}\n\n/);
+	await events.waitFor(/event: change\ndata: \{"slug":"alpha","file":"01-hero\.html"\}\n\n/);
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	const history = await parsedHistory(port, base);
+	assert.deepEqual(history.artboards["01-hero.html"].versions.map((version) => [version.n, version.source]), [[1, "hand"], [2, "hand"], [3, "restore"]], "the change event found the content already stored");
+});
+
+test("S1: a file too big to store is skipped with a warning in the history reply, and stored again once it fits", async (t) => {
+	const { port, base, root } = await start(t);
+	writeFileSync(join(root, "alpha", "02-bare.html"), Buffer.alloc(32 * 1024 * 1024 + 1, 97));
+	const history = await parsedHistory(port, base);
+	assert.deepEqual(Object.keys(history.artboards), ["01-hero.html"]);
+	assert.equal(history.warnings.length, 1);
+	assert.match(history.warnings[0], /02-bare\.html is larger than 33554432 bytes/);
+	assert.equal(existsSync(join(root, "alpha", ".history", "02-bare.html")), false);
+	writeFileSync(join(root, "alpha", "02-bare.html"), "<h1>small</h1>");
+	const fixed = await parsedHistory(port, base);
+	assert.deepEqual(fixed.warnings, []);
+	assert.deepEqual(Object.keys(fixed.artboards).sort(), ["01-hero.html", "02-bare.html"]);
+});
+
+test("S1: closing the server waits for history writes still running, so nothing writes after close", async (t) => {
+	const { server, port, base, root } = await start(t);
+	await rawRequest(port, `${base}api/designs/alpha`);
+	await server.close();
+	const snapshot = existsSync(join(root, "alpha", ".history", "index.json")) ? readFileSync(join(root, "alpha", ".history", "index.json"), "utf8") : "";
+	await new Promise((resolve) => setTimeout(resolve, 200));
+	const after = existsSync(join(root, "alpha", ".history", "index.json")) ? readFileSync(join(root, "alpha", ".history", "index.json"), "utf8") : "";
+	assert.equal(after, snapshot);
 });
