@@ -15,12 +15,14 @@ Source: L1 (handoff) and the artboard. Wording outside quotes is the parent's re
 
 ## Tasks
 
-- [ ] T1 S1 — parse `design/system.md` tokens on the server, deliver and live-reload them. Route: gentle-ai-worker. Commit: —
-- [ ] T2 S2, S3 — inspector measurement, comparison, panel, ask-to-fix. Route: gentle-ai-worker. Commit: —
-- [ ] T3 S4 — accessibility checks, Checks tab, list tags. Route: gentle-ai-worker. Commit: —
-- [ ] T4 S5 — docs, skill, full suite, visual check, handoff implemented with a preview canvas URL. Route: inline. Commit: —
+- [x] T1 S1 — parse `design/system.md` tokens on the server, deliver and live-reload them. Route: gentle-ai-worker. Commit: cc56d896b
+- [x] T2 S2, S3 — inspector measurement, comparison, panel, ask-to-fix. Route: gentle-ai-worker. Commit: c6eab03b6
+- [x] T3 S4 — accessibility checks, Checks tab, list tags. Route: gentle-ai-worker. Commit: c6eab03b6
+- [x] T4 S5 — docs, skill, full suite, visual check, handoff implemented with a preview canvas URL. Route: inline. Commit: (this record)
 
 ## Log
 
 - L1 (user, verbatim): "Implement the design artboard design/canvas-features/03-token-inspector.html / Artboard: design/canvas-features/03-token-inspector.html / Title: Token inspector and accessibility checks / Tradeoff: Ideas 3 and 5: spot colors, fonts and spacing off the system and contrast or target-size problems; one more panel to read / Implement it in the project's real stack. Use the artboard as the visual spec: map its parts to the project's existing components and styles, and do not copy the artboard HTML verbatim. Take colors, typography, spacing, radius and shadows from design/system.md, the project's token source. Report progress with the gentle_design tool: action \"handoff\", target \"canvas-features/03-token-inspector.html\", status \"in_progress\" when you start; status \"implemented\" when it is done, with previewUrl set to the running app's loopback URL (localhost, 127.0.0.1 or [::1]) when one is running, so the canvas can compare it with the artboard. This design is not linked to an ODD feature document: size it under the project's ODD rules as usual. This handoff itself commits nothing."
 - L2: Received while canvas-screen-sizes T1/T2 were running and canvas-version-history was queued. Parent order: screen sizes → token inspector → version history (inspector is lower risk; history writes and deletes stored files). Same files, so one writer at a time.
+- L3: T1-T3 by worker (298 tests; tsc clean). Parser also reads inline `--name` `value` pairs and paired `--a` / `--b` rows: 46 tokens from the real file, including --error-wash, --success-line, --info-halo. T1 committed alone (cc56d896b, 74 tests pass on that commit); T2+T3 interleave, one commit (c6eab03b6). Worker decisions accepted: 24-43 px targets are advice and not counted; panel is hover-driven; spacing shows values only (no spacing tokens in system.md); per-check caps 20/10.
+- L4: T4 — docs and skill describe inspector, token match and checks as heuristics. Full suite 7870 pass / 4 fail (the same pre-existing tests/agent-home.test.ts). Live check on a restarted preview server: Checks tab lists 15 real contrast issues of the demo checkout with list tags; in Comment mode hovering "or pay with card" shows #8a8077 no token (nearest --text-muted), contrast 3.61:1 flagged, system-ui no token, Ask the agent to fix and Copy; focus starts at Desktop.
