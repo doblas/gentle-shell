@@ -82,7 +82,7 @@ Run this gate before every new brief: call the `gentle_design` tool with `action
 Comments from the canvas are stored in `design/<slug>/comments.json`; the session also receives them as messages that name each comment id.
 
 1. Read the open comments with the `gentle_design_comments` tool (`action: "list"`, optional `slug` and `file`). Without the tool, read `design/<slug>/comments.json` and use the entries whose `status` is `"open"`.
-2. Apply each comment by editing only the artboard in its `file`; use `selector` and `excerpt` to find the element. When a comment has a `screenshot`, look at it first: it arrives attached to the comment message, or open `design/<slug>/<screenshot>` with the read tool. It shows what the user saw, often a transient animation or transition state that the static artboard does not show.
+2. Apply each comment by editing only the artboard in its `file`; use `selector` and `excerpt` to find the element. When a comment has a `screenshot`, look at it first: it arrives attached to the comment message, or open `design/<slug>/<screenshot>` with the read tool. It shows what the user saw, often a transient animation or transition state that the static artboard does not show. When a comment has a `viewport`, the user made it with the artboard shown at that width (for example `Phone 390 × 844`): edit the artboard so the change holds at that width, with responsive CSS (media queries or fluid sizes) rather than fixed sizes, and keep the artboard's other widths working.
 3. Mark each applied comment resolved with the tool (`action: "resolve"`, `slug`, `ids`). Without the tool, set its `status` to `"resolved"` and `resolvedAt` to the current ISO time, keeping every other entry and field as is. Leave comments you did not apply open, and say why.
 
 The file format, for agents that only have file access:
@@ -92,12 +92,15 @@ The file format, for agents that only have file access:
   "version": 1,
   "comments": [
     { "id": "k3x9p2ab", "file": "02-bold.html", "selector": "body > header > h1", "excerpt": "Ship faster", "comment": "Make the headline shorter.", "createdAt": "2026-10-26T10:00:00.000Z", "status": "open", "sentAt": null, "resolvedAt": null },
-    { "id": "m7q2w9cd", "file": "02-bold.html", "selector": "#cta", "excerpt": "Start", "comment": "The button jumps during the hover transition.", "screenshot": ".screenshots/m7q2w9cd.png", "createdAt": "2026-10-26T10:05:00.000Z", "status": "open", "sentAt": null, "resolvedAt": null }
+    { "id": "m7q2w9cd", "file": "02-bold.html", "selector": "#cta", "excerpt": "Start", "comment": "The button jumps during the hover transition.", "screenshot": ".screenshots/m7q2w9cd.png", "createdAt": "2026-10-26T10:05:00.000Z", "status": "open", "sentAt": null, "resolvedAt": null },
+    { "id": "p4t8n1ef", "file": "02-bold.html", "selector": ".card", "excerpt": "Pricing", "comment": "The cards overflow on a phone.", "viewport": { "width": 390, "height": 844 }, "createdAt": "2026-10-26T10:10:00.000Z", "status": "open", "sentAt": null, "resolvedAt": null }
   ]
 }
 ```
 
 `screenshot` is optional: a path relative to the design folder, under `.screenshots/`, present only when the user attached an image.
+
+`viewport` is optional: `{ "width", "height" }` in whole CSS px (width 240 to 4096, height 1 to 20000), present only when the comment was made with the artboard shown at a size other than its own. When you add a comment by hand, leave it out unless you mean a specific width; a value outside those limits makes the file invalid.
 
 Never delete or reorder entries, and keep the file valid JSON: the canvas refuses to overwrite a file it cannot parse.
 

@@ -55,6 +55,8 @@
 		{ kind: "desktop", label: "Desktop", icon: "i-monitor", manifest: true },
 	];
 	const CUSTOM_WIDTH = { min: 240, max: 2560 };
+	// What comments.json accepts for the size a comment was made at (lib/design-comments.ts).
+	const VIEWPORT_LIMITS = { minWidth: 240, maxWidth: 4096, minHeight: 1, maxHeight: 20000 };
 	const SIZES_GAP = 20;
 	const SIZES_HEAD = 28;
 	const MIN_SIZES_SCALE = 0.05;
@@ -880,6 +882,29 @@
 		else if (document.activeElement !== control.input) control.input.value = "";
 		const { width, height } = focusSize(board);
 		control.readout.textContent = size.kind === "all" ? "All sizes" : `${width} × ${height}`;
+	}
+
+	/**
+	 * The size a pick was made at, for the comment: the focused single size, or the picked size frame of
+	 * All sizes. Null at the artboard's own size (nothing to record) and when comments.json would refuse it.
+	 */
+	function viewportOf(surface) {
+		const board = ownerOf(surface);
+		let size;
+		if (surface !== board) size = { width: surface.width, height: surface.height };
+		else if (state.focus === board && state.size.kind !== "all") size = focusSize(board);
+		else return null;
+		if (size.width === board.artboard.width && size.height === board.artboard.height) return null;
+		const { minWidth, maxWidth, minHeight, maxHeight } = VIEWPORT_LIMITS;
+		const fits = size.width >= minWidth && size.width <= maxWidth && size.height >= minHeight && size.height <= maxHeight;
+		return fits && Number.isInteger(size.width) && Number.isInteger(size.height) ? size : null;
+	}
+
+	/** `Phone 390 × 844`, `Tablet 820 × 1180` or `<w> × <h>`: the preset's name only for its exact size. */
+	function describeViewport(viewport) {
+		const size = `${viewport.width} × ${viewport.height}`;
+		const preset = SIZE_PRESETS.find((candidate) => !candidate.manifest && candidate.width === viewport.width && candidate.height === viewport.height);
+		return preset ? `${preset.label} ${size}` : size;
 	}
 
 	/** Picks a size for the focused artboard; a bad custom width never gets here (the field refuses it). */
@@ -1805,7 +1830,15 @@
 			const file = document.createElement("span");
 			file.className = "gd-comment-file";
 			file.textContent = comment.file;
-			show.append(meta, text, file);
+			show.append(meta, text);
+			// Where the comment was made, when not at the artboard's own size.
+			if (comment.viewport && typeof comment.viewport === "object") {
+				const label = describeViewport(comment.viewport);
+				const size = chip("gd-comment-viewport", label);
+				size.title = `Made at ${label}`;
+				show.append(size);
+			}
+			show.append(file);
 			if (comment.screenshot) {
 				const shot = document.createElement("img");
 				shot.className = "gd-comment-shot";
@@ -2065,7 +2098,7 @@
 	function openPopover(surface, pick) {
 		clearTimeout(state.closeTimer);
 		const board = ownerOf(surface);
-		state.pick = { board, surface, ...pick };
+		state.pick = { board, surface, viewport: viewportOf(surface), ...pick };
 		els.target.textContent = `${board.artboard.file} · ${pick.selector}`;
 		els.message.textContent = "";
 		els.message.title = "";
@@ -2201,7 +2234,7 @@
 		els.message.classList.remove("gd-error");
 		els.message.textContent = "Sending…";
 		const shot = state.shot;
-		const reply = await postJson("api/comments", { slug: pick.board.slug, file: pick.board.artboard.file, selector: pick.selector, excerpt: pick.excerpt, comment, mode: state.mode, ...(shot ? { screenshot: shot } : {}) });
+		const reply = await postJson("api/comments", { slug: pick.board.slug, file: pick.board.artboard.file, selector: pick.selector, excerpt: pick.excerpt, comment, mode: state.mode, ...(shot ? { screenshot: shot } : {}), ...(pick.viewport ? { viewport: pick.viewport } : {}) });
 		// Delivery can fail after the comment was saved; it then waits for "Send all".
 		const savedOnly = reply.status === 500 && reply.body.saved === true;
 		if (!reply.ok && !savedOnly) {

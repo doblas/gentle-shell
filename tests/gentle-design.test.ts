@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import gentleDesign, { DESIGN_COMMAND_NAME } from "../extensions/gentle-design.ts";
 import { formatDesignComment, formatDesignCommentBatch, startDesignCanvasServer, type DesignCanvasServer, type DesignCanvasServerOptions, type DesignComment } from "../lib/design-canvas-server.ts";
+import { designImplementMessage } from "../lib/gentle-design.ts";
 import type { OpenInBrowserResult } from "../lib/design-open-browser.ts";
 import { __testing } from "../extensions/skill-registry.ts";
 
@@ -669,6 +670,37 @@ test("the gentle_design_comments tool names a comment's screenshot for the read 
 	const text = toolText(await tool("gentle_design_comments")!.execute("1", { action: "list", slug: "login" }, undefined, undefined, fakeContext(cwd).ctx));
 	assert.match(text, /\[aaa111\][^]*\n  Screenshot: design\/login\/\.screenshots\/aaa111\.png \(open it with the read tool\)\n- \[bbb222\]/);
 	assert.equal(text.match(/Screenshot:/g)?.length, 1);
+});
+
+test("S7: the gentle_design_comments tool lists a comment's viewport, and only for comments that have one", async () => {
+	const cwd = scratchCwd();
+	writeDesign(cwd, "login", "Login screen");
+	seedComments(cwd, "login", [{ id: "aaa111" }, { id: "bbb222" }]);
+	const path = join(cwd, "design", "login", "comments.json");
+	const document = JSON.parse(readFileSync(path, "utf8"));
+	document.comments[0].viewport = { width: 390, height: 844 };
+	writeFileSync(path, JSON.stringify(document));
+	const { pi, tool } = fakePi();
+	gentleDesign(pi);
+	const result = await tool("gentle_design_comments")!.execute("1", { action: "list", slug: "login" }, undefined, undefined, fakeContext(cwd).ctx);
+	const text = toolText(result);
+	assert.match(text, /\[aaa111\][^]*\n  Viewport: Phone 390 × 844 \(edit for this width\)\n[^]*- \[bbb222\]/);
+	assert.equal(text.match(/Viewport:/g)?.length, 1);
+	assert.deepEqual((result.details as { comments: Array<{ id: string; viewport?: unknown }> }).comments.map((entry) => entry.viewport), [{ width: 390, height: 844 }, undefined]);
+});
+
+test("S7: the handoff message names the viewport of the open comments that have one", () => {
+	const text = designImplementMessage({
+		slug: "login",
+		artboard: { file: "01-a.html", title: "A", tradeoff: "" },
+		systemTokens: false,
+		comments: [
+			{ id: "aaa111", selector: "#cta", excerpt: "Go", comment: "Wider.", viewport: { width: 390, height: 844 } },
+			{ id: "bbb222", selector: "h1", excerpt: "", comment: "Bolder." },
+		],
+	});
+	assert.match(text, /\n   Excerpt: "Go"\n   Viewport: Phone 390 × 844 \(edit for this width\)\n   Comment:\n/);
+	assert.equal(text.match(/Viewport:/g)?.length, 1);
 });
 
 test("the gentle_design_comments tool resolves comments by id and writes comments.json", async () => {

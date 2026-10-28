@@ -1108,6 +1108,19 @@ button:disabled { opacity: 0.5; cursor: default; }
 .gd-active .gd-comment-number { background: var(--warning); }
 .gd-comment-selector { flex: 0 1 auto; min-width: 0; }
 .gd-comment-text { display: block; margin: 8px 0 0; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* The size a comment was made at: a mono chip like the selector. */
+.gd-comment-viewport {
+	display: inline-block;
+	margin-top: 4px;
+	padding: 1px 6px;
+	border: 1px solid var(--border-soft);
+	border-radius: 6px;
+	background: var(--wash);
+	color: var(--accent-soft);
+	font: 12px var(--font-mono);
+	white-space: nowrap;
+}
+
 .gd-comment-file { display: block; margin-top: 4px; color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
 .gd-badge { flex: none; margin-left: auto; padding: 0 8px; border: 1px solid currentColor; border-radius: var(--radius-pill); font-weight: 600; }
 .gd-badge ~ .gd-badge { margin-left: 0; }

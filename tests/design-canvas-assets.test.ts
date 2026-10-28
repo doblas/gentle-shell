@@ -36,6 +36,8 @@ class FakeElement {
 	src = "";
 	href = "";
 	checked = false;
+	// Set by the canvas on buttons and inputs.
+	type = "";
 	rect: Rect = { left: 0, top: 0, width: 0, height: 0 };
 	contentWindow: { posted: any[]; postMessage(message: any): void } | null = null;
 	doc: FakeDocument;
@@ -2123,4 +2125,104 @@ test("the inspector reports whether its page is wider than the frame, once per c
 	inspector.fire("resize", {});
 	inspector.runFrames();
 	assert.deepEqual(inspector.posted.at(-1), { type: "gd:overflow", overflow: false, width: 820, scrollWidth: 805 }, "a new frame width is reported even when the page still fits");
+});
+
+// S7: the size a comment was made at.
+
+const submitComment = async (canvas: Canvas, text = "Tighter") => {
+	canvas.document.getElementById("gd-popover-text").value = text;
+	canvas.document.getElementById("gd-popover-form").dispatch("submit");
+	await flush();
+	return canvas.posts.at(-1)!.body as Record<string, any>;
+};
+const PICK = { type: "gd:pick", selector: "#cta", excerpt: "Buy", rect: { x: 30, y: 40, width: 60, height: 20 } };
+
+test("S7: a comment made at the manifest size, unfocused or at Desktop, carries no viewport", async () => {
+	const canvas = await loadRail();
+	tallViewport(canvas);
+	const [first] = canvas.boards;
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	first.frame.rect = { left: 0, top: 0, width: 400, height: 300 };
+	canvas.message(first.frame.contentWindow, PICK);
+	assert.ok(!("viewport" in await submitComment(canvas)), "not focused");
+	focusOn(canvas);
+	canvas.message(first.frame.contentWindow, PICK);
+	assert.ok(!("viewport" in await submitComment(canvas)), "Desktop");
+	// A custom width equal to the manifest width is the manifest size too.
+	customInput(canvas).value = "400";
+	customInput(canvas).dispatch("change");
+	canvas.message(first.frame.contentWindow, PICK);
+	assert.ok(!("viewport" in await submitComment(canvas)));
+});
+
+test("S7: a comment at a preset or custom width carries the viewport of that size, with the manifest height for a custom width", async () => {
+	const canvas = await loadRail();
+	tallViewport(canvas);
+	const [first] = canvas.boards;
+	focusOn(canvas);
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	first.frame.rect = { left: 0, top: 0, width: 390, height: 844 };
+	sizeButton(canvas, "phone").dispatch("click");
+	canvas.message(first.frame.contentWindow, PICK);
+	assert.deepEqual((await submitComment(canvas)).viewport, { width: 390, height: 844 });
+	sizeButton(canvas, "tablet").dispatch("click");
+	canvas.message(first.frame.contentWindow, PICK);
+	assert.deepEqual((await submitComment(canvas)).viewport, { width: 820, height: 1180 });
+	customInput(canvas).value = "720";
+	customInput(canvas).dispatch("change");
+	canvas.message(first.frame.contentWindow, PICK);
+	assert.deepEqual((await submitComment(canvas)).viewport, { width: 720, height: 300 });
+	// The size is the one at the pick: back at Desktop the next comment has none.
+	sizeButton(canvas, "desktop").dispatch("click");
+	canvas.message(first.frame.contentWindow, PICK);
+	assert.ok(!("viewport" in await submitComment(canvas)));
+});
+
+test("S7: in All sizes the comment carries the size of the frame that was picked; the Desktop frame is the manifest size", async () => {
+	const canvas = await loadRail();
+	focusOn(canvas);
+	sizeButton(canvas, "all").dispatch("click");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	const [phone, tablet, desktop] = sizeSections(canvas).map(iframeOf);
+	for (const [frame, viewport] of [[phone, { width: 390, height: 844 }], [tablet, { width: 820, height: 1180 }], [desktop, undefined]] as const) {
+		frame.rect = { left: 100, top: 100, width: 100, height: 100 };
+		canvas.message(frame.contentWindow, PICK);
+		const body = await submitComment(canvas);
+		if (viewport) assert.deepEqual(body.viewport, viewport);
+		else assert.ok(!("viewport" in body), "Desktop = manifest size");
+	}
+});
+
+test("S7: a viewport the server would refuse is left out of the request instead of failing the comment", async () => {
+	const canvas = await loadRail(30000);
+	tallViewport(canvas);
+	const [first] = canvas.boards;
+	focusOn(canvas);
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	customInput(canvas).value = "600";
+	customInput(canvas).dispatch("change");
+	first.frame.rect = { left: 0, top: 0, width: 600, height: 700 };
+	canvas.message(first.frame.contentWindow, PICK);
+	assert.ok(!("viewport" in await submitComment(canvas)), "30000 px is beyond the 20000 px the file accepts");
+});
+
+test("S7: the comment card shows the size it was made at: Phone, Tablet or width × height, and nothing without one", async () => {
+	const canvas = await loadRail(300, commentsDoc(
+		comment("a1", "01-a.html", "open", { viewport: { width: 390, height: 844 } }),
+		comment("a2", "01-a.html", "open", { viewport: { width: 820, height: 1180 } }),
+		comment("a3", "01-a.html", "open", { viewport: { width: 720, height: 820 } }),
+		comment("a4", "01-a.html"),
+	));
+	const list = canvas.document.getElementById("gd-comment-list");
+	const items = list.children;
+	assert.equal(items.length, 4);
+	assert.deepEqual(items.map((item) => texts(item, "gd-comment-viewport")), [["Phone 390 × 844"], ["Tablet 820 × 1180"], ["720 × 820"], []]);
+	assert.equal(withClass(items[0], "gd-comment-viewport")[0].title, "Made at Phone 390 × 844");
+	await setComments(canvas, comment("a1", "01-a.html", "resolved", { viewport: { width: 390, height: 844 } }));
+	canvas.document.getElementById("gd-filter-resolved").dispatch("click");
+	assert.deepEqual(list.children.map((item) => texts(item, "gd-comment-viewport")), [["Phone 390 × 844"]]);
+});
+
+test("S7: canvas.css styles the viewport chip with tokens", () => {
+	assert.match(read("canvas.css"), /\.gd-comment-viewport\s*{[^}]*font:[^}]*var\(--font-mono\)/);
 });

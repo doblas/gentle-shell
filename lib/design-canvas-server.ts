@@ -5,7 +5,7 @@ import { open, readFile, realpath, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DESIGN_COMMENTS_FILE, DESIGN_COMMENT_LIMITS, DESIGN_SCREENSHOT_TYPES, DesignCommentsError, MAX_DESIGN_SCREENSHOT_BYTES, createDesignCommentStore, isDesignCommentId, truncateUtf16, type StoredDesignComment } from "./design-comments.ts";
+import { DESIGN_COMMENTS_FILE, DESIGN_COMMENT_LIMITS, DESIGN_SCREENSHOT_TYPES, DesignCommentsError, MAX_DESIGN_SCREENSHOT_BYTES, createDesignCommentStore, describeViewport, isDesignCommentId, truncateUtf16, viewportProblem, type DesignViewport, type StoredDesignComment } from "./design-comments.ts";
 import { DESIGN_FEATURE_PATH, DesignHandoffsError, createDesignHandoffStore, sendDesignHandoff, type DesignHandoffDelivery } from "./design-handoffs.ts";
 
 // Loopback canvas host for gentle-design (S4-S6). Every route lives under a
@@ -83,7 +83,7 @@ const CANVAS_CSP = [
 export type DesignCommentScreenshot = { path: string; mimeType: string; data?: string };
 
 /** A comment as delivered to the session; `id` names it in design/<slug>/comments.json. */
-export type DesignComment = { id: string; slug: string; file: string; selector: string; excerpt: string; comment: string; screenshot?: DesignCommentScreenshot };
+export type DesignComment = { id: string; slug: string; file: string; selector: string; excerpt: string; comment: string; screenshot?: DesignCommentScreenshot; viewport?: DesignViewport };
 
 /** Session message content: plain text, or text followed by the attached screenshots. */
 export type DesignSessionContent = string | Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
@@ -166,6 +166,11 @@ function excerptLine(excerpt: string): string {
 	return `Excerpt: ${excerpt ? JSON.stringify(excerpt) : "(none)"}`;
 }
 
+/** The size the comment was made at, so the agent edits for that width (S7). */
+function viewportLine(viewport: DesignViewport): string {
+	return `Viewport: ${describeViewport(viewport)} (the comment was made at this size; make the change hold at this width)`;
+}
+
 function screenshotLine(screenshot: DesignCommentScreenshot, attached: boolean): string {
 	return `Screenshot: ${screenshot.path} (${attached ? "attached; open it with the read tool if you cannot see it" : "open it with the read tool"})`;
 }
@@ -201,6 +206,7 @@ export function formatDesignComment(comment: DesignComment): string {
 		`Comment id: ${comment.id}`,
 		`Element: ${comment.selector}`,
 		excerptLine(comment.excerpt),
+		...(comment.viewport ? [viewportLine(comment.viewport)] : []),
 		...(comment.screenshot ? [screenshotLine(comment.screenshot, comment.screenshot.data !== undefined)] : []),
 		"",
 		"Comment:",
@@ -222,6 +228,7 @@ export function formatDesignCommentBatch(batch: readonly DesignComment[]): strin
 			`   Artboard: design/${comment.slug}/${comment.file}`,
 			`   Element: ${comment.selector}`,
 			`   ${excerptLine(comment.excerpt)}`,
+			...(comment.viewport ? [`   ${viewportLine(comment.viewport)}`] : []),
 			...(comment.screenshot ? [`   ${screenshotLine(comment.screenshot, attached.has(comment))}`] : []),
 			"   Comment:",
 			...comment.comment.split("\n").map((line) => `   ${line}`),
@@ -628,6 +635,7 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 	/** The stored comment as a session comment of design `slug`, with its screenshot loaded when it has one. */
 	async function toDesignComment(slug: string, stored: StoredDesignComment): Promise<DesignComment> {
 		const comment: DesignComment = { id: stored.id, slug, file: stored.file, selector: stored.selector, excerpt: stored.excerpt, comment: stored.comment };
+		if (stored.viewport) comment.viewport = stored.viewport;
 		if (stored.screenshot) {
 			const image = await store.readScreenshot(slug, stored.id).catch(() => undefined);
 			const ext = extname(stored.screenshot).toLowerCase();
@@ -648,6 +656,15 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		const bytes = Buffer.from(data, "base64");
 		if (bytes.length > MAX_DESIGN_SCREENSHOT_BYTES) throw invalid(`screenshot must be at most ${MAX_DESIGN_SCREENSHOT_BYTES} bytes`);
 		return { mimeType, data: bytes };
+	}
+
+	/** The optional `viewport: { width, height }` of a comment body: whole px within the stored limits. */
+	function parseViewport(value: unknown): DesignViewport | undefined {
+		if (value === undefined) return undefined;
+		const problem = viewportProblem(value);
+		if (problem) throw new HttpError(400, "invalid-viewport", { error: "invalid-viewport", reason: problem });
+		const { width, height } = value as DesignViewport;
+		return { width, height };
 	}
 
 	async function receiveComment(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -673,7 +690,8 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		if (!target || !info?.isFile() || extname(target).toLowerCase() !== ".html") throw new HttpError(400, "invalid-file");
 		const slug = body.slug;
 		const screenshot = parseScreenshot(body.screenshot);
-		const input = { file: segments.join("/"), selector, excerpt, comment, ...(screenshot ? { screenshot } : {}) };
+		const viewport = parseViewport(body.viewport);
+		const input = { file: segments.join("/"), selector, excerpt, comment, ...(screenshot ? { screenshot } : {}), ...(viewport ? { viewport } : {}) };
 		const add = () => store.add(slug, input).catch((error: unknown) => {
 			if (screenshot && error instanceof DesignCommentsError && error.code === "invalid-input") throw new HttpError(400, "invalid-screenshot", { error: "invalid-screenshot", reason: error.message });
 			return storeFailure(error);

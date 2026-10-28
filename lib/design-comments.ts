@@ -11,6 +11,8 @@ import { extname, join, sep } from "node:path";
 export const DESIGN_COMMENTS_FILE = "comments.json";
 export const MAX_DESIGN_COMMENTS = 500;
 export const DESIGN_COMMENT_LIMITS = Object.freeze({ comment: 2000, selector: 500, excerpt: 300 });
+/** The size a comment was made at (S7): whole CSS px, inclusive. */
+export const DESIGN_VIEWPORT_LIMITS = Object.freeze({ minWidth: 240, maxWidth: 4096, minHeight: 1, maxHeight: 20000 });
 
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 const ID = /^[A-Za-z0-9_-]{1,32}$/;
@@ -43,13 +45,40 @@ export type StoredDesignComment = {
 	resolvedAt: string | null;
 	/** `.screenshots/<id>.<ext>`, relative to the design directory; absent when the comment has none. */
 	screenshot?: string;
+	/** Set only when the comment was made at a size other than the artboard's own. */
+	viewport?: DesignViewport;
 };
+
+/** The CSS-px size of the artboard when the comment was made; absent at the artboard's own size. */
+export type DesignViewport = { width: number; height: number };
+
+const VIEWPORT_PRESETS: ReadonlyArray<DesignViewport & { name: string }> = [
+	{ name: "Phone", width: 390, height: 844 },
+	{ name: "Tablet", width: 820, height: 1180 },
+];
+
+/** `Phone 390 × 844`, `Tablet 820 × 1180`, or `<w> × <h>`; the same words the canvas card shows. */
+export function describeViewport(viewport: DesignViewport): string {
+	const size = `${viewport.width} × ${viewport.height}`;
+	const preset = VIEWPORT_PRESETS.find((candidate) => candidate.width === viewport.width && candidate.height === viewport.height);
+	return preset ? `${preset.name} ${size}` : size;
+}
+
+/** Why `value` is not a viewport `{ width, height }` of whole px within the limits, or undefined when it is one. */
+export function viewportProblem(value: unknown): string | undefined {
+	const { minWidth, maxWidth, minHeight, maxHeight } = DESIGN_VIEWPORT_LIMITS;
+	if (!value || typeof value !== "object" || Array.isArray(value)) return "viewport must be an object with width and height";
+	const { width, height } = value as Record<string, unknown>;
+	if (!Number.isInteger(width) || (width as number) < minWidth || (width as number) > maxWidth) return `viewport width must be a whole number from ${minWidth} to ${maxWidth}`;
+	if (!Number.isInteger(height) || (height as number) < minHeight || (height as number) > maxHeight) return `viewport height must be a whole number from ${minHeight} to ${maxHeight}`;
+	return undefined;
+}
 
 export type DesignCommentsDocument = { version: 1; comments: StoredDesignComment[] };
 
 export type DesignScreenshotInput = { mimeType: string; data: Buffer };
 
-export type DesignCommentInput = { file: string; selector: string; excerpt: string; comment: string; screenshot?: DesignScreenshotInput };
+export type DesignCommentInput = { file: string; selector: string; excerpt: string; comment: string; screenshot?: DesignScreenshotInput; viewport?: DesignViewport };
 
 export type DesignScreenshot = { path: string; mimeType: string; data: Buffer };
 
@@ -194,6 +223,7 @@ function inputProblem(input: DesignCommentInput): string | undefined {
 	if (typeof input.selector !== "string" || input.selector.length < 1 || input.selector.length > DESIGN_COMMENT_LIMITS.selector) return `selector must have 1 to ${DESIGN_COMMENT_LIMITS.selector} characters`;
 	if (typeof input.excerpt !== "string" || input.excerpt.length > DESIGN_COMMENT_LIMITS.excerpt) return `excerpt must have at most ${DESIGN_COMMENT_LIMITS.excerpt} characters`;
 	if (typeof input.comment !== "string" || input.comment.length < 1 || input.comment.length > DESIGN_COMMENT_LIMITS.comment) return `comment must have 1 to ${DESIGN_COMMENT_LIMITS.comment} characters`;
+	if (input.viewport !== undefined) return viewportProblem(input.viewport);
 	return undefined;
 }
 
@@ -259,6 +289,7 @@ function parseDocument(raw: string): DesignCommentsDocument {
 			resolvedAt: item.resolvedAt as string | null,
 		};
 		if (typeof item.screenshot === "string") comment.screenshot = item.screenshot;
+		if (item.viewport !== undefined) comment.viewport = { width: (item.viewport as DesignViewport).width, height: (item.viewport as DesignViewport).height };
 		return comment;
 	});
 	return { version: 1, comments };
@@ -350,6 +381,7 @@ export function createDesignCommentStore(designRoot: string, deps: DesignComment
 					sentAt: null,
 					resolvedAt: null,
 				};
+				if (input.viewport) comment.viewport = { width: input.viewport.width, height: input.viewport.height };
 				let image: string | undefined;
 				if (input.screenshot) {
 					const name = `${id}.${DESIGN_SCREENSHOT_TYPES[input.screenshot.mimeType]}`;
