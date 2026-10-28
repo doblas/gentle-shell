@@ -18,8 +18,8 @@ Source: L1 (handoff) and the artboard. Wording outside quotes is the parent's re
 
 ## Tasks
 
-- [ ] T1 S1-S5, S8 (canvas part) — size control, single size, All sizes, comments/pins per size, overflow flag. Route: gentle-ai-worker (context backstop). Commit: —
-- [ ] T2 S6 — live thumbnails in the artboard list. Route: same worker after T1. Commit: —
+- [x] T1 S1-S5, S8 (canvas part) — size control, single size, All sizes, comments/pins per size, overflow flag. Route: gentle-ai-worker (context backstop). Commit: f62aa61e9
+- [x] T2 S6 — live thumbnails in the artboard list. Route: same worker after T1. Commit: f62aa61e9
 - [ ] T3 S7, S8 (skill/docs) — optional `viewport` on comments: store, validate, show, send. Risk: item 1 (comments.json format) → own commit, independent verify. Route: gentle-ai-worker. Commit: —
 - [ ] T4 S1-S8 — docs check, full suite, headless/live visual check against the artboard, handoff implemented with a preview canvas URL. Route: inline. Commit: —
 
