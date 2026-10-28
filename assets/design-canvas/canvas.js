@@ -782,7 +782,8 @@
 				noteHandoff(slug, artboard.file, queued);
 			} else {
 				showAlert(alert, reply, "implement");
-				showToast(alert.text.textContent, true);
+				// The alert says it next to the button; only a board collapsed by zoom hides it, so only then toast.
+				if (box.closest(".gd-compact")) showToast(alert.text.textContent, true);
 			}
 			close(true);
 		});

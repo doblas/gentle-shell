@@ -1353,7 +1353,7 @@ test("S13: a failed resolve shows the alert inside that comment's card, dismissi
 	assert.equal(canvas.document.getElementById("gd-toast").textContent, "Comment resolved");
 });
 
-test("S13: a failed Implement this shows the alert in that artboard's implement control, plus the toast", async () => {
+test("S13: a failed Implement this shows the alert in that artboard's implement control, without repeating it in a toast", async () => {
 	const canvas = await loadRail();
 	const [control] = withClass(boardsOf(canvas)[0], "gd-implement");
 	const attempt = async () => {
@@ -1370,7 +1370,7 @@ test("S13: a failed Implement this shows the alert in that artboard's implement 
 	assert.match(texts(control, "gd-alert-text")[0], /not connected to a Pi session/);
 	assert.equal(withClass(boardsOf(canvas)[1], "gd-alert").length, 1, "each artboard has its own, hidden until it fails");
 	assert.equal(withClass(boardsOf(canvas)[1], "gd-alert")[0].hidden, true);
-	assert.match(canvas.document.getElementById("gd-toast").textContent, /not connected to a Pi session/, "the toast repeats it");
+	assert.equal(canvas.document.getElementById("gd-toast").textContent, "", "the alert is in view, so no toast repeats it");
 	assert.equal(statusLine(canvas).textContent, "", "S14");
 	withClass(control, "gd-alert-dismiss")[0].dispatch("click");
 	assert.equal(alerts[0].hidden, true);
@@ -1476,7 +1476,22 @@ test("S12: a handoff the session refuses is explained as a handoff that was not 
 	assert.match(text, /did not accept the handoff[^]*not recorded[^]*Implement this again/);
 	assert.doesNotMatch(text, /comments/i);
 	assert.equal(texts(control, "gd-alert-detail")[0], "delivery-failed");
-	assert.equal(canvas.document.getElementById("gd-toast").textContent, text);
+	assert.equal(canvas.document.getElementById("gd-toast").textContent, "", "no toast while the alert is in view");
+});
+
+test("a failed Implement this toasts only while its artboard is collapsed by zoom and the alert cannot be seen", async () => {
+	const canvas = await loadRail();
+	const toast = canvas.document.getElementById("gd-toast");
+	const [control] = withClass(boardsOf(canvas)[0], "gd-implement");
+	canvas.replies[IMPLEMENT] = { __http: 500, error: "delivery-failed" };
+	// Open the confirm step at full size, then zoom out until the artboard collapses before confirming.
+	withClass(control, "gd-implement-start")[0].dispatch("click");
+	for (let step = 0; step < 8; step += 1) canvas.viewport.dispatch("wheel", { deltaX: 0, deltaY: 50, deltaMode: 0, ctrlKey: true, metaKey: false, shiftKey: false, clientX: 300, clientY: 300 });
+	assert.equal(boardsOf(canvas)[0].classes.has("gd-compact"), true);
+	withClass(control, "gd-primary")[0].dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.equal(toast.hidden, false);
+	assert.equal(toast.textContent, texts(control, "gd-alert-text")[0]);
 });
 
 test("focus mode hides the artboard list only when the focused artboard would not fit beside it, and restores it on exit", async () => {
