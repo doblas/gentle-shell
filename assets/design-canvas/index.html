@@ -17,6 +17,7 @@
 		<symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
 		<symbol id="i-fit" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></symbol>
 		<symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
+		<symbol id="i-compare" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></symbol>
 		<symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></symbol>
 		<symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
 		<symbol id="i-keys" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
@@ -33,12 +34,16 @@
 		<button type="button" id="gd-shortcuts-open" class="gd-tool gd-bottom" aria-haspopup="dialog" aria-label="Keyboard shortcuts" aria-keyshortcuts="?" title="Keyboard shortcuts (?)"><svg class="gd-i"><use href="#i-keys"/></svg></button>
 	</nav>
 	<header class="gd-bar" role="toolbar" aria-label="Design canvas controls">
-		<h1 class="gd-title" id="gd-title">Gentle Design</h1>
-		<label class="gd-field" id="gd-design-field">
-			<span class="gd-visually-hidden">Design</span>
-			<select id="gd-design" aria-label="Design"></select>
-		</label>
-		<p id="gd-feature" class="gd-feature" hidden></p>
+		<div class="gd-crumbs">
+			<h1 class="gd-title" id="gd-title">Gentle Design</h1>
+			<label class="gd-field" id="gd-design-field">
+				<span class="gd-crumb-sep" aria-hidden="true">/</span>
+				<span class="gd-visually-hidden">Design</span>
+				<select id="gd-design" aria-label="Design"></select>
+			</label>
+			<span id="gd-feature-sep" class="gd-crumb-sep" aria-hidden="true" hidden>/</span>
+			<code id="gd-feature" class="gd-feature" title="Feature document" hidden></code>
+		</div>
 		<span class="gd-spacer"></span>
 		<div class="gd-group gd-zoom" role="group" aria-label="Zoom">
 			<button type="button" id="gd-zoom-out" aria-label="Zoom out" title="Zoom out (-)"><svg class="gd-i"><use href="#i-minus"/></svg></button>
@@ -46,6 +51,7 @@
 			<button type="button" id="gd-zoom-in" aria-label="Zoom in" title="Zoom in (+)"><svg class="gd-i"><use href="#i-plus"/></svg></button>
 			<button type="button" id="gd-fit" aria-label="Fit all" title="Fit all (0)"><svg class="gd-i"><use href="#i-fit"/></svg></button>
 		</div>
+		<button type="button" id="gd-compare-app" class="gd-secondary" hidden><svg class="gd-i"><use href="#i-compare"/></svg>Compare with app</button>
 		<button type="button" id="gd-panel-toggle" class="gd-toggle" aria-pressed="true" aria-controls="gd-panel" aria-keyshortcuts="]" title="Review panel (])">Comments</button>
 		<p id="gd-status" class="gd-status" role="status" aria-live="polite"></p>
 	</header>
@@ -53,6 +59,7 @@
 		<aside id="gd-nav" class="gd-nav" aria-labelledby="gd-nav-title">
 			<h2 id="gd-nav-title" class="gd-nav-title">Artboards · 0</h2>
 			<ol id="gd-nav-list" class="gd-nav-list"></ol>
+			<p id="gd-nav-note" class="gd-nav-note" hidden>Design system board is always first in Overview.</p>
 		</aside>
 		<main id="gd-viewport" class="gd-viewport" aria-label="Artboards" tabindex="0">
 			<div id="gd-world" class="gd-world"></div>
@@ -61,13 +68,25 @@
 			<p id="gd-nav-mode" class="gd-nav-mode" role="status" aria-live="polite">Navigating</p>
 		</main>
 		<aside id="gd-panel" class="gd-panel" aria-labelledby="gd-panel-title">
-			<h2 id="gd-panel-title" class="gd-panel-title">Comments</h2>
-			<div class="gd-group gd-filter" role="group" aria-label="Show comments">
-				<button type="button" id="gd-filter-open" aria-pressed="true">Open (0)</button>
-				<button type="button" id="gd-filter-resolved" aria-pressed="false">Resolved (0)</button>
+			<h2 id="gd-panel-title" class="gd-visually-hidden">Review</h2>
+			<div id="gd-tabs" class="gd-tabs" role="tablist" aria-label="Review">
+				<button type="button" role="tab" id="gd-filter-open" class="gd-tab" aria-selected="true" aria-controls="gd-tabpanel">Comments <span id="gd-count-open" class="gd-count">0</span></button>
+				<button type="button" role="tab" id="gd-filter-resolved" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1">Resolved <span id="gd-count-resolved" class="gd-count">0</span></button>
+				<button type="button" role="tab" id="gd-tab-brief" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1">Brief</button>
 			</div>
-			<p id="gd-panel-empty" class="gd-panel-empty">No comments yet. Turn on Comment mode and click an element.</p>
-			<ol id="gd-comment-list" class="gd-comment-list" aria-label="Comments"></ol>
+			<div id="gd-tabpanel" class="gd-panel-body" role="tabpanel" aria-labelledby="gd-filter-open">
+				<p id="gd-panel-empty" class="gd-panel-empty">No comments yet. Turn on Comment mode and click an element.</p>
+				<ol id="gd-comment-list" class="gd-comment-list" aria-label="Comments"></ol>
+				<div id="gd-brief" class="gd-brief" hidden>
+					<h3 id="gd-brief-title" class="gd-brief-title"></h3>
+					<p id="gd-brief-text" class="gd-brief-text"></p>
+					<code id="gd-brief-feature" class="gd-feature" title="Feature document" hidden></code>
+				</div>
+				<section id="gd-handoff-panel" class="gd-handoff-panel" aria-labelledby="gd-handoff-title" hidden>
+					<h3 id="gd-handoff-title" class="gd-handoff-title"></h3>
+					<ol id="gd-timeline" class="gd-timeline"></ol>
+				</section>
+			</div>
 			<div class="gd-side-foot">
 				<div class="gd-sendmode" role="radiogroup" aria-label="When a comment is sent to the session">
 					<label class="gd-radio"><input type="radio" name="gd-send-mode" id="gd-mode-send" value="send"><span>Send now</span></label>

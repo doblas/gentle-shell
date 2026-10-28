@@ -404,14 +404,14 @@ test("a show event for another design leaves focus, loads that design and replac
 	assert.ok(canvas.fetched.includes("/t/api/designs/beta"), "the other design's manifest is loaded");
 	assert.ok(canvas.fetched.includes("/t/api/designs/beta/comments"), "and its comments");
 	assert.equal(canvas.urls.at(-1), "/t/d/beta/");
-	assert.equal(canvas.document.getElementById("gd-title").textContent, "Beta");
+	assert.equal(canvas.document.title, "Beta · Gentle Design", "the design's title moves to the tab title; the breadcrumb keeps Gentle Design");
 	assert.equal(canvas.document.getElementById("gd-design").value, "beta", "the design selector follows");
 	assert.equal(canvas.navMode.textContent, "Navigating", "focus mode ends when the design changes");
 	assert.deepEqual(canvas.frames().map((frame) => frame.title), ["Only artboard"]);
 
 	await canvas.serverEvent("show", { slug: null });
 	assert.equal(canvas.urls.at(-1), "/t/", "null shows the system-only view at the root URL");
-	assert.equal(canvas.document.getElementById("gd-title").textContent, "Gentle Design");
+	assert.equal(canvas.document.title, "Gentle Design");
 	assert.deepEqual(canvas.frames(), []);
 
 	const fetches = canvas.fetched.length;
@@ -935,4 +935,271 @@ test("canvas.css takes its colors from the brand tokens: no raw hex outside :roo
 	assert.deepEqual([...outside.matchAll(/#[0-9a-fA-F]{3,8}\b(?![\w-])/g)].map((match) => match[0]).filter((value) => value !== "#fff"), []);
 	assert.match(css, /prefers-reduced-motion: no-preference/);
 	assert.match(css, /outline: 2px solid var\(--accent\)/);
+});
+
+// Brand rail, review workspace (S6-S9, S10 header): navigator, Compare with app, tabs, Brief, handoff timeline.
+
+const comment = (id: string, file: string, status = "open", extra: Record<string, unknown> = {}) => ({ id, slug: "alpha", file, selector: `main > .${id}`, excerpt: "", comment: `Text of ${id}`, status, sentAt: null, ...extra });
+const commentsDoc = (...comments: Array<Record<string, unknown>>) => ({ "/t/api/designs/alpha/comments": { comments } });
+const navItems = (canvas: Canvas) => withClass(canvas.document.getElementById("gd-nav-list"), "gd-nav-item");
+const navTexts = (canvas: Canvas, name: string) => texts(canvas.document.getElementById("gd-nav-list"), name);
+const setComments = async (canvas: Canvas, ...comments: Array<Record<string, unknown>>) => {
+	canvas.replies["/t/api/designs/alpha/comments"] = { comments };
+	await canvas.serverEvent("change", { slug: "alpha", file: "comments.json" });
+};
+
+test("the navigator lists the artboards with a number, a comment summary and a title for the count", async () => {
+	const canvas = await loadRail(300, commentsDoc(comment("a1", "01-a.html"), comment("a2", "01-a.html"), comment("a3", "01-a.html", "resolved"), comment("b1", "02-b.html", "resolved")));
+	assert.equal(canvas.document.getElementById("gd-nav-title").textContent, "Artboards · 2");
+	assert.deepEqual(navTexts(canvas, "gd-nav-item-title"), ["01 First", "02 Second"]);
+	// Open comments first, then resolved; either alone stands alone; none says so.
+	assert.deepEqual(navTexts(canvas, "gd-nav-summary"), ["2 open comments · 1 resolved", "1 resolved"]);
+	assert.equal(withClass(navItems(canvas)[0], "gd-nav-thumb").length, 1, "each item has a thumbnail block");
+
+	await setComments(canvas, comment("a1", "01-a.html"));
+	assert.deepEqual(navTexts(canvas, "gd-nav-summary"), ["1 open comment", "No comments"], "the summary follows comments.json live");
+	await setComments(canvas);
+	assert.deepEqual(navTexts(canvas, "gd-nav-summary"), ["No comments", "No comments"]);
+});
+
+test("the navigator tags Chosen and Alternative only once an artboard is chosen, live", async () => {
+	const canvas = await loadRail();
+	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), [], "no tags without a chosen artboard");
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": {} }));
+	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Alternative", "Chosen"]);
+	const [first, second] = withClass(canvas.document.getElementById("gd-nav-list"), "gd-nav-tag");
+	assert.ok(second.classes.has("gd-nav-tag-chosen") && !first.classes.has("gd-nav-tag-chosen"));
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), []);
+});
+
+test("activating a navigator item enters focus mode on it and marks it aria-current", async () => {
+	const canvas = await loadRail();
+	assert.deepEqual(navItems(canvas).map((item) => item.getAttribute("aria-current")), [null, null]);
+	navItems(canvas)[1].dispatch("click");
+	assert.equal(canvas.navMode.textContent, "Using: Second · Shift+Esc to exit");
+	assert.deepEqual(navItems(canvas).map((item) => item.getAttribute("aria-current")), [null, "true"]);
+	// Another item moves focus mode to that artboard.
+	navItems(canvas)[0].dispatch("click");
+	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit");
+	assert.deepEqual(navItems(canvas).map((item) => item.getAttribute("aria-current")), ["true", null]);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.deepEqual(navItems(canvas).map((item) => item.getAttribute("aria-current")), [null, null]);
+});
+
+test("the navigator footer note appears only when a system board exists", async () => {
+	const without = await loadRail();
+	assert.equal(without.document.getElementById("gd-nav-note").hidden, true);
+	const withSystem = await loadRail(300, { "/t/api/system": { exists: true, file: "system.html", width: 1440, height: 1200 } });
+	const note = withSystem.document.getElementById("gd-nav-note");
+	assert.equal(note.hidden, false);
+	assert.equal(withSystem.document.getElementById("gd-nav-title").textContent, "Artboards · 2", "the system board is not counted");
+	assert.deepEqual(navTexts(withSystem, "gd-nav-item-title"), ["01 First", "02 Second"], "nor listed");
+});
+
+test("the top bar shows the feature as a chip with its separator, and hides both without one", async () => {
+	const without = await loadRail();
+	assert.equal(without.document.getElementById("gd-feature").hidden, true);
+	assert.equal(without.document.getElementById("gd-feature-sep").hidden, true);
+	assert.match(read("index.html"), /<h1 class="gd-title" id="gd-title">Gentle Design<\/h1>/);
+	assert.equal(without.document.getElementById("gd-title").textContent, "", "the breadcrumb is static: the design's title is never written into it");
+
+	const canvas = await loadRail(300, { "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "Make a checkout.", feature: "odd/tasks/checkout.md", artboards: [{ file: "01-a.html", title: "First", tradeoff: "", width: 400, height: 300 }] } });
+	assert.equal(canvas.document.getElementById("gd-feature").textContent, "odd/tasks/checkout.md");
+	assert.equal(canvas.document.getElementById("gd-feature").hidden, false);
+	assert.equal(canvas.document.getElementById("gd-feature-sep").hidden, false);
+	assert.equal(canvas.document.getElementById("gd-title").textContent, "");
+});
+
+test("Compare with app shows only for the chosen artboard when implemented with a loopback previewUrl, and opens Compare", async () => {
+	const button = (canvas: Canvas) => canvas.document.getElementById("gd-compare-app");
+	const implemented = (previewUrl: unknown, extra: Record<string, unknown> = {}) => ({ status: "implemented", previewUrl, ...extra });
+	const canvas = await loadRail(300, { "/t/api/designs/alpha/handoffs": handoffDoc("01-a.html", { "01-a.html": { status: "sent" } }) });
+	assert.equal(button(canvas).hidden, true, "not implemented yet");
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": implemented(undefined) }));
+	assert.equal(button(canvas).hidden, true, "no previewUrl");
+	for (const url of ["http://example.com:3000/", "javascript:alert(1)", "http://127.0.0.1:4100/", "http://user:pw@localhost:3000/"]) {
+		await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": implemented(url) }));
+		assert.equal(button(canvas).hidden, true, `${url} is refused`);
+	}
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "01-a.html": implemented("http://localhost:3000/"), "02-b.html": { status: "sent" } }));
+	assert.equal(button(canvas).hidden, true, "an implemented alternative does not count");
+
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": implemented("http://localhost:3000/") }));
+	assert.equal(button(canvas).hidden, false);
+	button(canvas).dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-compare").hidden, false);
+	assert.equal(canvas.document.getElementById("gd-compare-open").href, "http://localhost:3000/");
+	assert.equal(button(canvas).disabled, true, "off while Compare is open");
+	canvas.document.getElementById("gd-compare-back").dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-compare").hidden, true);
+	assert.equal(button(canvas).disabled, false);
+});
+
+test("the review side has Comments, Resolved and Brief tabs that drive the list", async () => {
+	const canvas = await loadRail(300, { ...commentsDoc(comment("a1", "01-a.html"), comment("a2", "02-b.html", "resolved", { sentAt: "2026-10-26T10:00:00.000Z" })), "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "Make a checkout.", feature: "odd/tasks/checkout.md", artboards: [{ file: "01-a.html", title: "First", tradeoff: "", width: 400, height: 300 }, { file: "02-b.html", title: "Second", tradeoff: "", width: 400, height: 300 }] } });
+	const doc = canvas.document;
+	const tabs = ["gd-filter-open", "gd-filter-resolved", "gd-tab-brief"];
+	const selected = () => tabs.map((id) => doc.getElementById(id).getAttribute("aria-selected"));
+	const list = doc.getElementById("gd-comment-list");
+	const brief = doc.getElementById("gd-brief");
+	assert.deepEqual(selected(), ["true", "false", "false"]);
+	assert.equal(doc.getElementById("gd-count-open").textContent, "1");
+	assert.equal(doc.getElementById("gd-count-resolved").textContent, "1");
+	assert.equal(brief.hidden, true);
+	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a1"]);
+
+	doc.getElementById("gd-filter-resolved").dispatch("click");
+	assert.deepEqual(selected(), ["false", "true", "false"]);
+	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a2"]);
+
+	doc.getElementById("gd-tab-brief").dispatch("click");
+	assert.deepEqual(selected(), ["false", "false", "true"]);
+	assert.equal(brief.hidden, false);
+	assert.equal(list.hidden, true);
+	assert.equal(doc.getElementById("gd-panel-empty").hidden, true);
+	assert.equal(doc.getElementById("gd-brief-title").textContent, "Alpha");
+	assert.equal(doc.getElementById("gd-brief-text").textContent, "Make a checkout.");
+	assert.equal(doc.getElementById("gd-brief-feature").textContent, "odd/tasks/checkout.md");
+	assert.equal(doc.getElementById("gd-brief-feature").hidden, false);
+	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-labelledby"), "gd-tab-brief");
+
+	// Arrow keys move between tabs (roving tabindex), wrapping around.
+	const tablist = doc.getElementById("gd-tabs");
+	tablist.dispatch("keydown", { key: "ArrowRight" });
+	assert.deepEqual(selected(), ["true", "false", "false"]);
+	assert.equal(doc.activeElement, doc.getElementById("gd-filter-open"));
+	assert.equal(doc.getElementById("gd-filter-open").getAttribute("tabindex"), "0");
+	assert.equal(doc.getElementById("gd-tab-brief").getAttribute("tabindex"), "-1");
+	tablist.dispatch("keydown", { key: "End" });
+	assert.deepEqual(selected(), ["false", "false", "true"]);
+	tablist.dispatch("keydown", { key: "ArrowLeft" });
+	assert.deepEqual(selected(), ["false", "true", "false"]);
+	assert.equal(brief.hidden, true);
+});
+
+test("the Brief tab says so when the design has no brief, and keeps the Send footer", async () => {
+	const canvas = await loadRail();
+	canvas.document.getElementById("gd-tab-brief").dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-brief-title").textContent, "Alpha");
+	assert.equal(canvas.document.getElementById("gd-brief-text").textContent, "No brief written.");
+	assert.equal(canvas.document.getElementById("gd-brief-feature").hidden, true);
+	assert.equal(canvas.document.getElementById("gd-send-all").disabled, true, "the footer stays under every tab");
+});
+
+test("a comment card shows its number, selector chip, waiting or sent state, text and actions", async () => {
+	const canvas = await loadRail(300, commentsDoc(comment("a1", "01-a.html"), comment("a2", "01-a.html", "open", { sentAt: "2026-10-26T10:00:00.000Z", screenshot: { path: "x.png", mimeType: "image/png" } })));
+	const list = canvas.document.getElementById("gd-comment-list");
+	assert.deepEqual(texts(list, "gd-comment-number"), ["1", "2"]);
+	assert.deepEqual(texts(list, "gd-comment-selector"), ["main > .a1", "main > .a2"]);
+	assert.deepEqual(texts(list, "gd-badge"), ["Waiting", "Sent"]);
+	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a1", "Text of a2"]);
+	assert.equal(withClass(list, "gd-comment-shot").length, 1);
+	assert.equal(withClass(list, "gd-comment-actions").length, 2);
+	assert.equal(canvas.document.getElementById("gd-send-all").textContent, "Send all (1)");
+	// Resolving still goes through the same action.
+	findAll(list, (element) => element.localName === "button" && element.textContent === "Resolve")[0].dispatch("click");
+	await flush();
+	assert.ok(canvas.posts.some((post) => post.url.endsWith("/comments/a1/status")));
+});
+
+test("the handoff timeline is hidden until an artboard is chosen, then names it", async () => {
+	const canvas = await loadRail();
+	const panel = canvas.document.getElementById("gd-handoff-panel");
+	assert.equal(panel.hidden, true);
+	await setHandoffs(canvas, handoffDoc("02-b.html", {}));
+	assert.equal(panel.hidden, false);
+	assert.equal(canvas.document.getElementById("gd-handoff-title").textContent, "Handoff · Second");
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.equal(panel.hidden, true);
+});
+
+const steps = (canvas: Canvas) => withClass(canvas.document.getElementById("gd-timeline"), "gd-step");
+const stepStates = (canvas: Canvas) => steps(canvas).map((step) => `${texts(step, "gd-step-label")[0]}=${step.dataset.state}`);
+
+test("timeline steps: chosen only; queued; sent; in progress with a note; implemented", async () => {
+	const canvas = await loadRail();
+	await setHandoffs(canvas, handoffDoc("01-a.html", {}));
+	assert.deepEqual(stepStates(canvas), ["Chosen=done", "Sent to the session=pending", "In progress=pending", "Implemented=pending"]);
+
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": { status: "sent", queued: true } }));
+	assert.deepEqual(stepStates(canvas), ["Chosen=done", "Sent to the session=current", "In progress=pending", "Implemented=pending"]);
+	assert.match(texts(steps(canvas)[1], "gd-step-detail")[0], /^Queued · /, "a queued send says Queued on the Sent step");
+
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": { status: "sent", queued: false } }));
+	assert.deepEqual(stepStates(canvas), ["Chosen=done", "Sent to the session=done", "In progress=current", "Implemented=pending"]);
+	assert.doesNotMatch(texts(steps(canvas)[1], "gd-step-detail").join("|"), /Queued/);
+
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": { status: "in_progress", startedAt: "2026-10-26T10:05:00.000Z", note: "Building the summary block" } }));
+	assert.deepEqual(stepStates(canvas), ["Chosen=done", "Sent to the session=done", "In progress=current", "Implemented=pending"]);
+	assert.ok(texts(steps(canvas)[2], "gd-step-detail").includes("“Building the summary block”"), "the note sits under In progress");
+	assert.equal(steps(canvas)[2].getAttribute("aria-current"), "step");
+	assert.equal(steps(canvas)[1].getAttribute("aria-current"), null);
+
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": { status: "implemented", implementedAt: "2026-10-26T11:00:00.000Z", previewUrl: "http://localhost:3000/" } }));
+	assert.deepEqual(stepStates(canvas), ["Chosen=done", "Sent to the session=done", "In progress=done", "Implemented=done"]);
+	assert.equal(steps(canvas).filter((step) => step.getAttribute("aria-current") === "step").length, 0);
+	for (const step of steps(canvas)) assert.ok(texts(step, "gd-step-state").length === 1, "every state also has a text label");
+});
+
+test("timeline timestamps are short local times: Today HH:MM, otherwise month day, with the year when it differs", async () => {
+	const canvas = await loadRail();
+	const old = new Date(2020, 2, 4, 9, 5);
+	const now = new Date();
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": { status: "implemented", sentAt: old.toISOString(), startedAt: now.toISOString(), implementedAt: "not a date" } }));
+	assert.deepEqual(texts(steps(canvas)[1], "gd-step-detail"), ["Mar 4 2020, 09:05"]);
+	const started = texts(steps(canvas)[2], "gd-step-detail")[0];
+	assert.match(started, /^Today \d\d:\d\d$/);
+	assert.equal(started, `Today ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`);
+	assert.deepEqual(texts(steps(canvas)[3], "gd-step-detail"), [], "an unreadable timestamp shows nothing");
+});
+
+test("the timeline follows a handoff accepted by Implement this before handoffs.json changes", async () => {
+	const canvas = await loadRail(300, { "/t/api/designs/alpha/implement": { ok: true, slug: "alpha", file: "01-a.html", queued: true } });
+	const wrapper = boardsOf(canvas)[0];
+	const implement = findAll(wrapper, (element) => element.classes.has("gd-implement-start"))[0];
+	implement.dispatch("click");
+	findAll(wrapper, (element) => element.localName === "button" && element.textContent === "Send")[0].dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.equal(canvas.document.getElementById("gd-handoff-panel").hidden, false);
+	assert.deepEqual(stepStates(canvas), ["Chosen=done", "Sent to the session=current", "In progress=pending", "Implemented=pending"]);
+});
+
+test("the focused artboard header shows its number, title and handoff state chip", async () => {
+	const canvas = await loadRail(300, { "/t/api/system": { exists: true, file: "system.html", width: 1440, height: 1200 }, "/t/api/designs/alpha/handoffs": handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }) });
+	const [system, first, second] = boardsOf(canvas);
+	assert.deepEqual(texts(first, "gd-artboard-num"), ["01"]);
+	assert.deepEqual(texts(second, "gd-artboard-num"), ["02"]);
+	assert.deepEqual(texts(second, "gd-artboard-title"), ["Second"]);
+	assert.deepEqual(texts(system, "gd-artboard-num"), [], "the system board has no number");
+	const chip = withClass(second, "gd-artboard-state")[0];
+	assert.equal(chip.textContent, "In progress");
+	assert.equal(chip.dataset.status, "in_progress");
+	assert.equal(chip.hidden, false);
+	assert.equal(withClass(first, "gd-artboard-state")[0].hidden, true, "no state, no chip");
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented" } }));
+	assert.equal(chip.textContent, "Implemented ✓");
+	assert.equal(chip.dataset.status, "implemented");
+});
+
+test("the T2 markup: tablist with three tabs, tabpanel, timeline region, Compare with app and the navigator note", () => {
+	const html = read("index.html");
+	assert.match(html, /role="tablist"/);
+	assert.equal([...html.matchAll(/role="tab"/g)].length, 3);
+	assert.match(html, /id="gd-filter-open"[^>]*role="tab"|role="tab"[^>]*id="gd-filter-open"/);
+	assert.match(html, /role="tabpanel"/);
+	assert.match(html, /<section id="gd-handoff-panel"[^>]*aria-labelledby="gd-handoff-title"/);
+	assert.match(html, /id="gd-compare-app"[^>]*hidden>.*Compare with app<\/button>/);
+	assert.match(html, /Design system board is always first in Overview\./);
+	assert.match(html, /<code id="gd-feature"/);
+});
+
+test("zoomed out, each artboard collapses its handoff row and Implement this so they never overlap; zoomed in they return", async () => {
+	const canvas = await loadCanvas();
+	const wheel = (deltaY: number) => canvas.viewport.dispatch("wheel", { deltaX: 0, deltaY, deltaMode: 0, ctrlKey: true, metaKey: false, shiftKey: false, clientX: 300, clientY: 300 });
+	const compact = () => canvas.boards.map((board) => board.wrapper.classes.has("gd-compact"));
+	for (let step = 0; step < 8; step += 1) wheel(50);
+	assert.deepEqual(compact(), [true, true]);
+	for (let step = 0; step < 8; step += 1) wheel(-50);
+	assert.deepEqual(compact(), [false, false]);
 });

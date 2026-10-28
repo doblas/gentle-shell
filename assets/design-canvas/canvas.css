@@ -29,6 +29,14 @@
 	--font-mono: "IosevkaTerm NF", "Iosevka Term", "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 	/* Derived from the brand colors for the canvas */
 	--accent-wash: #f095c814;
+	--wash: #ffffff0f;
+	--paper: #ffffff;
+	--success-halo: #b4e7c726;
+	--error-halo: #ff718f26;
+	--info-halo: #a9c7ee33;
+	--info-line: #a9c7ee66;
+	--warning-line: #e0c27a66;
+	--success-line: #b4e7c766;
 	--accent-line: #f095c899;
 	--shadow-frame: 0 2px 16px #00000080;
 	--shadow-pop: 0 4px 16px #00000099;
@@ -43,6 +51,8 @@
 }
 
 * { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
 
 html, body {
 	margin: 0;
@@ -161,15 +171,32 @@ body {
 
 .gd-spacer { flex: 1; }
 
+/* Breadcrumb: Gentle Design / design / feature document */
+.gd-crumbs {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	color: var(--text-muted);
+}
+
 .gd-title {
 	margin: 0;
-	font-size: 15px;
+	flex: none;
+	font-size: 14px;
 	font-weight: 600;
+	color: var(--text);
 	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	max-width: 32ch;
 }
+
+.gd-field {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.gd-crumb-sep { flex: none; }
 
 .gd-group {
 	display: flex;
@@ -250,25 +277,49 @@ select {
 
 .gd-primary:hover:not(:disabled) { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--bg); }
 
-.gd-feature {
+/* Mono chips: the feature document and comment selectors */
+.gd-feature, .gd-comment-selector {
 	margin: 0;
-	max-width: 28ch;
+	padding: 1px 6px;
 	color: var(--accent-soft);
-	font-family: var(--font-mono);
-	font-size: 12px;
+	background: var(--wash);
+	border: 1px solid var(--border-soft);
+	border-radius: 6px;
+	font: 12px var(--font-mono);
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
 
+.gd-feature { max-width: 36ch; }
+
+.gd-secondary { border-color: var(--border); }
+
 .gd-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
 	margin: 0;
 	min-width: 0;
 	color: var(--text-muted);
+	font-size: 13px;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
+
+/* The dot sits beside a text; the text says the same, so color is never alone. */
+.gd-status:not(:empty)::before {
+	content: "";
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--success);
+	box-shadow: 0 0 0 3px var(--success-halo);
+}
+
+.gd-status.gd-error::before { background: var(--error); box-shadow: 0 0 0 3px var(--error-halo); }
 
 .gd-main {
 	position: relative;
@@ -292,7 +343,7 @@ select {
 
 .gd-nav[hidden] { display: none; }
 
-.gd-nav-title, .gd-panel-title {
+.gd-nav-title {
 	margin: 0;
 	padding: 16px 16px 8px;
 	font-size: 12px;
@@ -309,6 +360,89 @@ select {
 	display: flex;
 	flex-direction: column;
 	gap: 4px;
+}
+
+.gd-nav-item {
+	display: grid;
+	grid-template-columns: 44px minmax(0, 1fr);
+	gap: 10px;
+	align-items: center;
+	width: 100%;
+	padding: 8px;
+	text-align: left;
+	white-space: normal;
+	border-color: transparent;
+	color: var(--text);
+}
+
+.gd-nav-item[aria-current="true"] { background: var(--surface-2); border-color: var(--border); }
+
+/* A page-shaped placeholder: the artboards render live, so the list shows a stand-in. */
+.gd-nav-thumb {
+	position: relative;
+	width: 44px;
+	height: 60px;
+	border-radius: 4px;
+	background: var(--paper);
+	overflow: hidden;
+}
+
+.gd-nav-thumb::before {
+	content: "";
+	position: absolute;
+	left: 6px;
+	right: 6px;
+	top: 10px;
+	height: 4px;
+	border-radius: 2px;
+	background: var(--bg);
+	box-shadow: 0 10px 0 var(--text-muted), 0 18px 0 var(--text-muted), 0 26px 0 var(--text-muted);
+}
+
+.gd-nav-thumb::after {
+	content: "";
+	position: absolute;
+	left: 6px;
+	right: 6px;
+	bottom: 8px;
+	height: 8px;
+	border-radius: 2px;
+	background: var(--bg);
+}
+
+.gd-nav-text { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+.gd-nav-item-title { font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+.gd-nav-summary { font-size: 12px; color: var(--text-muted); }
+
+.gd-nav-tag {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	margin-top: 2px;
+	padding: 0 8px;
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-pill);
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--text-muted);
+}
+
+.gd-nav-tag-chosen { color: var(--accent); border-color: var(--accent-line); }
+
+.gd-nav-tag-chosen::before {
+	content: "";
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--accent);
+}
+
+.gd-nav-note {
+	margin: auto 0 0;
+	padding: 12px 16px;
+	border-top: 1px solid var(--border);
+	font-size: 13px;
+	color: var(--text-muted);
 }
 
 /* The viewport: a dot grid; the mode chip floats over it. */
@@ -410,6 +544,8 @@ select {
 	transform-origin: right bottom;
 }
 
+.gd-compact .gd-board-actions { display: none; }
+
 .gd-implement { white-space: nowrap; }
 
 /* At 100% the label makes room for the handoff row above Implement this. */
@@ -427,11 +563,35 @@ select {
 
 .gd-implement [hidden] { display: none; }
 
+.gd-artboard-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
 .gd-artboard-title {
 	margin: 0;
 	font-size: 16px;
 	font-weight: 600;
 }
+
+.gd-artboard-num { color: var(--text-muted); font-size: 16px; }
+
+/* The focus header repeats the handoff state beside the title; the row below stays for the other modes. */
+.gd-artboard-state {
+	display: none;
+	align-items: center;
+	padding: 1px 10px;
+	border: 1px solid var(--info-line);
+	border-radius: var(--radius-pill);
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--info);
+}
+
+.gd-focus-board .gd-artboard-state:not([hidden]) { display: inline-flex; }
+.gd-artboard-state[data-status="queued"] { color: var(--warning); border-color: var(--warning-line); }
+.gd-artboard-state[data-status="implemented"] { color: var(--success); border-color: var(--success-line); }
 
 .gd-artboard-tradeoff {
 	margin: 0;
@@ -605,10 +765,88 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .gd-panel[hidden] { display: none; }
 
-.gd-filter { margin: 0 12px 8px; }
-.gd-filter button[aria-pressed="true"] { border-color: var(--accent-line); color: var(--accent); }
+/* Tabs: Comments N / Resolved N / Brief */
+.gd-tabs {
+	display: flex;
+	gap: 4px;
+	padding: 10px 12px 0;
+	border-bottom: 1px solid var(--border);
+}
 
-.gd-panel-empty { margin: 8px 12px; color: var(--text-muted); }
+.gd-tab {
+	margin-bottom: -1px;
+	padding: 6px 12px;
+	border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+	border: 0;
+	border-bottom: 2px solid transparent;
+	color: var(--text-muted);
+}
+
+.gd-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+
+.gd-count {
+	padding: 0 6px;
+	border-radius: var(--radius-pill);
+	background: var(--surface-2);
+	color: var(--accent-soft);
+	font-size: 12px;
+}
+
+.gd-panel-body {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 12px;
+}
+
+.gd-panel-empty { margin: 0; color: var(--text-muted); }
+
+.gd-brief { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.gd-brief-title { margin: 0; font-size: 15px; }
+.gd-brief-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Handoff timeline */
+.gd-handoff-panel {
+	padding: 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	background: var(--bg);
+}
+
+.gd-handoff-title { margin: 0 0 10px; font-size: 13px; }
+
+.gd-timeline {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.gd-step {
+	display: grid;
+	grid-template-columns: 14px minmax(0, 1fr);
+	gap: 10px;
+	font-size: 13px;
+}
+
+.gd-step-dot {
+	width: 10px;
+	height: 10px;
+	margin-top: 5px;
+	border-radius: 50%;
+	border: 2px solid var(--text-faint);
+}
+
+.gd-step-done .gd-step-dot { background: var(--success); border-color: var(--success); }
+.gd-step-current .gd-step-dot { background: var(--info); border-color: var(--info); box-shadow: 0 0 0 3px var(--info-halo); }
+.gd-step-pending .gd-step-label { color: var(--text-muted); }
+.gd-step-body { display: flex; flex-direction: column; min-width: 0; }
+.gd-step-detail { color: var(--text-muted); overflow-wrap: anywhere; }
 
 .gd-side-foot {
 	margin-top: auto;
@@ -643,13 +881,10 @@ button:disabled { opacity: 0.5; cursor: default; }
 .gd-comment-list {
 	list-style: none;
 	margin: 0;
-	padding: 0 12px 12px;
-	flex: 1;
-	min-height: 0;
-	overflow-y: auto;
+	padding: 0;
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: 10px;
 }
 
 .gd-comment-item {
@@ -667,28 +902,49 @@ button:disabled { opacity: 0.5; cursor: default; }
 	text-align: left;
 	border: 0;
 	background: transparent;
-	padding: 8px;
+	padding: 12px 12px 4px;
 }
 
 .gd-comment-meta {
 	display: flex;
-	flex-wrap: wrap;
-	gap: 6px;
+	align-items: center;
+	gap: 8px;
 	color: var(--text-muted);
 	font-size: 12px;
 }
 
-.gd-comment-number { color: var(--text); font-weight: 700; }
-.gd-comment-text { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.gd-badge { border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
-.gd-badge-detached { color: var(--error); border-color: var(--error); }
-.gd-badge-sent { color: var(--success); border-color: var(--success); }
+/* The pin's badge: the same shape as the pin on the artboard. */
+.gd-comment-number {
+	flex: none;
+	display: grid;
+	place-items: center;
+	min-width: 22px;
+	height: 22px;
+	padding: 0 4px;
+	border-radius: 11px 11px 11px 2px;
+	background: var(--accent);
+	color: var(--bg);
+	font-size: 11px;
+	font-weight: 700;
+}
+
+.gd-active .gd-comment-number { background: var(--warning); }
+.gd-comment-selector { flex: 0 1 auto; min-width: 0; }
+.gd-comment-text { display: block; margin: 8px 0 0; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.gd-comment-file { display: block; margin-top: 4px; color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.gd-badge { flex: none; margin-left: auto; padding: 0 8px; border: 1px solid currentColor; border-radius: var(--radius-pill); font-weight: 600; }
+.gd-badge ~ .gd-badge { margin-left: 0; }
+.gd-badge-unsent { color: var(--warning); }
+.gd-badge-detached { color: var(--error); }
+.gd-badge-sent { color: var(--success); }
 
 .gd-comment-actions {
 	display: flex;
 	justify-content: flex-end;
-	padding: 0 8px 8px;
+	padding: 0 12px 12px;
 }
+
+.gd-comment-actions button { min-height: 30px; padding: 2px 10px; font-size: 12px; color: var(--text-muted); }
 
 .gd-empty {
 	position: absolute;

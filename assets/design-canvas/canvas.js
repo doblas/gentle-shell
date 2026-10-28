@@ -42,14 +42,18 @@
 	const PREVIEW_HINT = "If the app refuses to be framed, use Open in new tab.";
 	// CSP host sources have no IPv6 literal form, so Chromium drops the [::1] source from frame-src.
 	const IPV6_HINT = "Browsers do not frame [::1] under the canvas policy (CSP has no IPv6 sources): use Open in new tab, or report the preview on localhost.";
+	// Below this on-screen artboard width, the screen-size handoff row and Implement this would
+	// overlap the next artboard: they collapse, and the navigator and the timeline carry the state.
+	const COMPACT_BOARD_WIDTH = 360;
 	const COMPARE_GAP = 24;
 	const COMPARE_PADDING = 24;
 	const TOAST_MS = 5000;
 	const COMMENT_CHIP = "Click an element to comment · Esc";
+	const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+	const TAB_NAMES = ["open", "resolved", "brief"];
 
 	const $ = (id) => document.getElementById(id);
 	const els = {
-		title: $("gd-title"),
 		design: $("gd-design"),
 		designField: $("gd-design-field"),
 		feature: $("gd-feature"),
@@ -67,6 +71,22 @@
 		shortcutsClose: $("gd-shortcuts-close"),
 		nav: $("gd-nav"),
 		navTitle: $("gd-nav-title"),
+		navList: $("gd-nav-list"),
+		navNote: $("gd-nav-note"),
+		featureSep: $("gd-feature-sep"),
+		compareApp: $("gd-compare-app"),
+		tabs: $("gd-tabs"),
+		tabBrief: $("gd-tab-brief"),
+		countOpen: $("gd-count-open"),
+		countResolved: $("gd-count-resolved"),
+		tabPanel: $("gd-tabpanel"),
+		brief: $("gd-brief"),
+		briefTitle: $("gd-brief-title"),
+		briefText: $("gd-brief-text"),
+		briefFeature: $("gd-brief-feature"),
+		handoffPanel: $("gd-handoff-panel"),
+		handoffTitle: $("gd-handoff-title"),
+		timeline: $("gd-timeline"),
 		back: $("gd-back"),
 		comment: $("gd-comment"),
 		status: $("gd-status"),
@@ -131,7 +151,8 @@
 		shotToken: 0,
 		closeTimer: 0,
 		comments: [],
-		filter: "open",
+		// The review tab: "open" or "resolved" (the comment list) or "brief".
+		tab: "open",
 		mode: storedMode(),
 		activeId: null,
 		designCount: 0,
@@ -186,6 +207,7 @@
 		els.world.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.zoom})`;
 		els.world.style.setProperty("--gd-inv-zoom", String(1 / state.zoom));
 		els.zoomLevel.textContent = `${Math.round(state.zoom * 100)}%`;
+		for (const board of allBoards()) board.wrapper.classList.toggle("gd-compact", board.artboard.width * state.zoom < COMPACT_BOARD_WIDTH);
 	}
 
 	/** Zoom so the world point under (px, py) in viewport coordinates stays put. */
@@ -394,7 +416,8 @@
 		els.design.disabled = Boolean(focused) || state.designCount === 0;
 		els.back.hidden = !focused;
 		els.railSystem.disabled = !state.systemBoard;
-		els.navTitle.textContent = `Artboards · ${state.boards.length}`;
+		els.compareApp.disabled = Boolean(state.compare);
+		renderNav();
 		renderNavMode();
 	}
 
@@ -443,8 +466,8 @@
 		exitFocus();
 		els.world.replaceChildren();
 		state.boards = [];
-		els.navTitle.textContent = "Artboards · 0";
 		els.railSystem.disabled = !state.systemBoard;
+		renderHandoffViews();
 		els.empty.textContent = text;
 		els.empty.hidden = false;
 	}
@@ -479,16 +502,29 @@
 		return board.system ? `${base}system.html` : fileUrl(board.slug, board.artboard.file);
 	}
 
-	function createBoard(slug, artboard, system = false) {
+	function createBoard(slug, artboard, system = false, number = 0) {
 		const wrapper = document.createElement("section");
 		wrapper.className = system ? "gd-artboard gd-system-board" : "gd-artboard";
 		wrapper.setAttribute("aria-label", artboard.title);
 		const label = document.createElement("div");
 		label.className = "gd-artboard-label";
+		// The header: number, title and, while focused, the handoff state chip.
+		const head = document.createElement("div");
+		head.className = "gd-artboard-head";
 		const title = document.createElement("h2");
 		title.className = "gd-artboard-title";
 		title.textContent = artboard.title;
-		label.append(title);
+		let stateChip = null;
+		if (!system) {
+			const num = chip("gd-artboard-num", String(number).padStart(2, "0"));
+			num.setAttribute("aria-hidden", "true");
+			// The handoff row below says the same in words; this chip only repeats it in the focus header.
+			stateChip = chip("gd-artboard-state", "");
+			stateChip.hidden = true;
+			stateChip.setAttribute("aria-hidden", "true");
+			head.append(num, title, stateChip);
+		} else head.append(title);
+		label.append(head);
 		if (artboard.tradeoff) {
 			const tradeoff = document.createElement("p");
 			tradeoff.className = "gd-artboard-tradeoff";
@@ -535,7 +571,7 @@
 		const pins = document.createElement("div");
 		pins.className = "gd-pins";
 		// rects: null until the artboard reports where each commented element is.
-		const board = { slug, artboard, frame, wrapper, shield, pins, handoff, rects: null, system, viewHeight: 0 };
+		const board = { slug, artboard, number, frame, wrapper, shield, pins, handoff, stateChip, rects: null, system, viewHeight: 0 };
 		setFrameHeight(board, artboard.height);
 		renderHandoff(board);
 		shield.addEventListener("keydown", (event) => {
@@ -672,6 +708,10 @@
 		const parts = [];
 		if (typeof chosen === "string") parts.push(chip(`gd-choice ${isChosen ? "gd-choice-chosen" : "gd-choice-alternative"}`, isChosen ? "Chosen" : "Alternative"));
 		const kind = entry ? handoffKind(entry) : null;
+		board.stateChip.hidden = !kind;
+		board.stateChip.textContent = kind ? HANDOFF_LABELS[kind] : "";
+		if (kind) board.stateChip.dataset.status = kind;
+		else delete board.stateChip.dataset.status;
 		let compare = null;
 		if (kind) {
 			const badge = chip("gd-handoff-badge", HANDOFF_LABELS[kind]);
@@ -707,6 +747,128 @@
 
 	function renderHandoffs() {
 		state.boards.forEach(renderHandoff);
+		renderHandoffViews();
+	}
+
+	/** The chosen artboard of the open design, or null. */
+	function chosenBoard() {
+		const chosen = state.handoffs.slug === state.slug ? state.handoffs.chosen : null;
+		return typeof chosen === "string" ? state.boards.find((board) => board.artboard.file === chosen) ?? null : null;
+	}
+
+	/** Everything outside the artboards that follows handoffs, boards and comments: navigator, Compare with app, timeline. */
+	function renderHandoffViews() {
+		renderCompareApp();
+		renderTimeline();
+		renderNav();
+	}
+
+	function renderCompareApp() {
+		const board = chosenBoard();
+		const entry = board ? handoffOf(board).entry : null;
+		const preview = entry && handoffKind(entry) === "implemented" ? previewTarget(entry.previewUrl) : null;
+		state.comparePreview = board && preview ? { board, preview } : null;
+		els.compareApp.hidden = !state.comparePreview;
+	}
+
+	els.compareApp.addEventListener("click", () => {
+		if (state.comparePreview) enterCompare(state.comparePreview.board, state.comparePreview.preview);
+	});
+
+	/** A short local time: "Today 10:42", "Oct 26, 10:42", or "Mar 4 2020, 09:05" from another year; "" when unreadable. */
+	function shortTime(value) {
+		const date = typeof value === "string" ? new Date(value) : null;
+		if (!date || Number.isNaN(date.getTime())) return "";
+		const now = new Date();
+		const clock = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+		if (date.toDateString() === now.toDateString()) return `Today ${clock}`;
+		const day = `${MONTHS[date.getMonth()]} ${date.getDate()}`;
+		return `${date.getFullYear() === now.getFullYear() ? day : `${day} ${date.getFullYear()}`}, ${clock}`;
+	}
+
+	/** Chosen, Sent to the session, In progress, Implemented: done, current or pending, with timestamps. */
+	function renderTimeline() {
+		const board = chosenBoard();
+		els.handoffPanel.hidden = !board;
+		if (!board) {
+			els.timeline.replaceChildren();
+			return;
+		}
+		els.handoffTitle.textContent = `Handoff · ${board.artboard.title}`;
+		const entry = handoffOf(board).entry;
+		const kind = entry ? handoffKind(entry) : null;
+		// The index of the step the handoff is at; steps before it are done, a step at it is current.
+		const at = { queued: 1, sent: 2, in_progress: 2, implemented: 4 }[kind] ?? 1;
+		const stateOf = (index) => (index < at ? "done" : index === at && kind ? "current" : "pending");
+		const sent = entry ? shortTime(entry.sentAt) : "";
+		const started = entry ? shortTime(entry.startedAt) : "";
+		const finished = entry ? shortTime(entry.implementedAt) : "";
+		const note = entry && typeof entry.note === "string" && entry.note ? `“${entry.note}”` : "";
+		const queued = kind === "queued";
+		const defs = [
+			["Chosen", []],
+			["Sent to the session", queued ? [sent ? `Queued · ${sent}` : "Queued"] : kind ? [sent] : ["Use Implement this to send it"]],
+			["In progress", kind ? [started, note] : []],
+			["Implemented", [kind === "implemented" ? finished : "Compare with the running app when ready"]],
+		];
+		els.timeline.replaceChildren(...defs.map(([label, details], index) => {
+			const status = stateOf(index);
+			const item = document.createElement("li");
+			item.className = `gd-step gd-step-${status}`;
+			item.dataset.state = status;
+			if (status === "current") item.setAttribute("aria-current", "step");
+			const dot = document.createElement("span");
+			dot.className = "gd-step-dot";
+			dot.setAttribute("aria-hidden", "true");
+			const body = document.createElement("span");
+			body.className = "gd-step-body";
+			// Never color alone: the state is also in words for assistive technology.
+			const words = chip("gd-visually-hidden gd-step-state", status === "done" ? " (done)" : status === "current" ? " (current)" : " (not yet)");
+			body.append(chip("gd-step-label", label), words, ...details.filter(Boolean).map((text) => chip("gd-step-detail", text)));
+			item.append(dot, body);
+			return item;
+		}));
+	}
+
+	function commentSummary(board) {
+		const mine = commentsForBoard(board);
+		const open = mine.filter((comment) => comment.status === "open").length;
+		const resolved = mine.filter((comment) => comment.status === "resolved").length;
+		const parts = [];
+		if (open > 0) parts.push(`${open} open comment${open === 1 ? "" : "s"}`);
+		if (resolved > 0) parts.push(`${resolved} resolved`);
+		return parts.length > 0 ? parts.join(" · ") : "No comments";
+	}
+
+	/** The artboard navigator: one item per design artboard; the system board is not listed. */
+	function renderNav() {
+		els.navTitle.textContent = `Artboards · ${state.boards.length}`;
+		els.navNote.hidden = !state.systemBoard;
+		const refocus = els.navList.contains(document.activeElement) ? document.activeElement.dataset.file : null;
+		const items = state.boards.map((board) => {
+			const item = document.createElement("li");
+			const button = document.createElement("button");
+			button.type = "button";
+			button.className = "gd-nav-item";
+			button.dataset.file = board.artboard.file;
+			if (board === state.focus) button.setAttribute("aria-current", "true");
+			const thumb = chip("gd-nav-thumb", "");
+			thumb.setAttribute("aria-hidden", "true");
+			const text = document.createElement("span");
+			text.className = "gd-nav-text";
+			text.append(chip("gd-nav-item-title", `${String(board.number).padStart(2, "0")} ${board.artboard.title}`), chip("gd-nav-summary", commentSummary(board)));
+			const { chosen } = handoffOf(board);
+			if (typeof chosen === "string") {
+				const isChosen = chosen === board.artboard.file;
+				text.append(chip(`gd-nav-tag${isChosen ? " gd-nav-tag-chosen" : ""}`, isChosen ? "Chosen" : "Alternative"));
+			}
+			button.append(thumb, text);
+			button.addEventListener("click", () => enterFocus(board));
+			item.append(button);
+			return item;
+		});
+		els.navList.replaceChildren(...items);
+		if (refocus) els.navList.querySelector?.(`[data-file="${CSS.escape(refocus)}"]`)?.focus();
 	}
 
 	function setHandoffs(slug, data) {
@@ -820,7 +982,8 @@
 		els.compare.hidden = false;
 		els.viewport.inert = true;
 		els.panel.inert = true;
-		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit, els.railSystem, els.design]) control.disabled = true;
+		els.nav.inert = true;
+		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit, els.railSystem, els.design, els.compareApp]) control.disabled = true;
 		layoutCompare();
 		els.compareBack.focus();
 	}
@@ -835,6 +998,7 @@
 		els.compare.hidden = true;
 		els.viewport.inert = false;
 		els.panel.inert = false;
+		els.nav.inert = false;
 		applyFocusState();
 		if (!restoreFocus) return;
 		const board = state.boards.find((candidate) => candidate.artboard.file === compare.board.artboard.file);
@@ -847,8 +1011,18 @@
 
 	function showFeature(manifest) {
 		const feature = manifest && typeof manifest.feature === "string" ? manifest.feature : "";
-		els.feature.textContent = feature ? `Feature: ${feature}` : "";
+		els.feature.textContent = feature;
 		els.feature.hidden = !feature;
+		els.featureSep.hidden = !feature;
+		els.briefFeature.textContent = feature;
+		els.briefFeature.hidden = !feature;
+	}
+
+	/** The Brief tab: the design's title, brief and feature document. */
+	function renderBrief() {
+		const manifest = state.manifest;
+		els.briefTitle.textContent = manifest ? manifest.title : "No design selected";
+		els.briefText.textContent = manifest ? (typeof manifest.brief === "string" && manifest.brief ? manifest.brief : "No brief written.") : "";
 	}
 
 	/** No design selected: only the system board, or the empty notice. */
@@ -856,13 +1030,14 @@
 		state.manifest = null;
 		state.boards = [];
 		showFeature(null);
-		els.title.textContent = "Gentle Design";
+		renderBrief();
 		if (!state.systemBoard) {
 			showEmpty("No designs yet. Run /gentle:design with a brief to create one.");
 			return;
 		}
 		els.empty.hidden = true;
 		placeBoards();
+		renderHandoffViews();
 		setStatus("", false);
 		requestAnimationFrame(fit);
 	}
@@ -880,7 +1055,7 @@
 		closePopover();
 		state.manifest = manifest;
 		showFeature(manifest);
-		els.title.textContent = manifest.title;
+		renderBrief();
 		document.title = `${manifest.title} · Gentle Design`;
 		history.replaceState(null, "", `${base}d/${encodeURIComponent(slug)}/`);
 		if (manifest.artboards.length === 0 && !state.systemBoard) {
@@ -889,7 +1064,7 @@
 		}
 		els.empty.hidden = true;
 		const focusFile = state.focus && !state.focus.system ? state.focus.artboard.file : null;
-		state.boards = manifest.artboards.map((artboard) => createBoard(slug, artboard));
+		state.boards = manifest.artboards.map((artboard, index) => createBoard(slug, artboard, false, index + 1));
 		// A manifest reload keeps focus mode on the same artboard file while it still exists.
 		if (focusFile) state.focus = state.boards.find((board) => board.artboard.file === focusFile) ?? state.focus;
 		placeBoards();
@@ -1104,18 +1279,25 @@
 	function renderList() {
 		const open = state.comments.filter((comment) => comment.status === "open");
 		const resolved = state.comments.filter((comment) => comment.status === "resolved");
-		els.filterOpen.textContent = `Open (${open.length})`;
-		els.filterResolved.textContent = `Resolved (${resolved.length})`;
-		els.filterOpen.setAttribute("aria-pressed", String(state.filter === "open"));
-		els.filterResolved.setAttribute("aria-pressed", String(state.filter === "resolved"));
+		els.countOpen.textContent = String(open.length);
+		els.countResolved.textContent = String(resolved.length);
+		TAB_NAMES.forEach((name, index) => {
+			const tab = tabButtons()[index];
+			tab.setAttribute("aria-selected", String(state.tab === name));
+			tab.setAttribute("tabindex", state.tab === name ? "0" : "-1");
+		});
+		els.tabPanel.setAttribute("aria-labelledby", tabButtons()[TAB_NAMES.indexOf(state.tab)].id);
 		const unsent = open.filter((comment) => comment.sentAt === null).length;
 		els.sendAll.textContent = `Send all (${unsent})`;
 		els.sendAll.disabled = unsent === 0;
-		const shown = state.filter === "open" ? open : resolved;
-		els.panelEmpty.hidden = shown.length > 0;
+		const brief = state.tab === "brief";
+		els.brief.hidden = !brief;
+		els.list.hidden = brief;
+		const shown = state.tab === "resolved" ? resolved : open;
+		els.panelEmpty.hidden = brief || shown.length > 0;
 		els.panelEmpty.textContent = state.comments.length === 0
 			? "No comments yet. Turn on Comment mode and click an element."
-			: state.filter === "open" ? "No open comments." : "No resolved comments.";
+			: state.tab === "open" ? "No open comments." : "No resolved comments.";
 		els.list.replaceChildren(...shown.map((comment) => {
 			const item = document.createElement("li");
 			item.className = "gd-comment-item";
@@ -1125,27 +1307,33 @@
 			show.type = "button";
 			show.className = "gd-comment-show";
 			show.setAttribute("aria-label", `Show comment ${commentNumber(comment)} on ${comment.file}`);
+			// Pin number, the element's selector, and whether the session has it yet.
 			const meta = document.createElement("span");
 			meta.className = "gd-comment-meta";
 			const number = document.createElement("span");
 			number.className = "gd-comment-number";
-			number.textContent = `#${commentNumber(comment)}`;
-			const file = document.createElement("span");
-			file.textContent = comment.file;
-			meta.append(number, file);
+			number.textContent = String(commentNumber(comment));
+			const selector = document.createElement("code");
+			selector.className = "gd-comment-selector";
+			selector.title = `${comment.file} · ${comment.selector}`;
+			selector.textContent = comment.selector;
+			meta.append(number, selector);
 			const badge = (text, kind) => {
 				const element = document.createElement("span");
 				element.className = `gd-badge gd-badge-${kind}`;
 				element.textContent = text;
 				meta.append(element);
 			};
-			badge(comment.sentAt ? "Sent" : "Not sent", comment.sentAt ? "sent" : "unsent");
+			badge(comment.sentAt ? "Sent" : "Waiting", comment.sentAt ? "sent" : "unsent");
 			if (isDetached(comment)) badge("Detached", "detached");
 			const text = document.createElement("span");
 			text.className = "gd-comment-text";
 			text.style.display = "block";
 			text.textContent = comment.comment;
-			show.append(meta, text);
+			const file = document.createElement("span");
+			file.className = "gd-comment-file";
+			file.textContent = comment.file;
+			show.append(meta, text, file);
 			if (comment.screenshot) {
 				const shot = document.createElement("img");
 				shot.className = "gd-comment-shot";
@@ -1171,6 +1359,7 @@
 
 	function renderComments() {
 		renderList();
+		renderNav();
 		state.boards.forEach(renderPins);
 	}
 
@@ -1195,10 +1384,7 @@
 		renderComments();
 		const comment = state.comments.find((candidate) => candidate.id === id);
 		if (!comment) return;
-		if (comment.status !== state.filter && options.focusList) {
-			state.filter = comment.status;
-			renderList();
-		}
+		if (comment.status !== state.tab && options.focusList) setTab(comment.status);
 		const board = state.boards.find((candidate) => candidate.artboard.file === comment.file);
 		board?.frame.contentWindow?.postMessage({ type: "gd:highlight", id }, "*");
 		if (options.focusList) els.list.querySelector(`[data-id="${CSS.escape(id)}"] .gd-comment-show`)?.focus();
@@ -1256,8 +1442,26 @@
 
 	els.modeSend.addEventListener("change", () => setMode("send"));
 	els.modeCollect.addEventListener("change", () => setMode("collect"));
-	els.filterOpen.addEventListener("click", () => { state.filter = "open"; renderList(); });
-	els.filterResolved.addEventListener("click", () => { state.filter = "resolved"; renderList(); });
+
+	function tabButtons() {
+		return [els.filterOpen, els.filterResolved, els.tabBrief];
+	}
+
+	function setTab(name) {
+		state.tab = name;
+		renderList();
+	}
+
+	tabButtons().forEach((tab, index) => tab.addEventListener("click", () => setTab(TAB_NAMES[index])));
+	// Arrow keys, Home and End move between the tabs, wrapping around.
+	els.tabs.addEventListener("keydown", (event) => {
+		const current = TAB_NAMES.indexOf(state.tab);
+		const next = { ArrowRight: (current + 1) % 3, ArrowLeft: (current + 2) % 3, Home: 0, End: 2 }[event.key];
+		if (next === undefined) return;
+		event.preventDefault();
+		setTab(TAB_NAMES[next]);
+		tabButtons()[next].focus();
+	});
 	function setPanel(show) {
 		els.panel.hidden = !show;
 		els.panelToggle.setAttribute("aria-pressed", String(show));
