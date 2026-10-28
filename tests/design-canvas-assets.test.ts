@@ -3889,3 +3889,9 @@ test("S2-S4: the History tab and the comparison are in index.html and canvas.css
 	assert.match(css, /\.gd-version-current::before\s*{[^}]*var\(--accent\)/);
 	assert.match(css, /\.gd-version-reply\s*{[^}]*border-left:[^}]*var\(--success\)/);
 });
+
+test("S2: five tabs never squeeze their labels into each other: the tab row scrolls instead", () => {
+	const css = read("canvas.css");
+	assert.match(css, /\.gd-tabs\s*{[^}]*overflow-x:\s*auto/);
+	assert.match(css, /\.gd-tab\s*{[^}]*flex:\s*none/);
+});
