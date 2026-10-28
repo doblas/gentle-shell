@@ -366,7 +366,7 @@ select {
 
 .gd-nav-item {
 	display: grid;
-	grid-template-columns: 44px minmax(0, 1fr);
+	grid-template-columns: 56px minmax(0, 1fr);
 	gap: 10px;
 	align-items: center;
 	width: 100%;
@@ -379,37 +379,26 @@ select {
 
 .gd-nav-item[aria-current="true"] { background: var(--surface-2); border-color: var(--border); }
 
-/* A page-shaped placeholder: the artboards render live, so the list shows a stand-in. */
+/* The live thumbnail: the artboard scaled to the thumbnail's width. Nothing in it can be reached or focused. */
 .gd-nav-thumb {
 	position: relative;
-	width: 44px;
-	height: 60px;
+	width: 56px;
+	height: 40px;
 	border-radius: 4px;
 	background: var(--paper);
+	box-shadow: 0 0 0 1px var(--border-soft);
 	overflow: hidden;
 }
 
-.gd-nav-thumb::before {
-	content: "";
+.gd-nav-thumb-frame {
 	position: absolute;
-	left: 6px;
-	right: 6px;
-	top: 10px;
-	height: 4px;
-	border-radius: 2px;
-	background: var(--bg);
-	box-shadow: 0 10px 0 var(--text-muted), 0 18px 0 var(--text-muted), 0 26px 0 var(--text-muted);
-}
-
-.gd-nav-thumb::after {
-	content: "";
-	position: absolute;
-	left: 6px;
-	right: 6px;
-	bottom: 8px;
-	height: 8px;
-	border-radius: 2px;
-	background: var(--bg);
+	top: 0;
+	left: 0;
+	display: block;
+	border: 0;
+	background: var(--paper);
+	transform-origin: 0 0;
+	pointer-events: none;
 }
 
 .gd-nav-text { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
@@ -649,7 +638,8 @@ select {
 .gd-system-note { visibility: hidden; margin: 0; color: var(--text-muted); font-style: italic; cursor: help; }
 .gd-commenting .gd-system-note { visibility: visible; }
 
-.gd-frame-box { position: relative; }
+/* The box is the frame's size, so pins, the shield and the overflow chip line up with the frame, not with a wider header. */
+.gd-frame-box { position: relative; align-self: flex-start; }
 
 /* Navigation mode: a shield over each artboard keeps the wheel, drags and clicks on the canvas.
    Focus mode removes it from the focused artboard only. */
@@ -742,6 +732,155 @@ select {
 
 .gd-pin[data-status="resolved"] { background: var(--text-muted); opacity: 0.75; }
 .gd-pin.gd-pin-active { background: var(--warning); opacity: 1; }
+
+/* Screen sizes (focus mode): the control in the artboard header, the All sizes view, the Overflows chip. */
+.gd-sizebar {
+	display: none;
+	align-items: center;
+	gap: 10px;
+	width: max-content;
+	margin-top: 4px;
+}
+
+.gd-focus-board .gd-sizebar { display: flex; }
+
+/* The header grows to hold the control, so the handoff row and Implement this follow it instead of overlaying it. */
+.gd-focus-board .gd-board-actions {
+	position: static;
+	align-self: flex-end;
+	max-width: none;
+	transform: none;
+}
+
+.gd-focus-board.gd-has-handoff .gd-artboard-label { padding-top: 0; }
+
+.gd-i-s { width: 15px; height: 15px; }
+
+.gd-devices {
+	display: inline-flex;
+	padding: 3px;
+	gap: 2px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	background: var(--surface);
+}
+
+.gd-size-button {
+	min-height: 30px;
+	padding: 2px 10px;
+	border-color: transparent;
+	color: var(--text-muted);
+	font-size: 13px;
+}
+
+.gd-size-button[aria-pressed="true"] { background: var(--surface-2); color: var(--text); }
+
+.gd-size-custom {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--text-muted);
+	font-size: 13px;
+}
+
+.gd-size-input {
+	width: 9ch;
+	min-height: 30px;
+	padding: 2px 8px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	background: var(--bg);
+	color: var(--text);
+	font: 12px var(--font-mono);
+}
+
+.gd-size-input[aria-invalid="true"] { border-color: var(--error-line); }
+.gd-size-custom.gd-selected .gd-size-input { border-color: var(--accent-line); }
+
+.gd-size-readout {
+	padding: 1px 6px;
+	border: 1px solid var(--border-soft);
+	border-radius: 6px;
+	background: var(--wash);
+	color: var(--accent-soft);
+	font: 12px var(--font-mono);
+	white-space: nowrap;
+}
+
+.gd-size-error { color: var(--error); font-size: 12px; }
+
+/* All sizes: the artboard's own frame stays loaded but hidden; three scaled frames take its place. */
+.gd-all-sizes .gd-frame-box { visibility: hidden; }
+
+.gd-sizes-all {
+	position: absolute;
+	z-index: 3;
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+	gap: 20px;
+}
+
+.gd-size-frame {
+	display: flex;
+	flex: none;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.gd-size-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 20px;
+	color: var(--text-muted);
+	font-size: 12px;
+	white-space: nowrap;
+}
+
+.gd-size-name { color: var(--text); font-weight: 600; }
+.gd-size-dim, .gd-size-scale { font-variant-numeric: tabular-nums; }
+
+.gd-size-scaled {
+	position: relative;
+	overflow: hidden;
+	border-radius: 6px;
+	background: var(--paper);
+	box-shadow: var(--shadow-frame);
+}
+
+.gd-size-stage {
+	position: absolute;
+	top: 0;
+	left: 0;
+	transform-origin: 0 0;
+}
+
+.gd-size-iframe {
+	display: block;
+	border: 0;
+	background: var(--paper);
+}
+
+.gd-commenting .gd-size-scaled { outline: 2px dashed var(--accent); outline-offset: 2px; }
+
+.gd-overflow-flag {
+	position: absolute;
+	right: 6px;
+	bottom: 6px;
+	z-index: 2;
+	display: inline-flex;
+	align-items: center;
+	padding: 1px 10px;
+	border: 1px solid var(--warning-line);
+	border-radius: var(--radius-pill);
+	background: var(--surface);
+	box-shadow: var(--shadow-frame);
+	color: var(--warning);
+	font-size: 12px;
+	font-weight: 600;
+	cursor: help;
+}
 
 .gd-radio {
 	display: inline-flex;

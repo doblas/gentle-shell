@@ -89,6 +89,12 @@ class FakeElement {
 		this.children = [];
 		this.append(...nodes);
 	}
+	remove() {
+		const parent = this.parentElement;
+		if (!parent) return;
+		parent.children = parent.children.filter((child) => child !== this);
+		this.parentElement = null;
+	}
 	contains(node: FakeElement | null) {
 		for (let current = node; current; current = current.parentElement) if (current === this) return true;
 		return false;
@@ -431,6 +437,8 @@ test("a show event for another design leaves focus, loads that design and replac
 
 function loadInspector() {
 	const posted: any[] = [];
+	// requestAnimationFrame callbacks wait here until a test runs them.
+	const frames: Array<() => void> = [];
 	const listeners = new Map<string, Listener[]>();
 	class Element {}
 	const style = () => ({ cursor: "" });
@@ -467,8 +475,9 @@ function loadInspector() {
 		Element,
 		CSS: { escape: (value: string) => value },
 		getComputedStyle: () => ({ overflowX: "hidden", overflowY: "hidden" }),
-		requestAnimationFrame: () => 0,
+		requestAnimationFrame: (callback: () => void) => frames.push(callback),
 		MutationObserver: class { observe() {} },
+		innerWidth: 400,
 		parent,
 		addEventListener(type: string, listener: Listener) {
 			listeners.set(type, [...(listeners.get(type) ?? []), listener]);
@@ -482,7 +491,8 @@ function loadInspector() {
 		return event;
 	};
 	const fromParent = (data: unknown) => fire("message", { source: parent, data });
-	return { posted, fire, fromParent };
+	const runFrames = () => { while (frames.length > 0) frames.shift()!(); };
+	return { posted, fire, fromParent, document, context, runFrames };
 }
 
 test("the inspector posts gd:exit-focus on Shift+Esc and keeps plain Esc for the design", () => {
@@ -1007,6 +1017,114 @@ test("the navigator footer note appears only when a system board exists", async 
 	assert.deepEqual(navTexts(withSystem, "gd-nav-item-title"), ["01 First", "02 Second"], "nor listed");
 });
 
+// Live thumbnails (T2): the artboard list shows each artboard rendered, not a placeholder.
+
+const thumbOf = (canvas: Canvas, index: number) => withClass(navItems(canvas)[index], "gd-nav-thumb")[0];
+const thumbFrame = (canvas: Canvas, index: number) => findAll(thumbOf(canvas, index), (element) => element.localName === "iframe")[0];
+
+test("S6: each artboard-list item shows a sandboxed, inert, hidden, unfocusable live render of its artboard", async () => {
+	const canvas = await loadRail();
+	assert.equal(navItems(canvas).length, 2);
+	for (const [index, file] of ["01-a.html", "02-b.html"].entries()) {
+		const thumb = thumbOf(canvas, index);
+		assert.equal(thumb.getAttribute("aria-hidden"), "true", "hidden from assistive technology");
+		const frames = findAll(thumb, (element) => element.localName === "iframe");
+		assert.equal(frames.length, 1);
+		const frame = frames[0];
+		assert.equal(frame.src, `/t/files/alpha/${file}`);
+		assert.equal(frame.getAttribute("sandbox"), "allow-scripts", "scripts only, like the artboards");
+		assert.equal(frame.getAttribute("referrerpolicy"), "no-referrer");
+		assert.equal(frame.getAttribute("aria-hidden"), "true");
+		assert.equal(frame.getAttribute("tabindex"), "-1", "never focusable");
+		assert.equal(frame.inert, true, "inert");
+		assert.equal(frame.getAttribute("loading"), "lazy", "a long list does not load every artboard at once");
+		assert.equal(frame.title, `${index === 0 ? "First" : "Second"} preview`);
+	}
+});
+
+test("S6: the thumbnail shows the artboard at its true size, scaled down to the thumbnail's width", async () => {
+	const canvas = await loadRail(300, { "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "", artboards: [
+		{ file: "01-a.html", title: "First", tradeoff: "", width: 1200, height: 800 },
+		{ file: "02-b.html", title: "Second", tradeoff: "", width: 400, height: 300 },
+	] } });
+	const first = thumbFrame(canvas, 0);
+	assert.deepEqual([first.style.width, first.style.height], ["1200px", "800px"]);
+	assert.equal(first.style.transform, `scale(${56 / 1200})`);
+	const second = thumbFrame(canvas, 1);
+	assert.deepEqual([second.style.width, second.style.height], ["400px", "300px"]);
+	assert.equal(second.style.transform, `scale(${56 / 400})`);
+});
+
+test("S6: thumbnails keep their iframes when the list re-renders, so comment and handoff changes never reload them", async () => {
+	const canvas = await loadRail();
+	const frames = [thumbFrame(canvas, 0), thumbFrame(canvas, 1)];
+	const items = navItems(canvas);
+	const srcs = frames.map((frame) => frame.src);
+	await setComments(canvas, comment("a1", "01-a.html"));
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": {} }));
+	navItems(canvas)[1].dispatch("click");
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.deepEqual(navItems(canvas), items, "the same list items");
+	assert.deepEqual([thumbFrame(canvas, 0), thumbFrame(canvas, 1)], frames, "with the same iframes");
+	assert.deepEqual(frames.map((frame) => frame.src), srcs, "that were not reloaded");
+	assert.deepEqual(navTexts(canvas, "gd-nav-summary"), ["1 open comment", "No comments"], "while the text still follows the state");
+	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Alternative", "Chosen"]);
+	assert.equal(canvas.document.getElementById("gd-nav-list").children.length, 2);
+});
+
+test("S6: a thumbnail reloads when its artboard file changes, a shared asset reloads all, comments and handoffs reload none", async () => {
+	const canvas = await loadRail();
+	const [a, b] = [thumbFrame(canvas, 0), thumbFrame(canvas, 1)];
+	await canvas.serverEvent("change", { slug: "alpha", file: "comments.json" });
+	await canvas.serverEvent("change", { slug: "alpha", file: "handoffs.json" });
+	assert.deepEqual([a.src, b.src], ["/t/files/alpha/01-a.html", "/t/files/alpha/02-b.html"]);
+
+	await canvas.serverEvent("change", { slug: "alpha", file: "01-a.html" });
+	assert.match(a.src, /^\/t\/files\/alpha\/01-a\.html\?v=\d+$/);
+	assert.equal(b.src, "/t/files/alpha/02-b.html", "only the changed artboard");
+
+	await canvas.serverEvent("change", { slug: "alpha", file: "shared.css" });
+	assert.match(a.src, /^\/t\/files\/alpha\/01-a\.html\?v=\d+$/);
+	assert.match(b.src, /^\/t\/files\/alpha\/02-b\.html\?v=\d+$/);
+	await canvas.serverEvent("change", { slug: "beta", file: "01-a.html" });
+	assert.match(a.src, /\?v=\d+$/);
+});
+
+test("S6: a thumbnail's window is not an artboard: nothing it posts is trusted", async () => {
+	const canvas = await loadRail(300, commentsDoc(comment("a1", "01-a.html")));
+	const [first] = canvas.boards;
+	const popover = canvas.document.getElementById("gd-popover");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	const thumb = thumbFrame(canvas, 0).contentWindow;
+	canvas.message(thumb, { type: "gd:pick", selector: "#cta", excerpt: "", rect: { x: 0, y: 0, width: 1, height: 1 } });
+	assert.equal(popover.hidden, true);
+	navItems(canvas)[0].dispatch("click");
+	canvas.message(thumb, { type: "gd:exit-focus" });
+	assert.match(canvas.navMode.textContent, /^Using:/, "a thumbnail cannot end focus mode");
+	canvas.message(thumb, { type: "gd:pin-rects", rects: [{ id: "a1", rect: { x: 5, y: 5, width: 5, height: 5 } }] });
+	assert.equal(withClass(first.wrapper, "gd-pin").length, 0);
+	assert.equal(thumb!.posted.length, 0, "and the canvas sends it no mode, focus or pins");
+});
+
+test("S6: a new design's list gets its own thumbnails", async () => {
+	const canvas = await loadRail();
+	await canvas.serverEvent("show", { slug: "beta" });
+	assert.equal(navItems(canvas).length, 1);
+	assert.equal(thumbFrame(canvas, 0).src, "/t/files/beta/01-only.html");
+	assert.deepEqual([thumbFrame(canvas, 0).style.width, thumbFrame(canvas, 0).style.height], ["500px", "400px"]);
+});
+
+test("S6: canvas.css drops the placeholder and makes the thumbnail frame non-interactive", () => {
+	const css = read("canvas.css");
+	assert.ok(!css.includes(".gd-nav-thumb::before") && !css.includes(".gd-nav-thumb::after"), "no placeholder drawing");
+	const frameRule = css.match(/\.gd-nav-thumb-frame\s*{[^}]*}/)![0];
+	assert.match(frameRule, /pointer-events:\s*none/);
+	assert.match(frameRule, /border:\s*0/);
+	assert.match(frameRule, /transform-origin:\s*0 0/);
+	assert.match(css, /\.gd-nav-thumb\s*{[^}]*overflow:\s*hidden/);
+	assert.match(css, /grid-template-columns:\s*56px minmax\(0, 1fr\)/);
+});
+
 test("the top bar shows the feature as a chip with its separator, and hides both without one", async () => {
 	const without = await loadRail();
 	assert.equal(without.document.getElementById("gd-feature").hidden, true);
@@ -1515,4 +1633,494 @@ test("focus mode hides the artboard list only when the focused artboard would no
 	click(first.shield!, 200, 200);
 	canvas.document.getElementById("gd-back").dispatch("click");
 	assert.equal(nav.hidden, true, "a list the user had hidden stays hidden");
+});
+
+// Screen sizes (T1): the size control, one size at a time, All sizes, comments and pins per size, the overflow flag.
+
+/** First artboard 1200 x 800 so Desktop is wider than the 1000 px test viewport. */
+const wideAlpha = { "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "", artboards: [
+	{ file: "01-a.html", title: "First", tradeoff: "", width: 1200, height: 800 },
+	{ file: "02-b.html", title: "Second", tradeoff: "", width: 400, height: 300 },
+] } };
+const focusOn = (canvas: Canvas, index = 0) => click(canvas.boards[index].shield!, 200, 200);
+const sizeButtons = (canvas: Canvas, index = 0) => withClass(canvas.boards[index].wrapper, "gd-size-button");
+const sizeButton = (canvas: Canvas, size: string, index = 0) => sizeButtons(canvas, index).find((button) => button.dataset.size === size)!;
+const pressedSizes = (canvas: Canvas, index = 0) => sizeButtons(canvas, index).filter((button) => button.getAttribute("aria-pressed") === "true").map((button) => button.dataset.size);
+const readout = (canvas: Canvas, index = 0) => withClass(canvas.boards[index].wrapper, "gd-size-readout")[0].textContent;
+const customInput = (canvas: Canvas, index = 0) => withClass(canvas.boards[index].wrapper, "gd-size-input")[0];
+const sizeError = (canvas: Canvas, index = 0) => withClass(canvas.boards[index].wrapper, "gd-size-error")[0];
+const tallViewport = (canvas: Canvas) => { canvas.viewport.rect = { left: 0, top: 50, width: 1000, height: 1400 }; };
+const sizeSections = (canvas: Canvas) => withClass(canvas.viewport, "gd-size-frame");
+const iframeOf = (root: FakeElement) => findAll(root, (element) => element.localName === "iframe")[0];
+const overflowChip = (root: FakeElement) => withClass(root, "gd-overflow-flag")[0];
+const report = (width: number, scrollWidth: number) => ({ type: "gd:overflow", overflow: scrollWidth > width, width, scrollWidth });
+
+test("S1: the focused artboard's header offers Phone, Tablet, Desktop, All sizes and a custom width, Desktop selected", async () => {
+	const canvas = await loadRail();
+	const wrapper = canvas.boards[0].wrapper;
+	assert.equal(wrapper.classes.has("gd-focus-board"), false, "the control belongs to focus mode");
+	focusOn(canvas);
+	assert.equal(wrapper.classes.has("gd-focus-board"), true);
+	const group = withClass(wrapper, "gd-devices")[0];
+	assert.equal(group.getAttribute("role"), "group");
+	assert.equal(group.getAttribute("aria-label"), "Preview size");
+	const buttons = sizeButtons(canvas);
+	assert.deepEqual(buttons.map((button) => button.dataset.size), ["phone", "tablet", "desktop", "all"]);
+	assert.deepEqual(buttons.map((button) => texts(button, "gd-size-label")[0]), ["Phone", "Tablet", "Desktop", "All sizes"]);
+	assert.deepEqual(buttons.map((button) => button.title), ["Phone 390 × 844", "Tablet 820 × 1180", "Desktop 400 × 300", "All sizes: Phone, Tablet and Desktop side by side"]);
+	assert.ok(buttons.every((button) => button.type === "button"));
+	assert.deepEqual(pressedSizes(canvas), ["desktop"], "Desktop is selected when focus mode starts");
+	for (const button of buttons.slice(0, 3)) assert.equal(withClass(button, "gd-i")[0].getAttribute("aria-hidden"), "true", "icons are decoration");
+	const input = customInput(canvas);
+	assert.equal(input.getAttribute("aria-label"), "Custom width in pixels");
+	assert.deepEqual([input.type, input.getAttribute("min"), input.getAttribute("max"), input.getAttribute("step")], ["number", "240", "2560", "1"]);
+	assert.equal(readout(canvas), "400 × 300", "the current size reads width × height");
+});
+
+test("S1: Desktop is the artboard's own manifest size, and each focus session starts at Desktop", async () => {
+	const canvas = await loadRail(300, wideAlpha);
+	focusOn(canvas);
+	assert.equal(readout(canvas), "1200 × 800");
+	assert.equal(sizeButton(canvas, "desktop").title, "Desktop 1200 × 800");
+	sizeButton(canvas, "phone").dispatch("click");
+	canvas.document.getElementById("gd-back").dispatch("click");
+	focusOn(canvas);
+	assert.deepEqual(pressedSizes(canvas), ["desktop"]);
+	assert.equal(readout(canvas), "1200 × 800");
+});
+
+test("S2: Phone, Tablet and Desktop resize the focused iframe in place, centered at 100%", async () => {
+	const canvas = await loadRail();
+	tallViewport(canvas);
+	const [first] = canvas.boards;
+	const src = first.frame.src;
+	focusOn(canvas);
+	sizeButton(canvas, "phone").dispatch("click");
+	assert.equal(first.frame.style.width, "390px");
+	assert.equal(first.frame.style.height, "844px");
+	assert.equal(canvas.world.style.transform, "translate(305px, 278px) scale(1)");
+	assert.equal(canvas.zoomLevel.textContent, "100%");
+	assert.deepEqual(pressedSizes(canvas), ["phone"]);
+	assert.equal(readout(canvas), "390 × 844");
+
+	sizeButton(canvas, "tablet").dispatch("click");
+	assert.equal(first.frame.style.width, "820px");
+	assert.equal(first.frame.style.height, "1180px");
+	assert.equal(canvas.world.style.transform, "translate(90px, 110px) scale(1)");
+	assert.deepEqual(pressedSizes(canvas), ["tablet"]);
+	assert.equal(readout(canvas), "820 × 1180");
+
+	sizeButton(canvas, "desktop").dispatch("click");
+	assert.equal(first.frame.style.width, "400px");
+	assert.equal(first.frame.style.height, "300px");
+	assert.deepEqual(pressedSizes(canvas), ["desktop"]);
+	assert.equal(readout(canvas), "400 × 300");
+	assert.equal(first.frame.src, src, "the artboard is not reloaded");
+	assert.equal(canvas.frames()[0], first.frame, "and keeps its iframe");
+});
+
+test("S2: a size taller than the viewport keeps today's clip, and one wider than it starts at the left margin", async () => {
+	const canvas = await loadRail(300, wideAlpha);
+	const [first] = canvas.boards;
+	first.frame.parentElement!.offsetLeft = 480;
+	first.frame.parentElement!.offsetTop = 20;
+	focusOn(canvas);
+	// Desktop is 1200 wide in a 1000 px viewport: the left margin, 16 - 480.
+	assert.match(canvas.world.style.transform, /^translate\(-464px, /);
+	sizeButton(canvas, "phone").dispatch("click");
+	assert.equal(first.frame.style.height, "600px", "844 px does not fit the 700 px viewport (less the 16 px margin, the 20 px label and the 64 px band): clipped like a tall artboard");
+	assert.equal(readout(canvas), "390 × 844", "the readout keeps the preset height");
+	assert.equal(canvas.world.style.transform, "translate(-175px, 16px) scale(1)");
+});
+
+test("S2: a custom width resizes the iframe with the manifest height; the field accepts whole px from 240 to 2560 only", async () => {
+	const canvas = await loadRail();
+	tallViewport(canvas);
+	const [first] = canvas.boards;
+	focusOn(canvas);
+	const input = customInput(canvas);
+	input.value = "600";
+	input.dispatch("change");
+	assert.equal(first.frame.style.width, "600px");
+	assert.equal(first.frame.style.height, "300px", "height keeps the artboard's manifest height");
+	assert.deepEqual(pressedSizes(canvas), [], "no preset is selected");
+	assert.equal(readout(canvas), "600 × 300");
+	assert.ok(withClass(canvas.boards[0].wrapper, "gd-size-custom")[0].classes.has("gd-selected"));
+	assert.equal(canvas.world.style.transform, "translate(200px, 550px) scale(1)");
+
+	for (const bad of ["239", "2561", "abc", "500.5", "", "-300", "1e3"]) {
+		input.value = bad;
+		input.dispatch("change");
+		assert.equal(first.frame.style.width, "600px", `${JSON.stringify(bad)} is refused`);
+		assert.equal(readout(canvas), "600 × 300");
+		assert.equal(input.getAttribute("aria-invalid"), "true");
+		assert.equal(sizeError(canvas).hidden, false);
+		assert.match(sizeError(canvas).textContent, /whole number from 240 to 2560/);
+	}
+	for (const edge of ["240", "2560"]) {
+		input.value = edge;
+		input.dispatch("keydown", { key: "Enter" });
+		assert.equal(first.frame.style.width, `${edge}px`, `${edge} is accepted with Enter`);
+		assert.equal(input.getAttribute("aria-invalid"), null);
+		assert.equal(sizeError(canvas).hidden, true);
+	}
+	// A wider size than the viewport starts at the left margin, like a wide artboard.
+	assert.match(canvas.world.style.transform, /^translate\(16px, /);
+	sizeButton(canvas, "phone").dispatch("click");
+	assert.equal(input.value, "", "a preset clears the custom field");
+	assert.ok(!withClass(canvas.boards[0].wrapper, "gd-size-custom")[0].classes.has("gd-selected"));
+});
+
+test("S2: leaving focus mode, or focusing another artboard, restores the manifest size", async () => {
+	const canvas = await loadRail();
+	tallViewport(canvas);
+	const [first, second] = canvas.boards;
+	focusOn(canvas);
+	sizeButton(canvas, "tablet").dispatch("click");
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(first.frame.style.width, "400px");
+	assert.equal(first.frame.style.height, "300px");
+
+	focusOn(canvas);
+	sizeButton(canvas, "phone").dispatch("click");
+	navItems(canvas)[1].dispatch("click");
+	assert.equal(first.frame.style.width, "400px", "the artboard left behind is restored");
+	assert.equal(first.frame.style.height, "300px");
+	assert.deepEqual(pressedSizes(canvas, 1), ["desktop"], "the new focus starts at Desktop");
+	assert.equal(second.frame.style.width, "400px");
+	canvas.message(second.frame.contentWindow, { type: "gd:exit-focus" });
+	assert.equal(second.frame.style.width, "400px");
+});
+
+test("S2: the size survives a manifest refresh of the focused artboard", async () => {
+	const canvas = await loadRail();
+	tallViewport(canvas);
+	focusOn(canvas);
+	sizeButton(canvas, "phone").dispatch("click");
+	await canvas.serverEvent("show", { slug: "alpha" });
+	assert.equal(canvas.frames()[0].style.width, "390px");
+	assert.deepEqual(pressedSizes(canvas), ["phone"]);
+	assert.equal(readout(canvas), "390 × 844");
+});
+
+test("S3: All sizes shows Phone, Tablet and Desktop as real iframes at their true widths, scaled to fit together and labeled", async () => {
+	const canvas = await loadRail(300, wideAlpha);
+	const [first] = canvas.boards;
+	focusOn(canvas);
+	const src = first.frame.src;
+	sizeButton(canvas, "all").dispatch("click");
+	assert.deepEqual(pressedSizes(canvas), ["all"]);
+	assert.equal(readout(canvas), "All sizes");
+	assert.ok(first.wrapper.classes.has("gd-all-sizes"));
+	const sections = sizeSections(canvas);
+	assert.deepEqual(sections.map((section) => section.getAttribute("aria-label")), ["Phone 390 by 844", "Tablet 820 by 1180", "Desktop 1200 by 800"]);
+	const frames = sections.map(iframeOf);
+	assert.deepEqual(frames.map((frame) => [frame.style.width, frame.style.height]), [["390px", "844px"], ["820px", "1180px"], ["1200px", "800px"]]);
+	for (const frame of frames) {
+		assert.equal(frame.getAttribute("sandbox"), "allow-scripts");
+		assert.equal(frame.getAttribute("referrerpolicy"), "no-referrer");
+		assert.equal(frame.src, "/t/files/alpha/01-a.html");
+	}
+	assert.deepEqual(frames.map((frame) => frame.title), ["First artboard at Phone 390 × 844", "First artboard at Tablet 820 × 1180", "First artboard at Desktop 1200 × 800"]);
+
+	// One scale for the three, small enough that they fit the viewport together.
+	const stages = sections.map((section) => withClass(section, "gd-size-stage")[0]);
+	const scales = stages.map((stage) => Number(/^scale\(([\d.]+)\)$/.exec(stage.style.transform)![1]));
+	assert.ok(scales.every((scale) => scale === scales[0] && scale > 0 && scale < 1));
+	const boxes = sections.map((section) => withClass(section, "gd-size-scaled")[0]);
+	const widths = boxes.map((box, index) => Number.parseInt(box.style.width, 10));
+	const heights = boxes.map((box) => Number.parseInt(box.style.height, 10));
+	assert.deepEqual(widths, [390, 820, 1200].map((width) => Math.round(width * scales[0])));
+	assert.deepEqual(heights, [844, 1180, 800].map((height) => Math.round(height * scales[0])));
+	assert.ok(widths.reduce((sum, width) => sum + width, 0) <= 1000 - 32, "side by side within the viewport width");
+	assert.ok(Math.max(...heights) <= 700 - 64 - 16 - 28, "and above the Back to canvas band");
+	const percent = Math.round(scales[0] * 100);
+	assert.deepEqual(sections.map((section) => texts(section, "gd-size-name")[0]), ["Phone", "Tablet", "Desktop"]);
+	assert.deepEqual(sections.map((section) => texts(section, "gd-size-dim")[0]), ["390 × 844", "820 × 1180", "1200 × 800"]);
+	assert.deepEqual(sections.map((section) => texts(section, "gd-size-scale")[0]), [`· ${percent}%`, `· ${percent}%`, `· ${percent}%`]);
+	assert.equal(withClass(sections[0], "gd-i").length, 1, "each label carries its icon");
+
+	assert.equal(first.frame.src, src, "the artboard's own iframe is not reloaded");
+	sizeButton(canvas, "desktop").dispatch("click");
+	assert.equal(sizeSections(canvas).length, 0, "leaving All sizes removes the extra frames");
+	assert.ok(!first.wrapper.classes.has("gd-all-sizes"));
+	assert.equal(first.frame.style.width, "1200px");
+	assert.equal(first.frame.src, src);
+});
+
+test("S3: Back to canvas and focusing another artboard leave All sizes and restore the manifest size", async () => {
+	const canvas = await loadRail(300, wideAlpha);
+	const [first] = canvas.boards;
+	focusOn(canvas);
+	sizeButton(canvas, "all").dispatch("click");
+	assert.equal(sizeSections(canvas).length, 3);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(sizeSections(canvas).length, 0);
+	assert.equal(first.frame.style.width, "1200px");
+	assert.ok(!first.wrapper.classes.has("gd-all-sizes"));
+
+	focusOn(canvas);
+	sizeButton(canvas, "all").dispatch("click");
+	navItems(canvas)[1].dispatch("click");
+	assert.equal(sizeSections(canvas).length, 0, "another artboard starts at Desktop");
+	assert.ok(!first.wrapper.classes.has("gd-all-sizes"));
+	assert.deepEqual(pressedSizes(canvas, 1), ["desktop"]);
+});
+
+test("S3: All sizes follows the viewport and a manifest refresh, and live reload reloads the size frames", async () => {
+	const canvas = await loadRail(300, wideAlpha);
+	focusOn(canvas);
+	sizeButton(canvas, "all").dispatch("click");
+	const scaleOf = () => Number(/^scale\(([\d.]+)\)$/.exec(withClass(sizeSections(canvas)[0], "gd-size-stage")[0].style.transform)![1]);
+	const before = scaleOf();
+	canvas.viewport.rect = { left: 0, top: 50, width: 700, height: 700 };
+	canvas.windowEvent("resize");
+	assert.ok(scaleOf() < before, "a narrower viewport scales the sizes down");
+
+	await canvas.serverEvent("change", { slug: "alpha", file: "01-a.html" });
+	assert.ok(sizeSections(canvas).map(iframeOf).every((frame) => /^\/t\/files\/alpha\/01-a\.html\?v=\d+$/.test(frame.src)), "every size frame reloads");
+	assert.equal(sizeSections(canvas).length, 3);
+
+	await canvas.serverEvent("show", { slug: "alpha" });
+	assert.equal(sizeSections(canvas).length, 3, "a refresh keeps All sizes, with no orphaned frames");
+	assert.equal(canvas.viewport.children.filter((child) => child.classes.has("gd-sizes-all")).length, 1);
+});
+
+test("S3/S4: size frames are registered like the artboard's frame: they get focus, mode and pins when they load", async () => {
+	const canvas = await loadRail(300, { ...wideAlpha, ...commentsDoc(comment("a1", "01-a.html")) });
+	focusOn(canvas);
+	sizeButton(canvas, "all").dispatch("click");
+	const frames = sizeSections(canvas).map(iframeOf);
+	for (const frame of frames) {
+		frame.dispatch("load");
+		const posted = frame.contentWindow!.posted;
+		assert.deepEqual(posted.filter((message) => message.type === "gd:focus").at(-1), { type: "gd:focus", enabled: true });
+		assert.deepEqual(posted.filter((message) => message.type === "gd:mode").at(-1), { type: "gd:mode", enabled: false });
+		assert.deepEqual(posted.filter((message) => message.type === "gd:pins").at(-1), { type: "gd:pins", pins: [{ id: "a1", selector: "main > .a1" }] });
+	}
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	for (const frame of frames) assert.deepEqual(frame.contentWindow!.posted.at(-1), { type: "gd:mode", enabled: true });
+	assert.ok(withClass(canvas.viewport, "gd-sizes-all")[0].classes.has("gd-commenting"), "the frames wear the comment-mode outline");
+	canvas.document.getElementById("gd-tool-navigate").dispatch("click");
+	for (const frame of frames) assert.deepEqual(frame.contentWindow!.posted.at(-1), { type: "gd:mode", enabled: false });
+});
+
+test("S4: in All sizes every size frame takes picks; the popover opens beside the picked element in that frame", async () => {
+	const canvas = await loadRail(300, wideAlpha);
+	focusOn(canvas);
+	sizeButton(canvas, "all").dispatch("click");
+	const [phone, tablet, desktop] = sizeSections(canvas).map(iframeOf);
+	const popover = canvas.document.getElementById("gd-popover");
+	const pick = { type: "gd:pick", selector: "#cta", excerpt: "Buy", rect: { x: 30, y: 40, width: 60, height: 20 } };
+
+	canvas.message(phone.contentWindow, pick);
+	assert.equal(popover.hidden, true, "a pick needs Comment mode");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	canvas.message({}, pick);
+	assert.equal(popover.hidden, true, "a stranger window is ignored");
+
+	phone.rect = { left: 100, top: 200, width: 150, height: 325 };
+	canvas.message(phone.contentWindow, pick);
+	assert.equal(popover.hidden, false);
+	assert.equal(canvas.document.getElementById("gd-popover-target").textContent, "01-a.html · #cta");
+	// The frame is shown at 150/390 of its width.
+	assert.equal(popover.style.left, `${100 + 30 * (150 / 390)}px`);
+	assert.equal(popover.style.top, `${200 + (40 + 20) * (150 / 390) + 8}px`);
+
+	canvas.document.getElementById("gd-popover-text").value = "Tighter";
+	canvas.document.getElementById("gd-popover-form").dispatch("submit");
+	await flush();
+	assert.deepEqual(canvas.posts.map((post) => [post.url, (post.body as any).file, (post.body as any).selector]), [["/t/api/comments", "01-a.html", "#cta"]]);
+
+	canvas.document.getElementById("gd-popover-cancel").dispatch("click");
+	assert.deepEqual(phone.contentWindow!.posted.at(-1), { type: "gd:clear" }, "the frame that was picked clears its outline");
+	desktop.rect = { left: 300, top: 100, width: 400, height: 267 };
+	canvas.message(desktop.contentWindow, pick);
+	assert.equal(popover.hidden, false, "the Desktop frame takes picks too");
+	assert.equal(popover.style.left, `${300 + 30 * (400 / 1200)}px`);
+	assert.match(canvas.navMode.textContent, /^Using:/);
+	canvas.message(tablet.contentWindow, { type: "gd:exit-focus" });
+	assert.doesNotMatch(canvas.navMode.textContent, /^Using:/, "Shift+Esc from a size frame leaves focus mode");
+	assert.equal(sizeSections(canvas).length, 0);
+});
+
+test("S4: at a single size the artboard's own frame takes picks at that size's scale", async () => {
+	const canvas = await loadRail();
+	tallViewport(canvas);
+	const [first] = canvas.boards;
+	focusOn(canvas);
+	sizeButton(canvas, "phone").dispatch("click");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	first.frame.rect = { left: 100, top: 100, width: 195, height: 422 };
+	canvas.message(first.frame.contentWindow, { type: "gd:pick", selector: "#cta", excerpt: "", rect: { x: 40, y: 10, width: 20, height: 20 } });
+	const popover = canvas.document.getElementById("gd-popover");
+	assert.equal(popover.hidden, false);
+	assert.equal(popover.style.left, `${100 + 40 * (195 / 390)}px`, "scaled against the 390 px frame, not the manifest width");
+});
+
+test("S4: a pick from another artboard is refused while one is focused, also from its size frames", async () => {
+	const canvas = await loadRail(300, wideAlpha);
+	focusOn(canvas);
+	sizeButton(canvas, "all").dispatch("click");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	canvas.message(canvas.boards[1].frame.contentWindow, { type: "gd:pick", selector: "#x", excerpt: "", rect: { x: 0, y: 0, width: 1, height: 1 } });
+	assert.equal(canvas.document.getElementById("gd-popover").hidden, true);
+});
+
+test("S4: the pins of the artboard show on every size frame at their element's position in that frame", async () => {
+	const canvas = await loadRail(300, { ...wideAlpha, ...commentsDoc(comment("a1", "01-a.html"), comment("b1", "02-b.html")) });
+	focusOn(canvas);
+	sizeButton(canvas, "all").dispatch("click");
+	const sections = sizeSections(canvas);
+	const [phone, tablet, desktop] = sections.map(iframeOf);
+	const pinsOf = (section: FakeElement) => withClass(section, "gd-pin");
+	assert.deepEqual(sections.map((section) => pinsOf(section).length), [0, 0, 0], "none until a frame reports where the element is");
+
+	canvas.message(phone.contentWindow, { type: "gd:pin-rects", rects: [{ id: "a1", rect: { x: 30, y: 40, width: 60, height: 20 } }] });
+	canvas.message(desktop.contentWindow, { type: "gd:pin-rects", rects: [{ id: "a1", rect: { x: 300, y: 10, width: 60, height: 20 } }] });
+	assert.deepEqual(pinsOf(sections[0]).map((pin) => [pin.style.left, pin.style.top, pin.textContent]), [["30px", "40px", "1"]]);
+	assert.deepEqual(pinsOf(sections[1]), [], "the Tablet frame has not reported yet");
+	assert.deepEqual(pinsOf(sections[2]).map((pin) => [pin.style.left, pin.style.top]), [["300px", "10px"]]);
+	assert.match(pinsOf(sections[0])[0].getAttribute("aria-label")!, /^Comment 1 \(open\): Text of a1$/);
+
+	// An element outside the frame at that size has no pin there; the other artboard's comments never show.
+	canvas.message(tablet.contentWindow, { type: "gd:pin-rects", rects: [{ id: "a1", rect: { x: 900, y: 10, width: 60, height: 20 } }, { id: "b1", rect: { x: 5, y: 5, width: 5, height: 5 } }] });
+	assert.deepEqual(pinsOf(sections[1]), []);
+	canvas.message(phone.contentWindow, { type: "gd:pin-rects", rects: [{ id: "a1", rect: { x: 500, y: 40, width: 60, height: 20 } }] });
+	assert.deepEqual(pinsOf(sections[0]), [], "x 500 is outside the 390 px frame");
+	canvas.message(phone.contentWindow, { type: "gd:pin-rects", rects: [{ id: "a1", rect: { x: 30, y: 40, width: 60, height: 20 } }] });
+
+	// Selecting a pin highlights the element in every frame.
+	pinsOf(sections[0])[0].dispatch("click");
+	for (const frame of [phone, tablet, desktop, canvas.boards[0].frame]) assert.deepEqual(frame.contentWindow!.posted.at(-1), { type: "gd:highlight", id: "a1" });
+
+	// New comments reach every frame.
+	await setComments(canvas, comment("a1", "01-a.html"), comment("a2", "01-a.html"));
+	for (const frame of [phone, tablet, desktop]) assert.equal((frame.contentWindow!.posted.filter((message) => message.type === "gd:pins").at(-1)).pins.length, 2);
+});
+
+test("S4: at a single size the pins follow the resized frame and hide when outside it", async () => {
+	const canvas = await loadRail(300, commentsDoc(comment("a1", "01-a.html")));
+	tallViewport(canvas);
+	const [first] = canvas.boards;
+	focusOn(canvas);
+	sizeButton(canvas, "phone").dispatch("click");
+	const pins = () => withClass(first.wrapper, "gd-pin");
+	canvas.message(first.frame.contentWindow, { type: "gd:pin-rects", rects: [{ id: "a1", rect: { x: 300, y: 20, width: 40, height: 20 } }] });
+	assert.deepEqual(pins().map((pin) => pin.style.left), ["300px"]);
+	canvas.message(first.frame.contentWindow, { type: "gd:pin-rects", rects: [{ id: "a1", rect: { x: 500, y: 20, width: 40, height: 20 } }] });
+	assert.deepEqual(pins(), [], "outside the 390 px frame");
+	sizeButton(canvas, "tablet").dispatch("click");
+	canvas.message(first.frame.contentWindow, { type: "gd:pin-rects", rects: [{ id: "a1", rect: { x: 500, y: 20, width: 40, height: 20 } }] });
+	assert.deepEqual(pins().map((pin) => pin.style.left), ["500px"], "inside the 820 px frame");
+});
+
+test("S5: a size whose page is wider than its frame shows an Overflows chip titled with the width; none when it fits", async () => {
+	const canvas = await loadRail();
+	tallViewport(canvas);
+	const [first] = canvas.boards;
+	const chip = overflowChip(first.wrapper);
+	assert.equal(chip.hidden, true);
+	focusOn(canvas);
+	sizeButton(canvas, "phone").dispatch("click");
+	assert.equal(chip.hidden, true, "no chip before the page reports");
+
+	canvas.message(first.frame.contentWindow, report(390, 520));
+	assert.equal(chip.hidden, false);
+	assert.deepEqual(texts(chip, "gd-overflow-text"), ["Overflows"]);
+	assert.match(chip.title, /wider than 390 px/);
+	assert.match(texts(chip, "gd-visually-hidden")[0], /wider than 390 px/, "the explanation reaches assistive technology too");
+
+	canvas.message(first.frame.contentWindow, report(390, 390));
+	assert.equal(chip.hidden, true, "no chip when it fits");
+	canvas.message(first.frame.contentWindow, report(390, 520));
+	assert.equal(chip.hidden, false);
+
+	// Reports for another width are stale; strangers and malformed reports are ignored.
+	sizeButton(canvas, "tablet").dispatch("click");
+	assert.equal(chip.hidden, true, "a new size clears the chip until the page reports again");
+	canvas.message(first.frame.contentWindow, report(390, 520));
+	assert.equal(chip.hidden, true, "a late report for the previous width is ignored");
+	canvas.message({}, report(820, 900));
+	assert.equal(chip.hidden, true);
+	canvas.message(first.frame.contentWindow, { type: "gd:overflow", overflow: true, width: "820", scrollWidth: 900 });
+	canvas.message(first.frame.contentWindow, { type: "gd:overflow", overflow: "yes", width: 820, scrollWidth: 900 });
+	assert.equal(chip.hidden, true);
+	canvas.message(first.frame.contentWindow, report(820, 900));
+	assert.match(chip.title, /wider than 820 px/);
+	first.frame.dispatch("load");
+	assert.equal(chip.hidden, true, "a reloaded artboard reports again");
+});
+
+test("S5: in All sizes each size frame has its own chip", async () => {
+	const canvas = await loadRail(300, wideAlpha);
+	focusOn(canvas);
+	sizeButton(canvas, "all").dispatch("click");
+	const sections = sizeSections(canvas);
+	const [phone, tablet, desktop] = sections.map(iframeOf);
+	assert.deepEqual(sections.map((section) => overflowChip(section).hidden), [true, true, true]);
+	canvas.message(tablet.contentWindow, report(820, 1010));
+	assert.deepEqual(sections.map((section) => overflowChip(section).hidden), [true, false, true]);
+	assert.match(overflowChip(sections[1]).title, /wider than 820 px/);
+	canvas.message(phone.contentWindow, report(390, 390));
+	canvas.message(desktop.contentWindow, report(1200, 1200));
+	assert.deepEqual(sections.map((section) => overflowChip(section).hidden), [true, false, true]);
+	canvas.message(tablet.contentWindow, report(820, 820));
+	assert.deepEqual(sections.map((section) => overflowChip(section).hidden), [true, true, true]);
+});
+
+test("S5: the artboard's own chip shows only while focused at a single size, and a report made earlier shows on focus", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	const chip = overflowChip(first.wrapper);
+	canvas.message(first.frame.contentWindow, report(400, 450));
+	assert.equal(chip.hidden, true, "not on the canvas overview");
+	focusOn(canvas);
+	assert.equal(chip.hidden, false, "Desktop is 400 px wide: the earlier report applies");
+	sizeButton(canvas, "all").dispatch("click");
+	assert.equal(chip.hidden, true, "All sizes has a chip per frame instead");
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(chip.hidden, true);
+});
+
+test("S1-S5: the chrome is in index.html and canvas.css: icons, focus ring, hidden outside focus, no inline script or style", () => {
+	const html = read("index.html");
+	for (const id of ["i-phone", "i-tablet", "i-monitor"]) assert.match(html, new RegExp(`<symbol id="${id}"`));
+	const css = read("canvas.css");
+	assert.match(css, /\.gd-sizebar\s*{[^}]*display:\s*none/);
+	assert.match(css, /\.gd-focus-board \.gd-sizebar\s*{[^}]*display:\s*flex/);
+	for (const selector of [".gd-size-button", ".gd-size-input", ".gd-size-frame", ".gd-sizes-all", ".gd-overflow-flag", ".gd-size-scaled", ".gd-size-stage"]) assert.ok(css.includes(`${selector} {`) || css.includes(`${selector},`), `${selector} is styled`);
+	assert.match(css, /\.gd-size-button\[aria-pressed="true"\]/);
+	assert.match(css, /\.gd-size-input:focus-visible|:focus-visible\s*{/);
+	const js = read("canvas.js");
+	assert.ok(!/setAttribute\("style"|\.cssText/.test(js), "the CSP forbids inline style attributes: size styles go through the CSSOM");
+	const sandboxes = [...js.matchAll(/setAttribute\("sandbox", ([^)]+)\)/g)].map((match) => match[1]);
+	assert.ok(sandboxes.filter((value) => value === '"allow-scripts"').length >= 3, "the board frame, the size frames and Compare's artboard keep the scripts-only sandbox");
+	assert.ok(sandboxes.every((value) => value === '"allow-scripts"' || value === "PREVIEW_SANDBOX"), "no other sandbox flags");
+	assert.equal(js.split("allow-same-origin").length - 1, 1, "only the Compare preview of the running app keeps its own origin");
+});
+
+test("the inspector reports whether its page is wider than the frame, once per change", () => {
+	const inspector = loadInspector();
+	const root = inspector.document.documentElement as any;
+	inspector.context.innerWidth = 390;
+	root.clientWidth = 375;
+	root.scrollWidth = 520;
+	inspector.fire("load", {});
+	assert.deepEqual(inspector.posted, [], "reports wait for the next frame");
+	inspector.runFrames();
+	assert.deepEqual(inspector.posted, [{ type: "gd:overflow", overflow: true, width: 390, scrollWidth: 520 }]);
+	inspector.fire("resize", {});
+	inspector.runFrames();
+	assert.equal(inspector.posted.length, 1, "an unchanged report is not repeated");
+	root.scrollWidth = 375;
+	inspector.fire("resize", {});
+	inspector.runFrames();
+	assert.deepEqual(inspector.posted.at(-1), { type: "gd:overflow", overflow: false, width: 390, scrollWidth: 375 });
+	inspector.context.innerWidth = 820;
+	root.clientWidth = 805;
+	root.scrollWidth = 805;
+	inspector.fire("resize", {});
+	inspector.runFrames();
+	assert.deepEqual(inspector.posted.at(-1), { type: "gd:overflow", overflow: false, width: 820, scrollWidth: 805 }, "a new frame width is reported even when the page still fits");
 });
