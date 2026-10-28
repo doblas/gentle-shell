@@ -7,174 +7,166 @@
 <style>
 	:root {
 		color-scheme: dark;
-		--gd-bg: #111214; --gd-stage: #1a1b1e; --gd-panel: #222327; --gd-border: #3a3b40;
-		--gd-text: #ececee; --gd-muted: #a9abb2; --gd-accent: #8ab4ff; --gd-accent-text: #0b1220;
-		--gd-danger: #ff9b9b; --gd-focus: #ffd479; --gd-pin: #8ab4ff; --gd-pin-resolved: #7d8a7f; --gd-success: #9be0a8;
 		--bg: #1a1218; --bg-deep: #000000; --surface: #20161e; --surface-1: #241822; --surface-2: #342230;
 		--border: #342230; --border-soft: #ffffff17; --text: #f6eff3; --text-muted: #a78e9b; --text-faint: #76616b;
 		--accent: #f095c8; --accent-strong: #ff76c3; --accent-soft: #ffb1dd;
 		--success: #b4e7c7; --warning: #e0c27a; --error: #ff718f; --info: #a9c7ee;
+		--accent-wash: #f095c814; --accent-line: #f095c899; --wash: #ffffff0f; --paper: #ffffff;
+		--success-halo: #b4e7c726; --success-line: #b4e7c766; --error-wash: #ff718f1a; --error-line: #ff718f80;
+		--info-halo: #a9c7ee33; --info-line: #a9c7ee66; --warning-line: #e0c27a66; --scrim: #000000b3;
 		--radius-sm: 8px; --radius-md: 12px; --radius-lg: 16px; --radius-pill: 999px;
 		--glow: 0 10px 30px #f095c84d; --shadow-panel: 0 24px 60px #00000073, 0 0 40px #f095c81a;
+		--shadow-frame: 0 2px 16px #00000080; --shadow-pop: 0 4px 16px #00000099;
 		--font-sans: Inter, "SF Pro Text", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 		--font-mono: "IosevkaTerm NF", "Iosevka Term", "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, "DejaVu Sans Mono", monospace;
-		--font-canvas: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 	}
 	* { box-sizing: border-box; }
-	body { margin: 0; background: var(--gd-bg); color: var(--gd-text); font: 14px/1.5 var(--font-canvas); }
+	body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--font-sans); }
 	main { width: 1440px; padding: 48px 64px 64px; }
 	h1 { margin: 0 0 4px; font-size: 28px; }
 	h2 { margin: 40px 0 16px; font-size: 18px; }
-	h3 { margin: 0 0 12px; font-size: 13px; color: var(--gd-muted); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
-	p.lead { margin: 0; color: var(--gd-muted); }
-	code { font-family: var(--font-mono); font-size: 12px; }
+	h3 { margin: 0 0 12px; font-size: 12px; color: var(--text-muted); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+	p.lead { margin: 0; color: var(--text-muted); }
+	code { font: 12px var(--font-mono); color: var(--accent-soft); background: var(--wash); border: 1px solid var(--border-soft); border-radius: 6px; padding: 1px 6px; }
 	.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
-	.set { padding: 24px; border: 1px solid var(--gd-border); border-radius: 8px; background: var(--gd-stage); }
-	.set.brand { background: var(--bg); border-color: var(--border); font-family: var(--font-sans); color: var(--text); }
-	.swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+	.set { padding: 24px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+	.swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
 	.sw { margin: 0; }
-	.sw span { display: block; height: 56px; border-radius: 6px; border: 1px solid #ffffff17; }
+	.sw span { display: block; height: 52px; border-radius: 6px; border: 1px solid var(--border-soft); }
 	.sw figcaption { margin-top: 6px; font-size: 12px; line-height: 1.35; }
-	.sw figcaption code { display: block; color: inherit; opacity: .8; }
-	.type p { margin: 0 0 10px; }
-	.row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
-	.c-btn { min-width: 32px; min-height: 32px; padding: 4px 10px; font: inherit; color: var(--gd-text); background: var(--gd-stage); border: 1px solid var(--gd-border); border-radius: 6px; }
-	.c-btn.on { background: var(--gd-accent); border-color: var(--gd-accent); color: var(--gd-accent-text); }
-	.c-btn:focus-visible { outline: 2px solid var(--gd-focus); outline-offset: 2px; }
-	.chip { padding: 1px 8px; border: 1px solid var(--gd-border); border-radius: 999px; font-size: 12px; background: var(--gd-panel); }
-	.pin { display: inline-grid; place-items: center; min-width: 26px; min-height: 26px; padding: 0 6px; border-radius: 13px 13px 13px 2px; border: 2px solid #0b1220; background: var(--gd-pin); color: var(--gd-accent-text); font-weight: 700; font-size: 12px; }
-	.b-btn { display: inline-flex; align-items: center; min-height: 46px; padding: 13px 24px; border: 1px solid transparent; border-radius: var(--radius-sm); font: 600 15px/1.2 var(--font-sans); }
-	.b-primary { background: var(--accent); color: var(--bg); box-shadow: var(--glow); }
-	.b-secondary { background: transparent; color: var(--text); border-color: var(--border); }
-	.b-ghost { background: transparent; color: var(--text-muted); border-color: var(--border-soft); }
-	.b-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+	.sw figcaption b { display: block; font: 11px var(--font-mono); color: var(--text-muted); font-weight: 400; }
+	.row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+	.row + .row { margin-top: 16px; }
+	button { font: inherit; color: var(--text); background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm); min-height: 36px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 8px; }
+	button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+	.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; box-shadow: var(--glow); }
+	.chip { display: inline-flex; align-items: center; gap: 6px; padding: 1px 10px; border: 1px solid var(--border-soft); border-radius: var(--radius-pill); font-size: 12px; font-weight: 600; color: var(--text-muted); }
+	.chip.chosen { color: var(--accent); border-color: var(--accent-line); }
+	.chip.chosen::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+	.chip.sent { color: var(--success); border-color: var(--success-line); }
+	.chip.wait { color: var(--warning); border-color: var(--warning-line); }
+	.chip.info { color: var(--info); border-color: var(--info-line); }
+	.chip.err { color: var(--error); border-color: var(--error-line); }
+	.pin { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px; border-radius: 13px 13px 13px 2px; border: 2px solid var(--bg); background: var(--accent); color: var(--bg); font-weight: 700; font-size: 12px; box-shadow: var(--shadow-frame); }
+	.pin.active { background: var(--warning); }
+	kbd { font: 11px/1 var(--font-mono); padding: 3px 6px; border: 1px solid var(--border-soft); border-bottom-width: 2px; border-radius: 4px; color: var(--text-muted); }
+	.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); }
+	.tabs span { padding: 6px 12px; color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+	.tabs span.on { color: var(--text); border-bottom-color: var(--accent); }
+	.count { padding: 0 6px; border-radius: var(--radius-pill); background: var(--surface-2); color: var(--accent-soft); font-size: 12px; margin-left: 6px; }
+	.alert { display: flex; gap: 8px; padding: 8px 10px; border: 1px solid var(--error-line); border-radius: var(--radius-sm); background: var(--error-wash); font-size: 13px; max-width: 420px; }
+	.alert i { color: var(--error); font-style: normal; font-weight: 700; }
+	.alert small { display: block; font: 11px var(--font-mono); color: var(--text-muted); }
+	.card { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); max-width: 420px; }
+	.card.active { border-color: var(--accent-line); }
+	.rail { display: flex; gap: 8px; padding: 10px; background: var(--bg-deep); border-radius: var(--radius-sm); width: fit-content; }
+	.rail span { position: relative; width: 40px; height: 40px; display: grid; place-items: center; border-radius: var(--radius-sm); color: var(--text-muted); font-size: 12px; }
+	.rail span.on { background: var(--surface-2); color: var(--accent); }
+	.steps { display: flex; gap: 24px; }
+	.steps span { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+	.steps span::before { content: ""; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--text-faint); }
+	.steps .done::before { background: var(--success); border-color: var(--success); }
+	.steps .now::before { background: var(--info); border-color: var(--info); box-shadow: 0 0 0 3px var(--info-halo); }
 	.scale { display: flex; align-items: flex-end; gap: 16px; }
-	.scale div { text-align: center; font-size: 12px; color: var(--gd-muted); }
-	.scale i { display: block; background: var(--gd-accent); margin: 0 auto 6px; }
+	.scale div { text-align: center; font-size: 12px; color: var(--text-muted); }
+	.scale i { display: block; background: var(--accent); margin: 0 auto 6px; }
 	.radii { display: flex; gap: 16px; }
-	.radii div { width: 88px; height: 64px; display: grid; place-items: center; font-size: 12px; border: 1px solid var(--gd-border); background: var(--gd-panel); }
+	.radii div { width: 84px; height: 60px; display: grid; place-items: center; font-size: 12px; border: 1px solid var(--border); background: var(--surface-1); }
 	.shadows { display: flex; gap: 24px; }
-	.shadows div { width: 200px; height: 80px; display: grid; place-items: center; font-size: 12px; border-radius: 8px; background: var(--gd-panel); text-align: center; padding: 8px; }
+	.shadows div { width: 170px; height: 76px; display: grid; place-items: center; font-size: 12px; border-radius: var(--radius-sm); background: var(--surface-1); text-align: center; }
+	.dots { height: 76px; border-radius: var(--radius-sm); background-color: var(--bg); background-image: radial-gradient(var(--surface-2) 1px, transparent 1.2px); background-size: 22px 22px; border: 1px solid var(--border); }
 </style>
 </head>
 <body>
 <main>
 	<header>
 		<h1>Gentle Shell design system</h1>
-		<p class="lead">Two dark token sets captured from <code>assets/design-canvas/canvas.css</code> (Canvas) and <code>assets/install-wizard/wizard.css</code> (Brand).</p>
+		<p class="lead">One dark brand set shared by <code>assets/install-wizard/wizard.css</code> and <code>assets/design-canvas/canvas.css</code>, plus the canvas's derived tokens.</p>
 	</header>
 
 	<h2>Colors</h2>
-	<div class="cols">
-		<section class="set" aria-labelledby="c-canvas">
-			<h3 id="c-canvas">Canvas</h3>
-			<div class="swatches">
-				<figure class="sw"><span style="background:#111214"></span><figcaption>bg<code>#111214</code></figcaption></figure>
-				<figure class="sw"><span style="background:#1a1b1e"></span><figcaption>stage<code>#1a1b1e</code></figcaption></figure>
-				<figure class="sw"><span style="background:#222327"></span><figcaption>panel<code>#222327</code></figcaption></figure>
-				<figure class="sw"><span style="background:#3a3b40"></span><figcaption>border<code>#3a3b40</code></figcaption></figure>
-				<figure class="sw"><span style="background:#ececee"></span><figcaption>text<code>#ececee</code></figcaption></figure>
-				<figure class="sw"><span style="background:#a9abb2"></span><figcaption>muted<code>#a9abb2</code></figcaption></figure>
-				<figure class="sw"><span style="background:#8ab4ff"></span><figcaption>accent / pin<code>#8ab4ff</code></figcaption></figure>
-				<figure class="sw"><span style="background:#0b1220"></span><figcaption>accent-text<code>#0b1220</code></figcaption></figure>
-				<figure class="sw"><span style="background:#ffd479"></span><figcaption>focus<code>#ffd479</code></figcaption></figure>
-				<figure class="sw"><span style="background:#9be0a8"></span><figcaption>success<code>#9be0a8</code></figcaption></figure>
-				<figure class="sw"><span style="background:#ff9b9b"></span><figcaption>danger<code>#ff9b9b</code></figcaption></figure>
-				<figure class="sw"><span style="background:#7d8a7f"></span><figcaption>pin-resolved<code>#7d8a7f</code></figcaption></figure>
-			</div>
-		</section>
-		<section class="set brand" aria-labelledby="c-brand">
-			<h3 id="c-brand" style="color:var(--text-muted)">Brand</h3>
-			<div class="swatches">
-				<figure class="sw"><span style="background:#1a1218"></span><figcaption>bg<code>#1a1218</code></figcaption></figure>
-				<figure class="sw"><span style="background:#20161e"></span><figcaption>surface<code>#20161e</code></figcaption></figure>
-				<figure class="sw"><span style="background:#241822"></span><figcaption>surface-1<code>#241822</code></figcaption></figure>
-				<figure class="sw"><span style="background:#342230"></span><figcaption>surface-2 / border<code>#342230</code></figcaption></figure>
-				<figure class="sw"><span style="background:#f6eff3"></span><figcaption>text<code>#f6eff3</code></figcaption></figure>
-				<figure class="sw"><span style="background:#a78e9b"></span><figcaption>text-muted<code>#a78e9b</code></figcaption></figure>
-				<figure class="sw"><span style="background:#f095c8"></span><figcaption>accent<code>#f095c8</code></figcaption></figure>
-				<figure class="sw"><span style="background:#ffb1dd"></span><figcaption>accent-soft<code>#ffb1dd</code></figcaption></figure>
-				<figure class="sw"><span style="background:#b4e7c7"></span><figcaption>success<code>#b4e7c7</code></figcaption></figure>
-				<figure class="sw"><span style="background:#e0c27a"></span><figcaption>warning<code>#e0c27a</code></figcaption></figure>
-				<figure class="sw"><span style="background:#ff718f"></span><figcaption>error<code>#ff718f</code></figcaption></figure>
-				<figure class="sw"><span style="background:#a9c7ee"></span><figcaption>info<code>#a9c7ee</code></figcaption></figure>
-			</div>
-		</section>
-	</div>
+	<section class="set" aria-labelledby="c-brand">
+		<h3 id="c-brand">Brand set</h3>
+		<div class="swatches">
+			<figure class="sw"><span style="background:var(--bg-deep)"></span><figcaption>bg-deep<b>#000000</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--bg)"></span><figcaption>bg<b>#1a1218</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--surface)"></span><figcaption>surface<b>#20161e</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--surface-1)"></span><figcaption>surface-1<b>#241822</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--surface-2)"></span><figcaption>surface-2 / border<b>#342230</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--border-soft)"></span><figcaption>border-soft<b>#ffffff17</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--text)"></span><figcaption>text<b>#f6eff3</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--text-muted)"></span><figcaption>text-muted<b>#a78e9b</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--text-faint)"></span><figcaption>text-faint<b>#76616b</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--accent)"></span><figcaption>accent<b>#f095c8</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--accent-strong)"></span><figcaption>accent-strong<b>#ff76c3</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--accent-soft)"></span><figcaption>accent-soft<b>#ffb1dd</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--success)"></span><figcaption>success<b>#b4e7c7</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--warning)"></span><figcaption>warning<b>#e0c27a</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--error)"></span><figcaption>error<b>#ff718f</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--info)"></span><figcaption>info<b>#a9c7ee</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--accent-wash)"></span><figcaption>accent-wash<b>#f095c814</b></figcaption></figure>
+			<figure class="sw"><span style="background:var(--error-wash)"></span><figcaption>error-wash<b>#ff718f1a</b></figcaption></figure>
+		</div>
+	</section>
 
 	<h2>Typography</h2>
 	<div class="cols">
-		<section class="set type" aria-label="Canvas type">
-			<h3>Canvas · system-ui, 14px base</h3>
-			<p style="font-size:16px;font-weight:600">Artboard title 16 / 600</p>
-			<p style="font-size:15px;font-weight:600">Toolbar title 15 / 600</p>
-			<p>Body and controls 14 / 400</p>
-			<p style="font-size:12px;color:var(--gd-muted)">Meta and chips 12 / 400</p>
-			<p><code>odd/tasks/login.md</code> mono chip</p>
+		<section class="set" aria-label="Sans">
+			<h3>--font-sans (Inter stack)</h3>
+			<p style="margin:0 0 8px;font-size:34px;font-weight:700;line-height:1.1">Display 34–58 (wizard)</p>
+			<p style="margin:0 0 8px;font-size:16px;font-weight:600">Title 15–16 / 600</p>
+			<p style="margin:0 0 8px">Body 14 / 1.5 (canvas) · 16 / 1.6 (wizard)</p>
+			<p style="margin:0 0 8px;font-size:13px">Cards and alerts 13</p>
+			<p style="margin:0;font-size:12px;color:var(--text-muted)">Meta and chips 12 · tags and timestamps 11</p>
 		</section>
-		<section class="set brand type" aria-label="Brand type">
-			<h3 style="color:var(--text-muted)">Brand · Inter stack, 16px / 1.6</h3>
-			<p style="font-size:34px;font-weight:700;line-height:1.1">Display clamp 34–58</p>
-			<p style="font-size:18px">Lead 17–18</p>
-			<p>Body 16 / 1.6</p>
-			<p style="font-size:13px;color:var(--text-muted)">Small 13</p>
-			<p><code style="color:var(--accent-soft)">gentle-shell install</code> mono</p>
+		<section class="set" aria-label="Mono">
+			<h3>--font-mono (Iosevka stack)</h3>
+			<div class="row"><code>odd/tasks/checkout-page.md</code><code>#total</code><code>delivery-failed</code></div>
+			<div class="row"><kbd>V</kbd><kbd>C</kbd><kbd>F</kbd><kbd>[</kbd><kbd>]</kbd><kbd>?</kbd><kbd>Shift</kbd><kbd>Esc</kbd></div>
 		</section>
 	</div>
 
 	<h2>Components</h2>
 	<div class="cols">
-		<section class="set" aria-label="Canvas components">
-			<h3>Canvas controls</h3>
+		<section class="set" aria-label="Controls">
+			<h3>Controls and states</h3>
 			<div class="row">
-				<button class="c-btn" type="button">Fit</button>
-				<button class="c-btn on" type="button" aria-pressed="true">Comment</button>
-				<button class="c-btn" type="button" disabled style="opacity:.5">Send all (0)</button>
-				<span class="chip" style="color:var(--gd-focus);border-color:var(--gd-focus);font-weight:600">Queued</span>
-				<span class="chip" style="color:var(--gd-accent);border-color:var(--gd-accent);font-weight:600">In progress</span>
-				<span class="chip" style="color:var(--gd-success);border-color:var(--gd-success);font-weight:600">Implemented</span>
-				<span class="pin">3</span>
-				<span class="pin" style="background:var(--gd-pin-resolved);opacity:.75">4</span>
+				<button class="primary" type="button">Send all (2)</button>
+				<button type="button">Implement this</button>
+				<button type="button" disabled style="opacity:.55">Disabled</button>
 			</div>
+			<div class="row">
+				<span class="chip chosen">Chosen</span><span class="chip">Alternative</span><span class="chip sent">Sent</span><span class="chip wait">Waiting</span><span class="chip info">In progress</span><span class="chip err">Detached</span>
+			</div>
+			<div class="row">
+				<span class="pin">1</span><span class="pin active">2</span>
+				<div class="rail" aria-hidden="true"><span>V</span><span class="on">C</span><span>F</span></div>
+			</div>
+			<div class="row"><div class="tabs" style="flex:1"><span class="on">Comments<span class="count">3</span></span><span>Resolved<span class="count">1</span></span><span>Brief</span></div></div>
 		</section>
-		<section class="set brand" aria-label="Brand components">
-			<h3 style="color:var(--text-muted)">Brand buttons</h3>
-			<div class="row">
-				<button class="b-btn b-primary" type="button">Install</button>
-				<button class="b-btn b-secondary" type="button">Back</button>
-				<button class="b-btn b-ghost" type="button">Skip</button>
-			</div>
+		<section class="set" aria-label="Feedback">
+			<h3>Cards, feedback and timeline</h3>
+			<div class="card active"><div class="row"><span class="pin">1</span><code>#total</code><span class="chip wait" style="margin-left:auto">Waiting</span></div><p style="margin:8px 0 0">Make the total stand out more; it reads like the other rows.</p></div>
+			<div class="row"><div class="alert" role="img" aria-label="Alert example"><i>!</i><div>The session did not accept the message. Your comments stay saved and unsent.<small>delivery-failed</small></div></div></div>
+			<div class="row"><div class="steps"><span class="done">Chosen</span><span class="done">Sent</span><span class="now">In progress</span><span>Implemented</span></div></div>
 		</section>
 	</div>
 
-	<h2>Spacing, radius, shadows</h2>
+	<h2>Spacing, radius, shadows, canvas</h2>
 	<div class="cols">
-		<section class="set" aria-label="Spacing">
+		<section class="set" aria-label="Spacing and radius">
 			<h3>Spacing in use (no tokens)</h3>
 			<div class="scale">
-				<div><i style="width:4px;height:4px"></i>4</div>
-				<div><i style="width:6px;height:6px"></i>6</div>
-				<div><i style="width:8px;height:8px"></i>8</div>
-				<div><i style="width:12px;height:12px"></i>12</div>
-				<div><i style="width:16px;height:16px"></i>16</div>
-				<div><i style="width:24px;height:24px"></i>24</div>
+				<div><i style="width:4px;height:4px"></i>4</div><div><i style="width:6px;height:6px"></i>6</div><div><i style="width:8px;height:8px"></i>8</div><div><i style="width:10px;height:10px"></i>10</div><div><i style="width:12px;height:12px"></i>12</div><div><i style="width:16px;height:16px"></i>16</div><div><i style="width:24px;height:24px"></i>24</div>
 			</div>
 			<h3 style="margin-top:24px">Radius</h3>
-			<div class="radii">
-				<div style="border-radius:4px">4 badge</div>
-				<div style="border-radius:6px">6 control</div>
-				<div style="border-radius:8px">8 / sm</div>
-				<div style="border-radius:12px">12 / md</div>
-				<div style="border-radius:16px">16 / lg</div>
-			</div>
+			<div class="radii"><div style="border-radius:4px">4</div><div style="border-radius:6px">6</div><div style="border-radius:8px">8 sm</div><div style="border-radius:12px">12 md</div><div style="border-radius:16px">16 lg</div></div>
 		</section>
 		<section class="set" aria-label="Shadows">
 			<h3>Shadows</h3>
-			<div class="shadows">
-				<div style="box-shadow:0 2px 16px rgba(0,0,0,.5)">Artboard frame</div>
-				<div style="box-shadow:0 8px 32px rgba(0,0,0,.6)">Popover / toast</div>
-				<div style="background:var(--surface-1);box-shadow:var(--shadow-panel)">Brand panel</div>
-			</div>
+			<div class="shadows"><div style="box-shadow:var(--shadow-frame)">shadow-frame</div><div style="box-shadow:var(--shadow-pop)">shadow-pop</div><div style="box-shadow:var(--shadow-panel)">shadow-panel</div></div>
+			<h3 style="margin-top:24px">Viewport dot grid</h3>
+			<div class="dots"></div>
 		</section>
 	</div>
 </main>
