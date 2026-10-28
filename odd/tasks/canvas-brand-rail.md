@@ -30,8 +30,8 @@ Source: L1. The artboard is the visual spec; map it to the existing canvas code,
 - [x] T1 S1-S5, S10, S11 — shell: tokens, grid layout, icon sprite, rail tools, shortcuts + dialog, mode chip. Route: gentle-ai-worker (context backstop). Commit: 10c21837a
 - [x] T2 S6-S9, S11 — navigator, top bar Compare, review side tabs/Brief/footer, handoff timeline. Route: gentle-ai-worker (slice 2). Commit: 278595509
 - [x] T3 S1-S11 — docs touch-up, full suite, headless visual check against the artboard, handoff implemented. Route: inline. Commit: 43286cd2a
-- [ ] T4 S12-S15 — readable errors, inline alerts, status-line scope, server delivery capabilities. Route: gentle-ai-worker (context backstop). Commit: —
-- [ ] T5 S16 — restart preview canvas, screenshots of the feedback states. Route: inline. Commit: —
+- [x] T4 S12-S15 — readable errors, inline alerts, status-line scope, server delivery capabilities. Route: gentle-ai-worker (context backstop). Commit: 6d495845a
+- [x] T5 S16 — restart preview canvas, screenshots of the feedback states. Route: inline. Commit: 9a6d20a84
 
 ## Log
 
@@ -42,3 +42,4 @@ Source: L1. The artboard is the visual spec; map it to the existing canvas code,
 - L5: T3 — docs/gentle-shell.md describes the five canvas areas, shortcuts, compact collapse, tabs and timeline. Full suite `pnpm test`: provider-contract PASS, runtime-harness PASS, unit-tests 7752 pass / 4 fail, all 4 in tests/agent-home.test.ts (GENTLE_PI_CONFIG_HOME fallback); the same 4 fail on `main` in a clean worktree, so they are environment-dependent and pre-existing, not caused by this feature. Canvas tests 99/99. Live render verified on a local canvas server.
 - L6 (user, verbatim): "a hacer click en send all me sale este aviso /tmp/gpQuZx1j/pi-clipboard-bb9690a2-0e58-4b3d-8edb-e2acb4752503.png ese tipo de avisos se deberian ver mejor no crees?" (screenshot: top status line reads "Comments not sent: batch-delivery-unavailable"; cause: preview server started without onComments).
 - L7 (user, verbatim): "si implementa todo incluyendo lo opcional y cuando este vuelve a levantar el canvas para hacerle capturas" — approves the parent's proposal: readable messages, alert next to the action (Send all, Implement this, resolve/reopen), status line only for canvas state, and the optional server capability flags.
+- L8: T4 by worker (6d495845a, 179 tests). T5 live check on two preview servers (no session; session whose delivery throws) found and fixed in 9a6d20a84: the disabled-Implement note ran across the header (inline span ignored max-width; now a short block line, full sentence in title and visually hidden text), a refused handoff was explained as unsent comments (now action-specific: "did not accept the handoff, so it was not recorded"; RED→GREEN test), the implement alert rose off the top and was painted under the artboard (now drops over it, opaque, label above frame box), and the toast covered Back to canvas (now top of the canvas). 180 tests pass. Screenshots: /tmp/gd-shots/final/1-4.
