@@ -1478,3 +1478,26 @@ test("S12: a handoff the session refuses is explained as a handoff that was not 
 	assert.equal(texts(control, "gd-alert-detail")[0], "delivery-failed");
 	assert.equal(canvas.document.getElementById("gd-toast").textContent, text);
 });
+
+test("focus mode hides the artboard list only when the focused artboard would not fit beside it, and restores it on exit", async () => {
+	const canvas = await loadRail();
+	const nav = canvas.document.getElementById("gd-nav");
+	const [first] = canvas.boards;
+	assert.equal(nav.hidden, false);
+
+	click(first.shield!, 200, 200);
+	assert.equal(nav.hidden, false, "a 400 px artboard fits a 1000 px canvas: the list stays");
+	canvas.document.getElementById("gd-back").dispatch("click");
+
+	canvas.viewport.rect = { left: 0, top: 50, width: 380, height: 700 };
+	click(first.shield!, 200, 200);
+	assert.equal(nav.hidden, true, "too narrow: the list gives its room to the artboard");
+	assert.equal(canvas.document.getElementById("gd-nav-toggle").getAttribute("aria-pressed"), "false");
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(nav.hidden, false, "exit restores it");
+
+	canvas.document.getElementById("gd-nav-toggle").dispatch("click");
+	click(first.shield!, 200, 200);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(nav.hidden, true, "a list the user had hidden stays hidden");
+});

@@ -185,6 +185,7 @@
 		focus: null,
 		savedView: null,
 		savedPanel: null,
+		savedNav: null,
 		hoverBoard: null,
 		// The handoffs.json of design `slug`; boards of another design ignore it.
 		handoffs: { slug: null, chosen: null, handoffs: {} },
@@ -544,6 +545,9 @@
 			// The artboard keeps its designed width at 100%; hiding the panel gains room for it.
 			state.savedPanel = !els.panel.hidden;
 			setPanel(false);
+			// The artboard list gives its room too, but only when the artboard would not fit beside it.
+			state.savedNav = !els.nav.hidden;
+			if (state.savedNav && board.artboard.width + FOCUS_MARGIN * 2 > els.viewport.getBoundingClientRect().width) setNav(false);
 		}
 		closePopover();
 		setHoverBoard(null);
@@ -559,6 +563,8 @@
 		state.focus = null;
 		if (state.savedPanel !== null) setPanel(state.savedPanel);
 		state.savedPanel = null;
+		if (state.savedNav !== null) setNav(state.savedNav);
+		state.savedNav = null;
 		if (state.savedView) Object.assign(state, state.savedView);
 		state.savedView = null;
 		applyView();
