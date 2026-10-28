@@ -25,7 +25,7 @@
 	// Room below a focused artboard for the floating "Back to canvas" button.
 	const BACK_SPACE = 64;
 	const CLICK_SLOP = 4;
-	const LIMITS = { selector: 500, excerpt: 300, comment: 2000, pins: 500, tokens: 500, screenshotBytes: 5 * 1024 * 1024 };
+	const LIMITS = { selector: 500, excerpt: 300, comment: 2000, pins: 500, tokens: 500, versions: 50, historyArtboards: 256, screenshotBytes: 5 * 1024 * 1024 };
 	const SCREENSHOT_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 	const MODE_KEY = "gentle-design:send-mode";
 	const SYSTEM_LABEL = { title: "Design system", tradeoff: "Project tokens (design/system.md)" };
@@ -73,6 +73,8 @@
 		"too-many-handoffs": "This design has too many handoffs recorded. Remove old ones from handoffs.json, then try again.",
 		"invalid-comments": "comments.json for this design is not valid, so it cannot be changed. Fix or remove the file, then try again.",
 		"invalid-handoffs": "handoffs.json for this design is not valid, so it cannot be changed. Fix or remove the file, then try again.",
+		"invalid-history": "The version history of this design cannot be used right now (its index or a version file is damaged, or the artboard is a link), so nothing was changed. Fix or remove what the detail names under .history, then try again.",
+		"history-limit": "The history index is full, so this change was not recorded. Delete old versions from .history to make room, then try again.",
 		"invalid-comment": "This comment was rejected by the server. Write 1 to 2000 characters and try again.",
 		"invalid-handoff": "This handoff was rejected by the server. Reload the canvas and try again.",
 		"invalid-screenshot": "The screenshot was rejected. Attach a PNG, JPEG, WebP or GIF image of at most 5 MB, or remove it.",
@@ -87,7 +89,7 @@
 	};
 	const COMMENT_CHIP = "Click an element to comment · Esc";
 	const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-	const TAB_NAMES = ["open", "resolved", "checks", "brief"];
+	const TAB_NAMES = ["open", "resolved", "history", "checks", "brief"];
 
 	const $ = (id) => document.getElementById(id);
 	const els = {
@@ -113,6 +115,15 @@
 		featureSep: $("gd-feature-sep"),
 		compareApp: $("gd-compare-app"),
 		tabs: $("gd-tabs"),
+		tabHistory: $("gd-tab-history"),
+		countHistory: $("gd-count-history"),
+		history: $("gd-history"),
+		versions: $("gd-versions"),
+		versionsTitle: $("gd-versions-title"),
+		versionsModeSlider: $("gd-versions-mode-slider"),
+		versionsModeSide: $("gd-versions-mode-side"),
+		versionsClose: $("gd-versions-close"),
+		versionsStage: $("gd-versions-stage"),
 		tabChecks: $("gd-tab-checks"),
 		countChecks: $("gd-count-checks"),
 		checks: $("gd-checks"),
@@ -212,6 +223,18 @@
 		// The size shown while focused: { kind: "phone" | "tablet" | "desktop" | "all" }, or { kind: "custom", width }.
 		size: { kind: "desktop" },
 		hoverBoard: null,
+		// The open version comparison: { board, n, mode, pos, enteredFocus, ... }, or null.
+		vcompare: null,
+		// The history of design `slug`: Map of artboard file to its versions (oldest first), the reply's warnings, and a load error.
+		history: { slug: null, artboards: new Map(), warnings: [], error: null },
+		historyPending: null,
+		historyAgain: false,
+		historyAlert: null,
+		// The version whose restore is being confirmed ({ slug, file, n }), a failed restore's reply, and what to focus next.
+		restoreAsk: null,
+		restoreBusy: false,
+		restoreError: null,
+		historyFocus: null,
 		// The project's design tokens (design/system.md), for the inspector: [{ name, value, section, group }].
 		tokens: [],
 		// The element the inspector panel shows: { surface, measure, flags, text }, and what keeps the panel open.
@@ -239,6 +262,10 @@
 	// Sentences that depend on the action: a refused handoff is taken back, so it is not "unsent comments".
 	const ACTION_REASONS = {
 		implement: { "delivery-failed": "The session did not accept the handoff, so it was not recorded. Check that the session is running, then use Implement this again." },
+		restore: {
+			"file-too-large": "The artboard is too large to save a copy before restoring (versions are limited to 8 MB), so nothing was changed. Make it smaller, then try again.",
+			"not-found": "That version is no longer kept, so nothing was changed. Choose another version.",
+		},
 	};
 
 	/** `action` picks an action-specific sentence over the generic one, when it has one. */
@@ -601,6 +628,7 @@
 		els.railSystem.disabled = !state.systemBoard;
 		els.compareApp.disabled = Boolean(state.compare);
 		renderNav();
+		renderHistory();
 		renderNavMode();
 	}
 
@@ -614,6 +642,7 @@
 
 	function enterFocus(board) {
 		if (state.focus === board) return;
+		if (state.vcompare && state.vcompare.board !== board) closeVersionCompare(false, false);
 		if (!state.focus) {
 			state.savedView = { zoom: state.zoom, x: state.x, y: state.y };
 			// The artboard keeps its designed width at 100%; hiding the panel gains room for it.
@@ -636,6 +665,7 @@
 
 	function exitFocus() {
 		if (!state.focus) return;
+		closeVersionCompare(false, false);
 		closePopover();
 		state.focus = null;
 		state.size = { kind: "desktop" };
@@ -1224,6 +1254,7 @@
 		renderCompareApp();
 		renderTimeline();
 		renderNav();
+		renderHistory();
 	}
 
 	function renderCompareApp() {
@@ -1600,6 +1631,7 @@
 		if (!keepView) requestAnimationFrame(fit);
 		await loadHandoffs();
 		await loadComments();
+		loadHistory().catch(() => {});
 	}
 
 	function reloadBoard(board) {
@@ -1660,6 +1692,7 @@
 	els.design.addEventListener("change", () => {
 		exitCompare(false);
 		state.slug = els.design.value;
+		resetHistory();
 		loadManifest(state.slug, false);
 	});
 
@@ -1678,6 +1711,7 @@
 			state.slug = slug;
 			state.comments = [];
 			state.activeId = null;
+			resetHistory();
 			renderComments();
 		}
 		if (!(await refreshSystem()) && state.systemBoard) reloadBoard(state.systemBoard);
@@ -1729,6 +1763,13 @@
 			if (request.slug !== null && !(typeof request.slug === "string" && /^[a-z0-9][a-z0-9-]*$/.test(request.slug))) return;
 			showDesign(request.slug).catch(() => {});
 		});
+		// design/<slug>/.history changed (a version was stored): refresh the list of that design.
+		source.addEventListener("history", (event) => {
+			let change;
+			try { change = JSON.parse(event.data); } catch { return; }
+			if (!change || typeof change !== "object" || typeof change.slug !== "string" || change.slug !== state.slug) return;
+			loadHistory().catch(() => {});
+		});
 		source.addEventListener("change", (event) => {
 			let change;
 			try { change = JSON.parse(event.data); } catch { return; }
@@ -1757,6 +1798,7 @@
 				return;
 			}
 			if (state.compare && state.compare.board.artboard.file === change.file) state.compare.artboardFrame.src = `${boardUrl(state.compare.board)}?v=${Date.now()}`;
+			if (state.vcompare && state.vcompare.board.artboard.file === change.file) state.vcompare.current.frame.src = `${boardUrl(state.vcompare.board)}?v=${Date.now()}`;
 			const matching = state.boards.filter((board) => board.artboard.file === change.file);
 			// A shared asset (CSS, image, font) can affect every artboard of the design.
 			const targets = matching.length > 0 ? matching : change.file.endsWith(".html") ? [] : state.boards;
@@ -2317,6 +2359,472 @@
 		els.text.value = text.slice(0, LIMITS.comment);
 	}
 
+	// ---- version history ----------------------------------------------------------
+	// design/<slug>/.history keeps earlier versions of every artboard (lib/design-history.ts). The History tab lists the
+	// versions of one artboard: the focused one, else the chosen one, else the first. Compare puts an older version and the
+	// current artboard over each other (a slider) or next to each other; Restore writes a version back through the server.
+	// The frames of a comparison run sandboxed like artboards but are never registered as message sources: nothing they post is trusted.
+
+	const VERSION_SOURCES = { agent: "Agent", hand: "You", restore: "Restore" };
+	// Room above a comparison for its bar; below it the Back to canvas button keeps BACK_SPACE.
+	const VERSIONS_BAR = 72;
+	const VERSIONS_GAP = 20;
+	const SLIDER_STEP = 2;
+	const SLIDER_BIG_STEP = 10;
+
+	/** `history/<slug>/<n>/<file>`: version n of an artboard, served read-only like an artboard. */
+	function versionUrl(slug, n, file) {
+		return `${base}history/${encodeURIComponent(slug)}/${n}/${file.split("/").map(encodeURIComponent).join("/")}`;
+	}
+
+	async function getReply(path) {
+		let response;
+		try {
+			response = await fetch(base + path, { headers: { Accept: "application/json" }, cache: "no-store" });
+		} catch (error) {
+			return { status: 0, ok: false, body: { error: "network", reason: typeof error?.message === "string" ? error.message : String(error) } };
+		}
+		let body = null;
+		try { body = await response.json(); } catch { body = null; }
+		return { status: response.status, ok: response.ok, body: body || {} };
+	}
+
+	/** A GET history reply checked field by field; null when it is not one. */
+	function readHistory(body) {
+		if (!body || typeof body !== "object" || !body.artboards || typeof body.artboards !== "object" || Array.isArray(body.artboards)) return null;
+		const artboards = new Map();
+		for (const [file, entry] of Object.entries(body.artboards).slice(0, LIMITS.historyArtboards)) {
+			const list = entry && Array.isArray(entry.versions) ? entry.versions.slice(0, LIMITS.versions) : [];
+			const versions = [];
+			for (const item of list) {
+				if (!item || !Number.isInteger(item.n) || item.n < 1 || typeof item.createdAt !== "string" || !Object.prototype.hasOwnProperty.call(VERSION_SOURCES, item.source)) continue;
+				const version = { n: item.n, createdAt: item.createdAt.slice(0, 64), source: item.source };
+				if (typeof item.comment === "string" && item.comment.length <= 32) version.comment = item.comment;
+				if (typeof item.note === "string" && item.note) version.note = item.note.slice(0, 500);
+				versions.push(version);
+			}
+			if (versions.length > 0) artboards.set(file, versions.sort((a, b) => a.n - b.n));
+		}
+		const warnings = Array.isArray(body.warnings) ? body.warnings.filter((text) => typeof text === "string" && text).slice(0, 10).map((text) => text.slice(0, 300)) : [];
+		return { artboards, warnings };
+	}
+
+	function resetHistory() {
+		state.history = { slug: null, artboards: new Map(), warnings: [], error: null };
+		state.restoreAsk = null;
+		state.restoreError = null;
+		renderHistory();
+	}
+
+	/** One load at a time; a request that arrives meanwhile (a burst of history events) runs once more afterwards. */
+	function loadHistory() {
+		if (!state.slug) return Promise.resolve();
+		if (state.historyPending) {
+			state.historyAgain = true;
+			return state.historyPending;
+		}
+		const run = (async () => {
+			do {
+				state.historyAgain = false;
+				await fetchHistory();
+			} while (state.historyAgain);
+		})().finally(() => { state.historyPending = null; });
+		state.historyPending = run;
+		return run;
+	}
+
+	async function fetchHistory() {
+		const slug = state.slug;
+		const reply = await getReply(`api/designs/${encodeURIComponent(slug)}/history`);
+		if (slug !== state.slug) return;
+		const parsed = reply.ok ? readHistory(reply.body) : null;
+		const same = state.history.slug === slug;
+		if (parsed) state.history = { slug, artboards: parsed.artboards, warnings: parsed.warnings, error: null };
+		// A failed reload keeps the last good list and says why in the tab.
+		else state.history = { slug, artboards: same ? state.history.artboards : new Map(), warnings: same ? state.history.warnings : [], error: reply.ok ? { status: 500, body: { error: "internal" } } : reply };
+		renderHistory();
+		refreshVersionCompare();
+	}
+
+	/** The artboard whose history the tab shows: the focused one, else the chosen one, else the first. */
+	function historyBoard() {
+		if (state.focus && !state.focus.system) return state.focus;
+		return chosenBoard() ?? state.boards[0] ?? null;
+	}
+
+	function boardVersions(board) {
+		if (!board || state.history.slug !== state.slug) return [];
+		return state.history.artboards.get(board.artboard.file) ?? [];
+	}
+
+	function versionLabelTime(version) {
+		return shortTime(version.createdAt);
+	}
+
+	function renderHistory() {
+		const board = historyBoard();
+		const versions = boardVersions(board);
+		els.countHistory.textContent = String(versions.length);
+		if (state.tab !== "history") return;
+		if (!state.historyAlert) {
+			state.historyAlert = createAlert();
+			state.historyAlert.onDismiss = () => {
+				state.restoreError = null;
+				state.history.error = null;
+			};
+		}
+		const keyed = new Map();
+		const wanted = state.historyFocus ?? (els.history.contains(document.activeElement) ? document.activeElement.dataset.key : null);
+		state.historyFocus = null;
+		const alertReply = state.restoreError ?? state.history.error;
+		if (alertReply) showAlert(state.historyAlert, alertReply, state.restoreError ? "restore" : undefined);
+		else hideAlert(state.historyAlert);
+		const parts = [];
+		if (board) parts.push(chip("gd-history-title", `${String(board.number).padStart(2, "0")} ${board.artboard.title}`));
+		parts.push(state.historyAlert.root);
+		for (const warning of state.history.slug === state.slug ? state.history.warnings : []) parts.push(chip("gd-history-warning", warning));
+		if (board && versions.length === 0) parts.push(chip("gd-history-empty", "No versions of this artboard yet. The canvas keeps one when it first sees an artboard and whenever its file changes."));
+		const newest = versions[versions.length - 1];
+		for (let index = versions.length - 1; index >= 0; index--) parts.push(versionCard(board, versions[index], newest, keyed));
+		if (board) {
+			const note = document.createElement("p");
+			note.className = "gd-history-note";
+			note.textContent = `Versions are kept in design/${state.slug}/.history/; Restore saves the current one first, so nothing is lost.`;
+			parts.push(note);
+		}
+		els.history.replaceChildren(...parts);
+		if (wanted) keyed.get(wanted)?.focus();
+	}
+
+	/** One version of the artboard: number, who and when, the comment it applied, the note, and its actions. */
+	function versionCard(board, version, newest, keyed) {
+		const current = version.n === newest.n;
+		const comparing = Boolean(state.vcompare && state.vcompare.board === board && state.vcompare.n === version.n);
+		const card = document.createElement("article");
+		card.className = "gd-version";
+		card.classList.toggle("gd-version-current", current);
+		card.classList.toggle("gd-version-comparing", comparing);
+		card.dataset.n = String(version.n);
+		card.setAttribute("aria-label", `Version ${version.n}${current ? " (current)" : ""}`);
+		const title = document.createElement("h4");
+		title.className = "gd-version-title";
+		title.append(chip("gd-version-number", `v${version.n}`));
+		if (current) title.append(chip("gd-version-tag", "Current"));
+		else if (version.n === 1) title.append(chip("gd-version-tag", "Original"));
+		if (comparing) title.append(chip("gd-version-comparing-chip", "Comparing"));
+		const comment = version.comment ? state.comments.find((candidate) => candidate.id === version.comment) : null;
+		if (comment) title.append(chip("gd-version-applied", `Applied #${commentNumber(comment)}`));
+		const time = versionLabelTime(version);
+		const body = document.createElement("div");
+		body.className = "gd-version-body";
+		body.append(title, chip("gd-version-meta", time ? `${VERSION_SOURCES[version.source]} · ${time}` : VERSION_SOURCES[version.source]));
+		if (version.note && version.source === "agent") {
+			const reply = document.createElement("div");
+			reply.className = "gd-version-reply";
+			reply.append(chip("gd-version-reply-label", "Agent:"), chip("gd-version-reply-text", version.note));
+			body.append(reply);
+		} else if (version.note) body.append(chip("gd-version-note", version.note));
+		const actions = document.createElement("div");
+		actions.className = "gd-version-actions";
+		const button = (className, label, iconName, aria, key, onClick) => {
+			const element = document.createElement("button");
+			element.type = "button";
+			element.className = `${className} gd-small`;
+			element.setAttribute("aria-label", aria);
+			element.dataset.key = key;
+			element.append(icon(iconName, "gd-i gd-i-s"), chip("", label));
+			element.addEventListener("click", onClick);
+			keyed.set(key, element);
+			actions.append(element);
+		};
+		if (current) button("gd-version-view", "View", "i-eye", `View the current version, v${version.n}`, `view-${version.n}`, () => viewCurrent(board));
+		else {
+			button("gd-version-compare", "Compare with current", "i-compare", `Compare v${version.n} with the current version`, `compare-${version.n}`, () => startVersionCompare(board, version));
+			button("gd-version-restore", "Restore", "i-restore", `Restore v${version.n}`, `restore-${version.n}`, () => askRestore(board, version));
+		}
+		const asking = state.restoreAsk && state.restoreAsk.slug === state.slug && state.restoreAsk.file === board.artboard.file && state.restoreAsk.n === version.n;
+		actions.hidden = Boolean(asking);
+		body.append(actions);
+		if (asking) body.append(restoreConfirm(board, version, keyed));
+		card.append(body);
+		return card;
+	}
+
+	function restoreConfirm(board, version, keyed) {
+		const box = document.createElement("div");
+		box.className = "gd-version-confirm";
+		box.setAttribute("role", "group");
+		box.setAttribute("aria-label", `Confirm restoring v${version.n}`);
+		const question = chip("gd-version-confirm-text", `Restore v${version.n}? The current version is saved first, so nothing is lost.`);
+		const yes = document.createElement("button");
+		yes.type = "button";
+		yes.className = "gd-version-confirm-restore gd-primary gd-small";
+		yes.textContent = "Restore";
+		yes.dataset.key = `confirm-${version.n}`;
+		yes.disabled = state.restoreBusy;
+		const no = document.createElement("button");
+		no.type = "button";
+		no.className = "gd-version-confirm-cancel gd-small";
+		no.textContent = "Cancel";
+		no.dataset.key = `cancel-${version.n}`;
+		const cancel = () => {
+			state.restoreAsk = null;
+			state.historyFocus = `restore-${version.n}`;
+			renderHistory();
+		};
+		yes.addEventListener("click", () => restoreVersion(board, version));
+		no.addEventListener("click", cancel);
+		box.addEventListener("keydown", (event) => {
+			if (event.key !== "Escape") return;
+			event.preventDefault();
+			event.stopPropagation();
+			cancel();
+		});
+		keyed.set(yes.dataset.key, yes);
+		keyed.set(no.dataset.key, no);
+		box.append(question, yes, no);
+		return box;
+	}
+
+	function askRestore(board, version) {
+		state.restoreAsk = { slug: state.slug, file: board.artboard.file, n: version.n };
+		state.restoreError = null;
+		state.historyFocus = `confirm-${version.n}`;
+		renderHistory();
+	}
+
+	/** Writes the version back through the server, which saves the current content first; the artboard then reloads. */
+	async function restoreVersion(board, version) {
+		const slug = state.slug;
+		const file = board.artboard.file;
+		state.restoreBusy = true;
+		state.restoreError = null;
+		renderHistory();
+		const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/history/restore`, { file, n: version.n });
+		state.restoreBusy = false;
+		state.restoreAsk = null;
+		if (slug !== state.slug) return;
+		if (!reply.ok) {
+			state.restoreError = reply;
+			state.historyFocus = `restore-${version.n}`;
+			renderHistory();
+			return;
+		}
+		const made = Number.isInteger(reply.body.version) ? reply.body.version : null;
+		showToast(made === null ? `v${version.n} already has the current content, so nothing changed.` : `Restored v${version.n} as v${made}`, false);
+		reloadBoard(board);
+		reloadThumb(board);
+		state.historyFocus = null;
+		renderHistory();
+		await loadHistory();
+	}
+
+	/** View on the current version: the artboard itself, in focus mode. */
+	function viewCurrent(board) {
+		closeVersionCompare(false, false);
+		if (state.focus !== board) enterFocus(board);
+		else board.frame.focus();
+	}
+
+	// ---- comparing a version with the current artboard
+
+	function versionFrame(board, src, title) {
+		const frame = document.createElement("iframe");
+		frame.className = "gd-versions-frame";
+		frame.setAttribute("sandbox", "allow-scripts");
+		frame.setAttribute("referrerpolicy", "no-referrer");
+		frame.setAttribute("tabindex", "-1");
+		frame.title = title;
+		frame.style.width = `${board.artboard.width}px`;
+		frame.style.height = `${board.artboard.height}px`;
+		frame.src = src;
+		return frame;
+	}
+
+	/** A pane: its label, and a box clipping the scaled frame. */
+	function versionPane(kind, board, src, title) {
+		const root = document.createElement("div");
+		root.className = `gd-versions-pane gd-versions-pane-${kind}`;
+		const label = chip("gd-versions-label", "");
+		const box = document.createElement("div");
+		box.className = "gd-versions-box";
+		const scale = document.createElement("div");
+		scale.className = "gd-versions-scale";
+		scale.style.width = `${board.artboard.width}px`;
+		scale.style.height = `${board.artboard.height}px`;
+		const frame = versionFrame(board, src, title);
+		scale.append(frame);
+		box.append(scale);
+		root.append(label, box);
+		return { root, label, box, scale, frame };
+	}
+
+	function startVersionCompare(board, version) {
+		const versions = boardVersions(board);
+		const newest = versions[versions.length - 1];
+		if (!newest || version.n === newest.n) return;
+		closeVersionCompare(false, false);
+		const enteredFocus = state.focus !== board;
+		if (enteredFocus) enterFocus(board);
+		closePopover();
+		const older = versionPane("old", board, versionUrl(state.slug, version.n, board.artboard.file), `${board.artboard.title} artboard, v${version.n}`);
+		const current = versionPane("new", board, boardUrl(board), `${board.artboard.title} artboard, current version`);
+		const box = document.createElement("div");
+		box.className = "gd-versions-compare";
+		box.setAttribute("role", "group");
+		const handle = document.createElement("div");
+		handle.className = "gd-versions-handle";
+		handle.setAttribute("role", "slider");
+		handle.setAttribute("tabindex", "0");
+		handle.setAttribute("aria-label", "Comparison position");
+		handle.setAttribute("aria-orientation", "horizontal");
+		handle.setAttribute("aria-valuemin", "0");
+		handle.setAttribute("aria-valuemax", "100");
+		const knob = document.createElement("span");
+		knob.className = "gd-versions-knob";
+		knob.setAttribute("aria-hidden", "true");
+		knob.textContent = "↔";
+		handle.append(knob);
+		// Frames take pointer events themselves, so a transparent shield over them carries the drag.
+		const shield = document.createElement("div");
+		shield.className = "gd-versions-shield";
+		shield.setAttribute("aria-hidden", "true");
+		box.append(older.root, current.root, handle, shield);
+		const compare = { board, n: version.n, mode: "slider", pos: 50, enteredFocus, older, current, box, handle, shield };
+		state.vcompare = compare;
+		let dragging = null;
+		const fromPointer = (clientX) => {
+			const rect = box.getBoundingClientRect();
+			return rect.width > 0 ? ((clientX - rect.left) / rect.width) * 100 : compare.pos;
+		};
+		shield.addEventListener("pointerdown", (event) => {
+			if (event.button !== 0) return;
+			dragging = event.pointerId;
+			shield.setPointerCapture?.(event.pointerId);
+			setSlider(fromPointer(event.clientX));
+			handle.focus();
+		});
+		shield.addEventListener("pointermove", (event) => {
+			if (dragging === event.pointerId) setSlider(fromPointer(event.clientX));
+		});
+		const endDrag = (event) => {
+			if (dragging === event.pointerId) dragging = null;
+		};
+		shield.addEventListener("pointerup", endDrag);
+		shield.addEventListener("pointercancel", endDrag);
+		handle.addEventListener("keydown", (event) => {
+			const step = event.shiftKey ? SLIDER_BIG_STEP : SLIDER_STEP;
+			const next = { ArrowLeft: compare.pos - step, ArrowDown: compare.pos - step, ArrowRight: compare.pos + step, ArrowUp: compare.pos + step, Home: 0, End: 100 }[event.key];
+			if (next === undefined) return;
+			event.preventDefault();
+			setSlider(next);
+		});
+		els.versionsTitle.textContent = `Compare versions · ${board.artboard.title}`;
+		els.versionsStage.replaceChildren(box);
+		els.versions.hidden = false;
+		els.world.inert = true;
+		setCompareMode("slider");
+		renderHistory();
+		handle.focus();
+	}
+
+	function setCompareMode(mode) {
+		const compare = state.vcompare;
+		if (!compare) return;
+		compare.mode = mode;
+		els.versionsStage.dataset.mode = mode;
+		els.versionsModeSlider.setAttribute("aria-pressed", String(mode === "slider"));
+		els.versionsModeSide.setAttribute("aria-pressed", String(mode === "side"));
+		compare.handle.hidden = mode !== "slider";
+		compare.shield.hidden = mode !== "slider";
+		layoutVersions();
+		setSlider(compare.pos);
+	}
+
+	/** The slider position, 0 to 100: where the line is; the older version shows left of it, the current one right of it. */
+	function setSlider(value) {
+		const compare = state.vcompare;
+		if (!compare) return;
+		compare.pos = Math.min(100, Math.max(0, Math.round(value * 10) / 10));
+		compare.current.box.style.clipPath = compare.mode === "slider" ? `inset(0 0 0 ${compare.pos}%)` : "";
+		compare.handle.style.left = `${compare.pos}%`;
+		compare.handle.setAttribute("aria-valuenow", String(compare.pos));
+		const versions = boardVersions(compare.board);
+		const newest = versions[versions.length - 1];
+		compare.handle.setAttribute("aria-valuetext", `${compare.pos}%: v${compare.n} on the left, v${newest ? newest.n : "?"} (current) on the right`);
+		compare.box.setAttribute("aria-label", `Comparison of v${compare.n} and the current version of ${compare.board.artboard.title}`);
+	}
+
+	/** One scale for the frames, small enough to fit under the bar and above Back to canvas. */
+	function layoutVersions() {
+		const compare = state.vcompare;
+		if (!compare) return;
+		const viewport = els.viewport.getBoundingClientRect();
+		const { width, height } = compare.board.artboard;
+		const side = compare.mode === "side";
+		const panes = side ? 2 : 1;
+		const availableWidth = viewport.width - FOCUS_MARGIN * 2 - VERSIONS_GAP * (panes - 1);
+		const availableHeight = viewport.height - VERSIONS_BAR - BACK_SPACE - (side ? SIZES_HEAD : 0);
+		const scale = Math.max(MIN_SIZES_SCALE, Math.min(1, availableWidth / (width * panes), availableHeight / height));
+		for (const pane of [compare.older, compare.current]) {
+			pane.box.style.width = `${Math.round(width * scale)}px`;
+			pane.box.style.height = `${Math.round(height * scale)}px`;
+			pane.scale.style.transform = `scale(${scale})`;
+		}
+		compare.box.style.width = side ? "" : compare.older.box.style.width;
+		compare.box.style.height = side ? "" : compare.older.box.style.height;
+		renderVersionLabels();
+	}
+
+	function renderVersionLabels() {
+		const compare = state.vcompare;
+		if (!compare) return;
+		const versions = boardVersions(compare.board);
+		const older = versions.find((version) => version.n === compare.n);
+		const newest = versions[versions.length - 1];
+		const time = older ? versionLabelTime(older) : "";
+		compare.older.label.textContent = time ? `v${compare.n} · ${time}` : `v${compare.n}`;
+		compare.current.label.textContent = `v${newest ? newest.n : "?"} · Current`;
+	}
+
+	/** After the history changed: the labels follow the newest version, and a comparison whose version is gone closes. */
+	function refreshVersionCompare() {
+		const compare = state.vcompare;
+		if (!compare) return;
+		const versions = boardVersions(compare.board);
+		const newest = versions[versions.length - 1];
+		if (!newest || !versions.some((version) => version.n === compare.n) || compare.n === newest.n) {
+			const gone = newest && compare.n !== newest.n ? `v${compare.n} is no longer kept, so the comparison was closed.` : `v${compare.n} is now the current version, so the comparison was closed.`;
+			closeVersionCompare(true);
+			showToast(gone, false);
+			return;
+		}
+		renderVersionLabels();
+		setSlider(compare.pos);
+	}
+
+	/**
+	 * Ends the comparison. `leaveFocus`: when it was the comparison that put the artboard in focus mode, that ends too.
+	 * `restoreFocus`: the keyboard goes back to the button that opened it.
+	 */
+	function closeVersionCompare(restoreFocus, leaveFocus = true) {
+		const compare = state.vcompare;
+		if (!compare) return;
+		state.vcompare = null;
+		els.versions.hidden = true;
+		els.versionsStage.replaceChildren();
+		els.world.inert = false;
+		// After exitFocus: it renders the history itself and then moves the keyboard to the viewport.
+		if (leaveFocus && compare.enteredFocus && state.focus === compare.board) exitFocus();
+		state.historyFocus = restoreFocus ? `compare-${compare.n}` : null;
+		renderHistory();
+		if (restoreFocus && state.focus === compare.board) compare.board.frame.focus();
+	}
+
+	els.versionsModeSlider.addEventListener("click", () => setCompareMode("slider"));
+	els.versionsModeSide.addEventListener("click", () => setCompareMode("side"));
+	els.versionsClose.addEventListener("click", () => closeVersionCompare(true));
+
 	// ---- comments ----------------------------------------------------------
 
 	function commentsForBoard(board) {
@@ -2387,12 +2895,15 @@
 		els.sendAll.disabled = unsent === 0 || !DELIVERY.batch;
 		const brief = state.tab === "brief";
 		const checks = state.tab === "checks";
+		const history = state.tab === "history";
 		els.brief.hidden = !brief;
 		els.checks.hidden = !checks;
-		els.list.hidden = brief || checks;
+		els.history.hidden = !history;
+		els.list.hidden = brief || checks || history;
 		renderChecks();
+		renderHistory();
 		const shown = state.tab === "resolved" ? resolved : open;
-		els.panelEmpty.hidden = brief || checks || shown.length > 0;
+		els.panelEmpty.hidden = brief || checks || history || shown.length > 0;
 		els.panelEmpty.textContent = state.comments.length === 0
 			? "No comments yet. Turn on Comment mode and click an element."
 			: state.tab === "open" ? "No open comments." : "No resolved comments.";
@@ -2526,7 +3037,7 @@
 			});
 		} catch (error) {
 			// The request itself failed: the server is gone or unreachable.
-			return { status: 0, ok: false, body: { error: "network", reason: error instanceof Error ? error.message : String(error) } };
+			return { status: 0, ok: false, body: { error: "network", reason: typeof error?.message === "string" ? error.message : String(error) } };
 		}
 		let reply = null;
 		try { reply = await response.json(); } catch { reply = null; }
@@ -2570,7 +3081,7 @@
 	els.modeCollect.addEventListener("change", () => setMode("collect"));
 
 	function tabButtons() {
-		return [els.filterOpen, els.filterResolved, els.tabChecks, els.tabBrief];
+		return [els.filterOpen, els.filterResolved, els.tabHistory, els.tabChecks, els.tabBrief];
 	}
 
 	function setTab(name) {
@@ -2812,6 +3323,12 @@
 	});
 	document.addEventListener("keydown", (event) => {
 		if (event.defaultPrevented || event.key !== "Escape") return;
+		// Esc and Shift+Esc close a version comparison first.
+		if (state.vcompare) {
+			event.preventDefault();
+			closeVersionCompare(true);
+			return;
+		}
 		if (event.shiftKey) {
 			if (state.compare) {
 				event.preventDefault();
@@ -2926,8 +3443,9 @@
 
 	window.addEventListener("resize", closePopover);
 	window.addEventListener("resize", layoutCompare);
+	window.addEventListener("resize", layoutVersions);
 	// The viewport also changes size when the comments panel opens or closes.
-	if (typeof ResizeObserver === "function") new ResizeObserver(() => centerFocus()).observe(els.viewport);
+	if (typeof ResizeObserver === "function") new ResizeObserver(() => { centerFocus(); layoutVersions(); }).observe(els.viewport);
 	else window.addEventListener("resize", () => centerFocus());
 
 	setMode(state.mode);

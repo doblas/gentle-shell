@@ -26,6 +26,8 @@
 		<symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></symbol>
 		<symbol id="i-tablet" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M11 18h2"/></symbol>
 		<symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+		<symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+		<symbol id="i-restore" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
 		<symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/></symbol>
 		<symbol id="i-palette" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="8" cy="10" r="1"/><circle cx="12" cy="7" r="1"/><circle cx="16" cy="10" r="1"/><path d="M12 21a3 3 0 0 1 0-6h2"/></symbol>
 	</svg>
@@ -70,6 +72,17 @@
 		<main id="gd-viewport" class="gd-viewport" aria-label="Artboards" tabindex="0">
 			<div id="gd-world" class="gd-world"></div>
 			<p id="gd-empty" class="gd-empty" hidden></p>
+			<section id="gd-versions" class="gd-versions" aria-labelledby="gd-versions-title" hidden>
+				<div class="gd-versions-bar">
+					<h2 id="gd-versions-title" class="gd-versions-title"></h2>
+					<div class="gd-devices gd-versions-mode" role="group" aria-label="Comparison mode">
+						<button type="button" id="gd-versions-mode-slider" class="gd-size-button" aria-pressed="true">Slider</button>
+						<button type="button" id="gd-versions-mode-side" class="gd-size-button" aria-pressed="false">Side by side</button>
+					</div>
+					<button type="button" id="gd-versions-close" class="gd-small" aria-keyshortcuts="Escape" title="Close comparison (Esc)"><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-x"/></svg>Close comparison</button>
+				</div>
+				<div id="gd-versions-stage" class="gd-versions-stage"></div>
+			</section>
 			<button type="button" id="gd-back" class="gd-back" aria-keyshortcuts="Shift+Escape" title="Back to canvas (Shift+Esc)" hidden>Back to canvas</button>
 			<p id="gd-nav-mode" class="gd-nav-mode" role="status" aria-live="polite">Navigating</p>
 			<section id="gd-inspector" class="gd-inspector" aria-labelledby="gd-inspector-title" hidden>
@@ -91,6 +104,7 @@
 			<div id="gd-tabs" class="gd-tabs" role="tablist" aria-label="Review">
 				<button type="button" role="tab" id="gd-filter-open" class="gd-tab" aria-selected="true" aria-controls="gd-tabpanel">Comments <span id="gd-count-open" class="gd-count">0</span></button>
 				<button type="button" role="tab" id="gd-filter-resolved" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1">Resolved <span id="gd-count-resolved" class="gd-count">0</span></button>
+				<button type="button" role="tab" id="gd-tab-history" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1">History <span id="gd-count-history" class="gd-count">0</span></button>
 				<button type="button" role="tab" id="gd-tab-checks" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1">Checks <span id="gd-count-checks" class="gd-count">0</span></button>
 				<button type="button" role="tab" id="gd-tab-brief" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1">Brief</button>
 			</div>
@@ -102,6 +116,7 @@
 					<p id="gd-brief-text" class="gd-brief-text"></p>
 					<code id="gd-brief-feature" class="gd-feature" title="Feature document" hidden></code>
 				</div>
+				<div id="gd-history" class="gd-history" hidden></div>
 				<div id="gd-checks" class="gd-checks" hidden></div>
 				<section id="gd-handoff-panel" class="gd-handoff-panel" aria-labelledby="gd-handoff-title" hidden>
 					<h3 id="gd-handoff-title" class="gd-handoff-title"></h3>
