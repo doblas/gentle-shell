@@ -106,6 +106,12 @@ export type DesignCanvasServerOptions = {
 	 * takes the record back and answers 500.
 	 */
 	onImplement?: (request: DesignImplementRequest) => DesignHandoffDelivery | Promise<DesignHandoffDelivery>;
+	/**
+	 * "Try another direction from this…": an artboard of the manifest and what should change, already
+	 * validated. It answers whether the message was queued behind a busy agent; a throw answers 500.
+	 * Nothing is recorded: the new artboard arrives through the manifest.
+	 */
+	onVariant?: (request: DesignVariantRequest) => DesignHandoffDelivery | Promise<DesignHandoffDelivery>;
 	initialSlug?: string;
 	randomToken?: () => string;
 };
@@ -125,6 +131,11 @@ export type DesignArtboard = { file: string; title: string; tradeoff: string; wi
 /** `feature` is present only when valid; `warnings` only when something in design.json was dropped. */
 export type DesignManifest = { slug: string; title: string; brief: string; artboards: DesignArtboard[]; feature?: string; warnings?: string[] };
 export type DesignImplementRequest = { slug: string; file: string };
+/** `instruction` is trimmed, with LF line ends, 1 to `DESIGN_VARIANT_INSTRUCTION_MAX` characters. */
+export type DesignVariantRequest = { slug: string; file: string; instruction: string };
+
+/** The most characters one "another direction" instruction may have. */
+export const DESIGN_VARIANT_INSTRUCTION_MAX = 2000;
 
 export { DESIGN_FEATURE_PATH };
 
@@ -581,7 +592,7 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 	function canvasPage(res: ServerResponse, slug: string | null): void {
 		const html = template
 			.replaceAll("{{BASE}}", escapeHtml(base))
-			.replace("{{CONFIG}}", () => scriptJson({ base, slug, delivery: { comment: true, batch: Boolean(options.onComments), implement: Boolean(options.onImplement) } }));
+			.replace("{{CONFIG}}", () => scriptJson({ base, slug, delivery: { comment: true, batch: Boolean(options.onComments), implement: Boolean(options.onImplement), variant: Boolean(options.onVariant) } }));
 		reply(res, 200, html, { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": CANVAS_CSP });
 	}
 
@@ -778,6 +789,29 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		reply(res, 202, { ok: true, slug, file, queued });
 	}
 
+	async function variant(req: IncomingMessage, res: ServerResponse, slug: string): Promise<void> {
+		const body = await readJsonObject(req);
+		const onVariant = options.onVariant;
+		if (!onVariant) throw new HttpError(501, "variant-unavailable");
+		const segments = relativeSegments(body.file);
+		if (!segments) throw new HttpError(400, "invalid-file");
+		const file = segments.join("/");
+		const manifest = await readManifest(slug);
+		if (!manifest.artboards.some((artboard) => artboard.file === file)) throw new HttpError(400, "invalid-file", { error: "invalid-file", reason: `${file} is not an artboard of design/${slug}` });
+		const instruction = typeof body.instruction === "string" ? body.instruction.replace(/\r\n?/g, "\n").trim() : "";
+		if (instruction.length < 1 || instruction.length > DESIGN_VARIANT_INSTRUCTION_MAX) {
+			throw new HttpError(400, "invalid-instruction", { error: "invalid-instruction", reason: `instruction must have 1 to ${DESIGN_VARIANT_INSTRUCTION_MAX} characters` });
+		}
+		let delivery: DesignHandoffDelivery;
+		try {
+			delivery = await onVariant({ slug, file, instruction });
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error);
+			throw new HttpError(500, "delivery-failed", { error: "delivery-failed", slug, file, reason });
+		}
+		reply(res, 202, { ok: true, slug, file, queued: typeof delivery === "object" && delivery !== null && delivery.queued === true });
+	}
+
 	/** The design's history, after a catch-up over its manifest's artboards; `warnings` name files too big to store. */
 	async function readHistory(res: ServerResponse, slug: string): Promise<void> {
 		const manifest = await readManifest(slug);
@@ -955,6 +989,10 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		if (rest.length === 4 && rest[0] === "api" && rest[1] === "designs" && rest[3] === "implement") {
 			const slug = safeSegment(rest[2]);
 			return slug && SLUG.test(slug) ? (req, res) => implement(req, res, slug) : undefined;
+		}
+		if (rest.length === 4 && rest[0] === "api" && rest[1] === "designs" && rest[3] === "variant") {
+			const slug = safeSegment(rest[2]);
+			return slug && SLUG.test(slug) ? (req, res) => variant(req, res, slug) : undefined;
 		}
 		if (rest.length === 5 && rest[0] === "api" && rest[1] === "designs" && rest[3] === "history" && rest[4] === "restore") {
 			const slug = safeSegment(rest[2]);

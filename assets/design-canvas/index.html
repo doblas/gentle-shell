@@ -30,6 +30,9 @@
 		<symbol id="i-restore" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
 		<symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/></symbol>
 		<symbol id="i-palette" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="8" cy="10" r="1"/><circle cx="12" cy="7" r="1"/><circle cx="16" cy="10" r="1"/><path d="M12 21a3 3 0 0 1 0-6h2"/></symbol>
+		<symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+		<symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m11 3 1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z"/><path d="M19 3v4M17 5h4"/></symbol>
+		<symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
 	</svg>
 	<nav class="gd-rail" aria-label="Tools">
 		<span class="gd-mark" aria-hidden="true">GD</span>
@@ -163,6 +166,7 @@
 		</section>
 	</div>
 	<div id="gd-toast" class="gd-toast" role="status" aria-live="polite" hidden></div>
+	<div id="gd-menu" class="gd-menu" role="menu" hidden></div>
 	<div id="gd-popover" class="gd-popover" role="dialog" aria-modal="false" aria-labelledby="gd-popover-title" hidden>
 		<form id="gd-popover-form">
 			<p class="gd-popover-title" id="gd-popover-title">Comment on <code id="gd-popover-target"></code></p>
@@ -183,6 +187,21 @@
 			</div>
 		</form>
 	</div>
+	<dialog id="gd-variant" class="gd-dialog gd-variant" aria-labelledby="gd-variant-title">
+		<form id="gd-variant-form" novalidate>
+			<h2 id="gd-variant-title" class="gd-dialog-title"><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-sparkles"/></svg> Another direction from <strong id="gd-variant-source"></strong></h2>
+			<p id="gd-variant-note" class="gd-variant-note"></p>
+			<label class="gd-variant-label" for="gd-variant-text">What should change?</label>
+			<textarea id="gd-variant-text" class="gd-variant-field" rows="4" maxlength="2000" aria-describedby="gd-variant-hint gd-variant-message"></textarea>
+			<p id="gd-variant-hint" class="gd-variant-hint">1 to 2000 characters</p>
+			<div id="gd-variant-chips" class="gd-suggestions" role="group" aria-label="Suggestions"></div>
+			<p id="gd-variant-message" class="gd-variant-message" role="status" aria-live="polite"></p>
+			<div class="gd-dialog-actions">
+				<button type="button" id="gd-variant-cancel">Cancel</button>
+				<button type="submit" id="gd-variant-send" class="gd-primary"><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-sparkles"/></svg>Send to the session</button>
+			</div>
+		</form>
+	</dialog>
 	<dialog id="gd-shortcuts" class="gd-dialog" aria-labelledby="gd-shortcuts-title">
 		<h2 id="gd-shortcuts-title" class="gd-dialog-title">Keyboard shortcuts</h2>
 		<dl class="gd-keys">

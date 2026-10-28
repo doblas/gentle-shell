@@ -121,6 +121,35 @@ export function designImplementMessage(input: DesignImplementInput): string {
 	return lines.join("\n");
 }
 
+export type DesignVariantInput = {
+	slug: string;
+	artboard: Pick<DesignArtboard, "file" | "title">;
+	/** What should change, already trimmed (1 to 2000 characters). */
+	instruction: string;
+	/** Whether design/system.md exists. */
+	systemTokens: boolean;
+};
+
+/** The message for "Try another direction from this…" (S3): the skill adds the next artboard based on the source file. */
+export function designVariantMessage(input: DesignVariantInput): string {
+	const folder = `design/${input.slug}`;
+	const path = `${folder}/${input.artboard.file}`;
+	const lines = [
+		`Add another direction to the design ${folder}/, based on the artboard ${path}`,
+		"",
+		`Source artboard: ${path}`,
+		`Title: ${input.artboard.title}`,
+		"",
+		"What should change:",
+		...input.instruction.split("\n").map((line) => `  ${line}`),
+		"",
+		`Follow the ${DESIGN_SKILL_NAME} skill ("Save and try a different approach"): write the next artboard (the next NN after the existing ones, NN-<name>.html) in ${folder}/, starting from the source file, and append it to ${folder}/design.json with its title, tradeoff, width and height. Keep every existing artboard and its file as they are.`,
+	];
+	if (input.systemTokens) lines.push("Take colors, typography, spacing, radius and shadows from design/system.md, the project's token source.");
+	lines.push(`When it is written, refresh the canvas with the ${DESIGN_TOOL_NAME} tool (action "open", slug "${input.slug}").`);
+	return lines.join("\n");
+}
+
 /** The artboard a handoff records in handoffs.json (S15). */
 export type DesignHandoffTarget = { slug: string; file: string; feature?: string };
 
@@ -186,6 +215,16 @@ export async function planDesignImplement(cwd: string, target: string): Promise<
 		return { kind: "refuse", notice: { message: reason, level: "warning" } };
 	}
 	return { kind: "send", message: designImplementMessage({ slug, artboard, feature, systemTokens: hasSystemTokens(designRoot), comments }), warnings, handoff: { slug, file: artboard.file, feature } };
+}
+
+export type DesignVariantPlan = { kind: "send"; message: string } | { kind: "refuse"; notice: DesignNotice };
+
+/** Validates `<slug>/<file>` against the design's manifest and builds the variant message; the canvas route sends exactly this. */
+export function planDesignVariant(cwd: string, request: { slug: string; file: string; instruction: string }): DesignVariantPlan {
+	const resolved = resolveDesignTarget(cwd, `${request.slug}/${request.file}`, "add a direction to");
+	if (resolved.kind === "refuse") return resolved;
+	const { slug, artboard } = resolved;
+	return { kind: "send", message: designVariantMessage({ slug, artboard, instruction: request.instruction, systemTokens: hasSystemTokens(join(cwd, "design")) }) };
 }
 
 /** A handoffs.json problem as the reason the user or the model reads; a broken file is never overwritten. */
@@ -268,6 +307,12 @@ export function createDesignCanvas(deliver: (message: DesignSessionContent) => D
 				// has already recorded the handoff, and this answers whether it was queued.
 				onImplement: async ({ slug, file }) => {
 					const plan = await planDesignImplement(cwd, `${slug}/${file}`);
+					if (plan.kind === "refuse") throw new Error(plan.notice.message);
+					return deliver(plan.message);
+				},
+				// Not a handoff: nothing is recorded, the new artboard arrives through the manifest.
+				onVariant: (request) => {
+					const plan = planDesignVariant(cwd, request);
 					if (plan.kind === "refuse") throw new Error(plan.notice.message);
 					return deliver(plan.message);
 				},
