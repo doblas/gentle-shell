@@ -1865,6 +1865,20 @@ kbd {
 .gd-menu-button[aria-expanded="true"] { background: var(--surface-2); color: var(--text); }
 .gd-menu-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* PNG export: the viewport covers the window and only the focused artboard's frame shows (exportArtboard). */
+.gd-exporting .gd-viewport {
+	position: fixed;
+	inset: 0;
+	z-index: 30;
+}
+
+.gd-exporting .gd-viewport > :not(.gd-world),
+.gd-exporting .gd-artboard:not(.gd-focus-board),
+.gd-exporting .gd-pins,
+.gd-exporting .gd-overflow-flag { visibility: hidden; }
+
+.gd-exporting .gd-focus-board .gd-artboard-frame { box-shadow: none; }
+
 /* One shared menu, placed at the button by the canvas (fixed: the world's transform does not touch it). */
 .gd-menu {
 	position: fixed;

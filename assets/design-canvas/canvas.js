@@ -1350,9 +1350,92 @@
 		return actions;
 	}
 
-	/** Stub: T3 (S4, tab-capture export) replaces this body. `scale` is 1 or 2. */
-	function exportArtboard(_board, _scale) {
-		showToast("Export is not available yet.", false);
+	function nextPaint() {
+		return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+	}
+
+	function nextVideoFrame(video) {
+		return new Promise((resolve) => (video.requestVideoFrameCallback ? video.requestVideoFrameCallback(() => resolve()) : setTimeout(resolve, 100)));
+	}
+
+	/** Export a visible artboard from the browser's tab capture, without sending pixels to the server. */
+	async function exportArtboard(board, scale) {
+		const alert = board.exportAlert || (board.exportAlert = createAlert());
+		if (!alert.root.parentElement) board.implement.root.append(alert.root);
+		hideAlert(alert);
+		const fail = (reason) => {
+			alert.text.textContent = "Could not export the artboard. Use your browser's screenshot tool instead.";
+			alert.detail.textContent = reason;
+			alert.root.hidden = false;
+		};
+		if (!navigator.mediaDevices?.getDisplayMedia) {
+			fail("Tab capture is not available in this browser.");
+			return;
+		}
+		if (!window.confirm("Choose this canvas tab in the browser's capture selector. Choosing another tab or screen may export the wrong content.")) return;
+		let stream;
+		const previous = { focus: state.focus, size: state.size, zoom: state.zoom, x: state.x, y: state.y };
+		try {
+			// This call must happen directly from the menu activation, before any asynchronous work.
+			stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: "browser" }, audio: false, preferCurrentTab: true });
+			// Some systems (such as Linux on Wayland) only offer windows or screens; their frame is not this tab's viewport.
+			const surface = stream.getVideoTracks?.()[0]?.getSettings?.().displaySurface;
+			if (surface && surface !== "browser") throw new Error(`You shared a ${surface === "monitor" ? "screen" : surface}, not this tab, so the artboard cannot be cropped from it.`);
+			if (state.focus !== board) enterFocus(board);
+			if (state.size.kind !== "desktop") setSize({ kind: "desktop" });
+			// The viewport covers the window without the canvas chrome; the artboard goes to its top left at 100%.
+			document.body.classList.add("gd-exporting");
+			Object.assign(state, { zoom: 1, x: 0, y: 0 });
+			applyView();
+			await nextPaint();
+			const start = board.frame.getBoundingClientRect();
+			state.x -= start.left;
+			state.y -= start.top;
+			applyView();
+			await nextPaint();
+			const rect = board.frame.getBoundingClientRect();
+			if (rect.width <= 0 || rect.height <= 0 || rect.left < 0 || rect.top < 0 || rect.right > window.innerWidth || rect.bottom > window.innerHeight) {
+				throw new Error(`The artboard needs a browser window of at least ${Math.ceil(rect.width)} × ${Math.ceil(rect.height)} px. Make the window bigger or use full screen (F11), then try again.`);
+			}
+			const video = document.createElement("video");
+			video.srcObject = stream;
+			video.muted = true;
+			await video.play();
+			// The first frame can predate the layout above; wait for frames painted after it.
+			await nextVideoFrame(video);
+			await nextVideoFrame(video);
+			const sx = video.videoWidth / window.innerWidth;
+			const sy = video.videoHeight / window.innerHeight;
+			if (!Number.isFinite(sx) || !Number.isFinite(sy) || sx <= 0 || sy <= 0) throw new Error("The captured frame has no dimensions.");
+			const canvas = document.createElement("canvas");
+			canvas.width = Math.round(rect.width * scale);
+			canvas.height = Math.round(rect.height * scale);
+			const context = canvas.getContext("2d");
+			if (!context) throw new Error("PNG export is not available.");
+			context.drawImage(video, rect.left * sx, rect.top * sy, rect.width * sx, rect.height * sy, 0, 0, canvas.width, canvas.height);
+			stream.getTracks().forEach((track) => track.stop());
+			stream = null;
+			const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+			if (!blob) throw new Error("Could not encode the PNG.");
+			const url = URL.createObjectURL(blob);
+			try {
+				const link = document.createElement("a");
+				link.href = url;
+				link.download = `${board.artboard.file.split("/").pop().replace(/\.[^.]+$/, "")}${scale === 2 ? "@2x" : ""}.png`;
+				link.click();
+			} finally { URL.revokeObjectURL(url); }
+			showToast(scale === 2 && (sx < 2 || sy < 2) ? "Exported PNG at 2× (upscaled)." : "Exported PNG.", false);
+		} catch (error) {
+			fail(error?.message || "Capture was denied or failed.");
+		} finally {
+			stream?.getTracks().forEach((track) => track.stop());
+			document.body.classList.remove("gd-exporting");
+			if (!previous.focus && state.focus) exitFocus();
+			else if (previous.focus && state.focus !== previous.focus) enterFocus(previous.focus);
+			if (previous.focus && state.focus === previous.focus) setSize(previous.size);
+			Object.assign(state, { zoom: previous.zoom, x: previous.x, y: previous.y });
+			applyView();
+		}
 	}
 
 	function menuItem(action) {
@@ -1379,6 +1462,8 @@
 
 	function placeMenu(button) {
 		const rect = button.getBoundingClientRect();
+		// A fixed box without a width shrinks to the room right of its left edge: measure it where nothing narrows it.
+		els.menu.style.left = "0px";
 		const width = els.menu.offsetWidth;
 		const height = els.menu.offsetHeight;
 		const left = Math.max(0, Math.min(rect.left, window.innerWidth - width - 12));

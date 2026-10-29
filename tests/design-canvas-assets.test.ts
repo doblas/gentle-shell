@@ -4241,7 +4241,8 @@ test("T1/S4: the loopback hints and the Open in new tab link do not change with 
 
 test("T1/S4: the canvas never reads either Compare frame's pixels or document", () => {
 	const js = read("canvas.js");
-	assert.ok(!/contentDocument|getImageData|toDataURL|toBlob|drawImage|createImageBitmap|captureStream/.test(js), "no pixel or DOM access to a frame");
+	const compare = js.slice(js.indexOf("// ---- compare ---"), js.indexOf("// ---- live reload ---"));
+	assert.ok(!/contentDocument|getImageData|toDataURL|toBlob|drawImage|createImageBitmap|captureStream/.test(compare), "no pixel or DOM access to a frame");
 });
 
 test("T1/S1-S3: index.html has the mode control and the opacity field in the Compare bar, with no Difference mode", () => {
@@ -4812,15 +4813,171 @@ test("T2/S2: Implement this stays visible in the header and the menu item opens 
 	assert.deepEqual(canvas.posts.filter((post) => post.url === IMPLEMENT), [{ url: IMPLEMENT, body: { file: "01-a.html" } }]);
 });
 
-test("T2/S2: the export items exist and name a stub until export is wired; they send nothing", async () => {
-	const canvas = await loadRail(300, {}, {}, { navigator: { mediaDevices: { getDisplayMedia: () => { throw new Error("export is not wired in T2"); } } } });
-	for (const label of ["Export as PNG", "Export as PNG at 2×"]) {
-		const button = openMenu(canvas, 0);
-		itemNamed(canvas, label).dispatch("click");
-		assert.equal(menuEl(canvas).hidden, true, label);
-		assert.ok(canvas.document.activeElement === button, `${label}: focus returns to the button`);
-		assert.match(canvas.document.getElementById("gd-toast").textContent, /Export is not available yet/);
-	}
+for (const [name, navigator] of [
+	["missing", {}],
+	["denied", { mediaDevices: { getDisplayMedia: async () => { throw new Error("denied"); } } }],
+] as const) test(`T3/S4: ${name} tab capture reports an inline alert and suggests the browser screenshot tool`, async () => {
+	const canvas = await loadRail(300, {}, {}, { navigator, confirm: () => true });
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Export as PNG").dispatch("click");
+	await flush();
+	await flush();
+	const alerts = withClass(canvas.world, "gd-alert");
+	assert.ok(alerts.some((alert) => !alert.hidden && texts(alert, "gd-alert-text").some((text) => /screenshot/i.test(text))));
+	assert.equal(canvas.posts.length, 0);
+});
+
+for (const scale of [1, 2]) test(`T3/S4: export ${scale}× crops the selected tab and stops its track`, async () => {
+	const calls: string[] = [];
+	const draw: number[][] = [];
+	const names: string[] = [];
+	const during: Array<{ exporting: boolean; transform: string }> = [];
+	let output: any;
+	const stream = { getTracks: () => [{ stop: () => calls.push("stop") }] };
+	const canvas = await loadRail(300, {}, {}, {
+		confirm: (message: string) => { calls.push(message); return true; },
+		navigator: { mediaDevices: { getDisplayMedia: async () => { calls.push("capture"); return stream; } } },
+		URL: { createObjectURL: () => "blob:test", revokeObjectURL: () => calls.push("revoke") },
+	});
+	canvas.boards[0].frame.rect = { left: 100, top: 100, width: 400, height: 300, right: 500, bottom: 400 } as Rect;
+	const create = canvas.document.createElement.bind(canvas.document);
+	canvas.document.createElement = ((tag: string) => {
+		if (tag === "video") return { videoWidth: 1200, videoHeight: 800, play: async () => { calls.push("play"); }, requestVideoFrameCallback: (done: () => void) => { calls.push("frame"); done(); } };
+		if (tag === "canvas") return output = { getContext: () => ({ drawImage: (_video: unknown, ...args: number[]) => {
+			draw.push(args);
+			during.push({ exporting: canvas.document.body.classList.contains("gd-exporting"), transform: canvas.world.style.transform });
+			calls.push("draw");
+		} }), toBlob: (done: (blob: object) => void) => { calls.push("encode"); done({}); } };
+		if (tag === "a") return { click() { names.push(this.download); }, href: "", download: "" };
+		return create(tag);
+	}) as typeof canvas.document.createElement;
+	const before = canvas.world.style.transform;
+	openMenu(canvas, 0);
+	itemNamed(canvas, scale === 1 ? "Export as PNG" : "Export as PNG at 2×").dispatch("click");
+	for (let i = 0; i < 8; i++) await flush();
+	assert.match(calls[0], /choose this canvas tab/i);
+	assert.equal(calls[1], "capture");
+	assert.deepEqual(draw, [[100, 100, 400, 300, 0, 0, 400 * scale, 300 * scale]]);
+	assert.deepEqual(names, [`01-a${scale === 2 ? "@2x" : ""}.png`]);
+	assert.equal(output.width, 400 * scale);
+	assert.equal(output.height, 300 * scale);
+	assert.equal(calls.filter((c) => c === "stop").length, 1);
+	assert.ok(calls.indexOf("stop") < calls.indexOf("encode"), "capture stops immediately after grabbing the frame");
+	assert.ok(calls.indexOf("frame") > calls.indexOf("play") && calls.indexOf("frame") < calls.indexOf("draw"), "the frame is drawn after a new video frame, not the first one");
+	assert.equal(during.length, 1);
+	assert.equal(during[0].exporting, true, "the canvas chrome is hidden while the frame is grabbed");
+	assert.match(during[0].transform, /scale\(1\)/, "the artboard is at 100%");
+	assert.equal(canvas.document.body.classList.contains("gd-exporting"), false, "the chrome comes back");
+	assert.equal(canvas.world.style.transform, before);
+	assert.equal(canvas.posts.length, 0);
+	if (scale === 2) assert.match(canvas.document.getElementById("gd-toast").textContent, /upscaled/i);
+});
+
+test("T3/S4: an artboard bigger than the window names the window size it needs and grabs nothing", async () => {
+	let stopped = 0;
+	let drawn = 0;
+	const canvas = await loadRail(300, {}, {}, {
+		confirm: () => true,
+		navigator: { mediaDevices: { getDisplayMedia: async () => ({ getTracks: () => [{ stop: () => stopped++ }] }) } },
+	});
+	canvas.boards[0].frame.rect = { left: 0, top: 0, width: 1440, height: 900, right: 1440, bottom: 900 } as Rect;
+	const create = canvas.document.createElement.bind(canvas.document);
+	canvas.document.createElement = ((tag: string) => tag === "canvas" ? { getContext: () => ({ drawImage: () => drawn++ }) } : create(tag)) as typeof canvas.document.createElement;
+	const before = canvas.world.style.transform;
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Export as PNG").dispatch("click");
+	for (let i = 0; i < 8; i++) await flush();
+	assert.equal(drawn, 0);
+	assert.equal(stopped, 1);
+	const shown = withClass(canvas.world, "gd-alert").filter((alert) => !alert.hidden);
+	assert.equal(shown.length, 1);
+	assert.match(texts(shown[0], "gd-alert-detail").join(" "), /1440 × 900/);
+	assert.match(texts(shown[0], "gd-alert-detail").join(" "), /F11/);
+	assert.equal(canvas.document.body.classList.contains("gd-exporting"), false);
+	assert.equal(canvas.world.style.transform, before);
+	assert.equal(canvas.posts.length, 0);
+});
+
+test("T3/S4: canvas.css hides the canvas chrome and pins the viewport to the window while exporting", () => {
+	const css = read("canvas.css");
+	const rules = css.slice(css.indexOf(".gd-exporting"));
+	assert.match(rules, /\.gd-exporting \.gd-viewport\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;/);
+	assert.match(rules, /\.gd-exporting \.gd-viewport > :not\(\.gd-world\)/);
+	for (const hidden of ["gd-pins", "gd-overflow-flag", "gd-artboard:not(.gd-focus-board)"]) assert.ok(rules.includes(`.gd-exporting .${hidden}`), hidden);
+});
+
+test("T3: the artboard menu is measured at a neutral position, so a stale position cannot push it off the right edge", async () => {
+	const canvas = await loadRail(300);
+	const menu = canvas.document.getElementById("gd-menu");
+	// Like a fixed box without a width: it shrinks to the room left of its left edge, up to its content width.
+	Object.defineProperty(menu, "offsetWidth", { get: () => Math.min(500, 1200 - (parseFloat(menu.style.left) || 0)) });
+	menu.style.left = "1100px";
+	const button = withClass(canvas.world, "gd-menu-button")[0];
+	button.rect = { left: 1150, top: 40, width: 28, height: 28, right: 1178, bottom: 68 } as Rect;
+	button.dispatch("click");
+	const left = parseFloat(menu.style.left);
+	assert.equal(left, 1200 - 500 - 12);
+	assert.ok(left + menu.offsetWidth <= 1200 - 12);
+});
+
+for (const surface of ["window", "monitor"]) test(`T3/S4: sharing a ${surface} instead of the tab exports nothing and explains it`, async () => {
+	let stopped = 0;
+	let drawn = 0;
+	const track = { stop: () => stopped++, getSettings: () => ({ displaySurface: surface }) };
+	const canvas = await loadRail(300, {}, {}, {
+		confirm: () => true,
+		navigator: { mediaDevices: { getDisplayMedia: async () => ({ getTracks: () => [track], getVideoTracks: () => [track] }) } },
+	});
+	canvas.boards[0].frame.rect = { left: 100, top: 100, width: 400, height: 300, right: 500, bottom: 400 } as Rect;
+	const create = canvas.document.createElement.bind(canvas.document);
+	canvas.document.createElement = ((tag: string) => tag === "canvas" ? { getContext: () => ({ drawImage: () => drawn++ }) } : create(tag)) as typeof canvas.document.createElement;
+	const before = canvas.world.style.transform;
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Export as PNG").dispatch("click");
+	for (let i = 0; i < 8; i++) await flush();
+	assert.equal(drawn, 0);
+	assert.equal(stopped, 1);
+	const shown = withClass(canvas.world, "gd-alert").filter((alert) => !alert.hidden);
+	assert.equal(shown.length, 1);
+	assert.match(texts(shown[0], "gd-alert-text").join(" "), /screenshot/i);
+	assert.match(texts(shown[0], "gd-alert-detail").join(" "), /not this tab/i);
+	assert.equal(canvas.document.body.classList.contains("gd-exporting"), false);
+	assert.equal(canvas.world.style.transform, before);
+	assert.equal(canvas.posts.length, 0);
+});
+
+test("T3/S4: cancelling the tab-selection warning does not start a capture", async () => {
+	let captures = 0;
+	const canvas = await loadRail(300, {}, {}, {
+		confirm: () => false,
+		navigator: { mediaDevices: { getDisplayMedia: async () => { captures++; } } },
+	});
+	const before = canvas.world.style.transform;
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Export as PNG").dispatch("click");
+	await flush();
+	assert.equal(captures, 0);
+	assert.equal(canvas.world.style.transform, before);
+	assert.equal(canvas.posts.length, 0);
+});
+
+test("T3/S4: a capture failure stops the stream and restores the canvas view", async () => {
+	let stopped = 0;
+	const canvas = await loadRail(300, {}, {}, {
+		confirm: () => true,
+		navigator: { mediaDevices: { getDisplayMedia: async () => ({ getTracks: () => [{ stop: () => stopped++ }] }) } },
+	});
+	canvas.boards[0].frame.rect = { left: 100, top: 100, width: 400, height: 300, right: 500, bottom: 400 } as Rect;
+	const create = canvas.document.createElement.bind(canvas.document);
+	canvas.document.createElement = ((tag: string) => tag === "video" ? { play: async () => { throw new Error("capture failed"); } } : create(tag)) as typeof canvas.document.createElement;
+	const before = canvas.world.style.transform;
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Export as PNG").dispatch("click");
+	for (let i = 0; i < 8; i++) await flush();
+	assert.equal(stopped, 1);
+	assert.equal(canvas.world.style.transform, before);
+	assert.match(canvas.navMode.textContent, /Navigating/);
+	assert.ok(withClass(canvas.world, "gd-alert").some((alert) => !alert.hidden && texts(alert, "gd-alert-text").some((text) => /screenshot/i.test(text))));
 	assert.equal(canvas.posts.length, 0);
 });
 
