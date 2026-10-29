@@ -9,6 +9,8 @@
 // which shows that artboard at 100% and lets it own the pointer and the keyboard
 // until "Back to canvas" or Shift+Esc restores the previous view.
 // A minimap in the viewport's bottom right (M) shows every board and the visible area; clicking or dragging in it pans.
+// Every word it shows is in one catalog (English and Spanish, below); the language starts from the browser's and
+// a button in the top bar switches it live. Messages sent to the session are not text of the canvas and stay English.
 // A left tool rail (Navigate, Comment, Overview, artboard list, design system, shortcuts) and the
 // single-key shortcuts behind it; the mode chip in the viewport names the active mode.
 // Handoffs (design/<slug>/handoffs.json) show live on each artboard's header: the
@@ -31,9 +33,6 @@
 	const LIMITS = { selector: 500, excerpt: 300, comment: 2000, variant: 2000, pins: 500, tokens: 500, versions: 50, historyArtboards: 256, screenshotBytes: 5 * 1024 * 1024 };
 	const SCREENSHOT_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 	const MODE_KEY = "gentle-design:send-mode";
-	const SYSTEM_LABEL = { title: "Design system", tradeoff: "Project tokens (design/system.md)" };
-	const SYSTEM_NOTE = "Comments apply to design artboards only. To change the system, update the project's design sources and run /gentle:design sync.";
-	const HANDOFF_LABELS = { queued: "Queued", sent: "Implementing…", in_progress: "In progress", implemented: "Implemented ✓" };
 	const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 	const MAX_PREVIEW_URL = 2048;
 	// The running app is another loopback origin (previewTarget refuses this server's own
@@ -42,9 +41,7 @@
 	// production. No top-navigation flag is granted, so it can never navigate the canvas away.
 	const PREVIEW_SANDBOX = "allow-scripts allow-same-origin allow-forms allow-popups";
 	const PREVIEW_TIMEOUT_MS = 6000;
-	const PREVIEW_HINT = "If the app refuses to be framed, use Open in new tab.";
-	// CSP host sources have no IPv6 literal form, so Chromium drops the [::1] source from frame-src.
-	const IPV6_HINT = "Browsers do not frame [::1] under the canvas policy (CSP has no IPv6 sources): use Open in new tab, or report the preview on localhost.";
+	// CSP host sources have no IPv6 literal form, so Chromium drops the [::1] source from frame-src (the hint compare.hintIpv6 says so).
 	// Below this on-screen artboard width, the screen-size handoff row and Implement this would
 	// overlap the next artboard: they collapse, and the navigator and the timeline carry the state.
 	const COMPACT_BOARD_WIDTH = 360;
@@ -53,9 +50,9 @@
 	// Screen sizes in focus mode. Desktop is the artboard's own manifest size; the custom width is whole
 	// CSS px in this range with the manifest height; All sizes leaves a gap between frames and a band for each label.
 	const SIZE_PRESETS = [
-		{ kind: "phone", label: "Phone", icon: "i-phone", width: 390, height: 844 },
-		{ kind: "tablet", label: "Tablet", icon: "i-tablet", width: 820, height: 1180 },
-		{ kind: "desktop", label: "Desktop", icon: "i-monitor", manifest: true },
+		{ kind: "phone", name: "size.phone", icon: "i-phone", width: 390, height: 844 },
+		{ kind: "tablet", name: "size.tablet", icon: "i-tablet", width: 820, height: 1180 },
+		{ kind: "desktop", name: "size.desktop", icon: "i-monitor", manifest: true },
 	];
 	const CUSTOM_WIDTH = { min: 240, max: 2560 };
 	// What comments.json accepts for the size a comment was made at (lib/design-comments.ts).
@@ -66,37 +63,864 @@
 	const TOAST_MS = 5000;
 	// What the server can deliver; an older page config without it means everything.
 	const DELIVERY = { comment: true, batch: true, implement: true, variant: true, ...(config.delivery && typeof config.delivery === "object" ? config.delivery : {}) };
-	const OPEN_HINT = "open the canvas from your session with /gentle:design open";
-	// Suggestions in the "another direction" dialog: each fills the field.
-	const VARIANT_SUGGESTIONS = ["More compact", "Bolder", "Mobile first", "Calmer colors"];
-	// Every reason code the canvas routes can answer: the cause and the way out. The raw code stays as the detail.
-	const REASONS = {
-		"batch-delivery-unavailable": `This canvas is not connected to a Pi session, so comments cannot be sent. They stay saved; ${OPEN_HINT}, then use Send all.`,
-		"implement-unavailable": `This canvas is not connected to a Pi session, so it cannot hand the artboard off. ${OPEN_HINT[0].toUpperCase()}${OPEN_HINT.slice(1)}.`,
-		"variant-unavailable": `This canvas is not connected to a Pi session, so it cannot ask for another direction. ${OPEN_HINT[0].toUpperCase()}${OPEN_HINT.slice(1)}.`,
-		"invalid-instruction": `This request was rejected by the server. Write 1 to ${LIMITS.variant} characters and try again.`,
-		"delivery-failed": "The session did not accept the message. Your comments stay saved and unsent; check that the session is running, then try again.",
-		"too-many-comments": "This design has too many comments. Resolve or delete some in comments.json, then try again.",
-		"too-many-handoffs": "This design has too many handoffs recorded. Remove old ones from handoffs.json, then try again.",
-		"invalid-comments": "comments.json for this design is not valid, so it cannot be changed. Fix or remove the file, then try again.",
-		"invalid-handoffs": "handoffs.json for this design is not valid, so it cannot be changed. Fix or remove the file, then try again.",
-		"invalid-history": "The version history of this design cannot be used right now (its index or a version file is damaged, or the artboard is a link), so nothing was changed. Fix or remove what the detail names under .history, then try again.",
-		"history-limit": "The history index is full, so this change was not recorded. Delete old versions from .history to make room, then try again.",
-		"invalid-comment": "This comment was rejected by the server. Write 1 to 2000 characters and try again.",
-		"invalid-handoff": "This handoff was rejected by the server. Reload the canvas and try again.",
-		"invalid-screenshot": "The screenshot was rejected. Attach a PNG, JPEG, WebP or GIF image of at most 5 MB, or remove it.",
-		"body-too-large": "The request was too large. Remove the screenshot or shorten the comment, then try again with something smaller.",
-		"file-too-large": "That file is too large for the canvas to show. Make the artboard or asset smaller.",
-		"not-found": "That item no longer exists. Reload the canvas to see the current state.",
-		"too-many-streams": "Too many canvas tabs are open. Close the ones you do not use, then reload this one.",
-		internal: `An unexpected error happened in the canvas server. Try again; if it keeps failing, reopen it: ${OPEN_HINT}.`,
-		forbidden: "The server refused this request. Reload the canvas page, or reopen it with /gentle:design open.",
-		misdirected: "The server refused this request. Reload the canvas page, or reopen it with /gentle:design open.",
-		network: `The canvas could not reach its server; it may have been stopped. Reopen it: ${OPEN_HINT}.`,
-	};
-	const COMMENT_CHIP = "Click an element to comment · Esc";
-	const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+	// Suggestions in the "another direction" dialog: each fills the field with its own label.
+	const VARIANT_SUGGESTIONS = ["variant.compact", "variant.bolder", "variant.mobile", "variant.calmer"];
 	const TAB_NAMES = ["open", "resolved", "history", "checks", "brief"];
+
+	/* catalog:start */
+	// S4: every word the canvas shows, once per language, one entry per line. A key missing from `es` shows the English text.
+	// {name} marks a value filled in at run time; a key pair .one / .other is a plural (see tn).
+	const CATALOG = {
+		en: {
+			"common.cancel": "Cancel",
+			"common.close": "Close",
+			"common.copy": "Copy",
+			"common.dismiss": "Dismiss",
+			"common.remove": "Remove",
+			"common.send": "Send",
+			"common.save": "Save",
+			"change.prompt": "What should change?",
+			"session.notConnected": "Canvas not connected to a Pi session.",
+			"lang.button": "Language ({code})",
+			"lang.title": "Language / Idioma",
+			"lang.menu": "Language",
+			"lang.es": "Español",
+			"lang.en": "English",
+			"lang.auto": "Match the browser",
+			"lang.note": "Saved in this browser. Comments you write stay in the language you type; messages to the agent stay in English.",
+			"rail.label": "Tools",
+			"rail.navigate": "Navigate",
+			"rail.navigate.title": "Navigate (V)",
+			"rail.comment": "Comment",
+			"rail.comment.title": "Comment (C)",
+			"rail.overview": "Overview: fit all artboards",
+			"rail.overview.title": "Overview: fit all (F)",
+			"rail.list": "Artboard list",
+			"rail.list.title": "Artboard list ([)",
+			"rail.system": "Design system board",
+			"rail.keys": "Keyboard shortcuts",
+			"rail.keys.title": "Keyboard shortcuts (?)",
+			"bar.label": "Design canvas controls",
+			"bar.design": "Design",
+			"bar.feature": "Feature document",
+			"bar.compareApp": "Compare with app",
+			"zoom.group": "Zoom",
+			"zoom.out": "Zoom out",
+			"zoom.out.title": "Zoom out (-)",
+			"zoom.level": "Zoom level",
+			"zoom.in": "Zoom in",
+			"zoom.in.title": "Zoom in (+)",
+			"zoom.fit": "Fit all",
+			"zoom.fit.title": "Fit all (0)",
+			"nav.title": "Artboards · {count}",
+			"nav.note": "Design system board is always first in Overview.",
+			"nav.thumb": "{title} preview",
+			"nav.summary.open.one": "{count} open comment",
+			"nav.summary.open.other": "{count} open comments",
+			"nav.summary.resolved.one": "{count} resolved",
+			"nav.summary.resolved.other": "{count} resolved",
+			"nav.summary.none": "No comments",
+			"a11y.ok": "A11y ✓",
+			"a11y.fails.one": "{count} check",
+			"a11y.fails.other": "{count} checks",
+			"a11y.okTitle": "Automatic checks found no problems. They are heuristics, not a full audit.",
+			"a11y.failTitle": "Open the Checks tab to see them.",
+			"viewport.label": "Artboards",
+			"mode.navigating": "Navigating",
+			"mode.commenting": "Click an element to comment · Esc",
+			"mode.using": "Using: {title} · Shift+Esc to exit",
+			"back": "Back to canvas",
+			"back.title": "Back to canvas (Shift+Esc)",
+			"minimap.title": "Minimap",
+			"minimap.aria": "Position of the visible area among the artboards. Click or drag to move the view; use the artboard list with the keyboard.",
+			"minimap.aria.one": "Position of the visible area among {count} artboard. Click or drag to move the view; use the artboard list with the keyboard.",
+			"minimap.aria.other": "Position of the visible area among {count} artboards. Click or drag to move the view; use the artboard list with the keyboard.",
+			"panel.label": "Review",
+			"panel.toggleTitle": "Review panel (])",
+			"tab.comments": "Comments",
+			"tab.resolved": "Resolved",
+			"tab.history": "History",
+			"tab.checks": "Checks",
+			"tab.brief": "Brief",
+			"panel.comments": "Comments",
+			"panel.empty.none": "No comments yet. Turn on Comment mode and click an element.",
+			"panel.empty.open": "No open comments.",
+			"panel.empty.resolved": "No resolved comments.",
+			"panel.sendMode": "When a comment is sent to the session",
+			"panel.sendNow": "Send now",
+			"panel.collect": "Collect",
+			"panel.sendAll": "Send all ({count})",
+			"panel.sent.one": "Sent {count} comment to the session",
+			"panel.sent.other": "Sent {count} comments to the session",
+			"panel.noUnsent": "No unsent comments",
+			"brief.noDesign": "No design selected",
+			"brief.none": "No brief written.",
+			"comment.sent": "Sent",
+			"comment.waiting": "Waiting",
+			"comment.detached": "Detached",
+			"comment.show": "Show comment {number} on {file}",
+			"comment.madeAt": "Made at {label}",
+			"comment.shot": "Screenshot of comment {number}",
+			"comment.resolve": "Resolve",
+			"comment.reopen": "Reopen",
+			"comment.resolveAria": "Resolve comment {number}",
+			"comment.reopenAria": "Reopen comment {number}",
+			"comment.agent": "Agent:",
+			"comment.resolved": "Comment resolved",
+			"comment.reopened": "Comment reopened",
+			"comment.status.open": "open",
+			"comment.status.resolved": "resolved",
+			"pin.aria": "Comment {number} ({status}): {text}",
+			"popover.title": "Comment on",
+			"popover.label": "Comment",
+			"popover.attach": "Attach screenshot",
+			"popover.attachTitle": "Or paste an image, or drop one here (PNG, JPEG, WebP or GIF, up to 5 MB)",
+			"popover.shotAlt": "Attached screenshot",
+			"popover.sending": "Sending…",
+			"popover.tooLong": "Write a comment of 1 to {max} characters.",
+			"popover.saved": "Saved; use Send all to send it",
+			"popover.sentDone": "Sent to the session",
+			"popover.savedOnly": "Saved, but not sent to the session. Use Send all to try again.",
+			"shot.type": "Attach a PNG, JPEG, WebP or GIF image.",
+			"shot.size": "The screenshot must be at most 5 MB.",
+			"shot.read": "The screenshot could not be read.",
+			"designs.invalid": "{slug} (invalid design.json)",
+			"empty.noDesigns": "No designs yet. Run /gentle:design with a brief to create one.",
+			"empty.cannotShow": "Design \"{slug}\" cannot be shown: {message}",
+			"empty.noArtboards": "This design has no artboards yet.",
+			"empty.cannotList": "Designs cannot be listed: {message}",
+			"status.invalidManifest": "design.json for {slug} is invalid",
+			"status.warnings": "design.json: {warnings}",
+			"status.handoffs": "handoffs.json for {slug} cannot be read: {message}",
+			"status.comments": "comments.json for {slug} cannot be read: {message}",
+			"status.disconnected": "Live reload disconnected, retrying…",
+			"board.use": "Use {title}",
+			"board.hintUse": "Click to use this design",
+			"board.hintSystem": "Click to view the design system",
+			"board.frameTitle": "{title} artboard",
+			"board.menuButton": "More actions for {title}",
+			"system.title": "Design system",
+			"system.tradeoff": "Project tokens (design/system.md)",
+			"system.note": "Comments apply to design artboards only. To change the system, update the project's design sources and run /gentle:design sync.",
+			"system.commentsOff": "Comments off on this board",
+			"system.view": "View Design system (read-only)",
+			"system.frameTitle": "Design system artboard",
+			"overflow.label": "Overflows",
+			"overflow.note": "Content is wider than {width} px, so part of it is cut off or needs sideways scrolling at this size.",
+			"size.group": "Preview size",
+			"size.phone": "Phone",
+			"size.tablet": "Tablet",
+			"size.desktop": "Desktop",
+			"size.preset.title": "{name} {width} × {height}",
+			"size.all": "All sizes",
+			"size.all.title": "All sizes: Phone, Tablet and Desktop side by side",
+			"size.custom": "Custom",
+			"size.customAria": "Custom width in pixels",
+			"size.current": "Current size",
+			"size.error": "Enter a whole number from {min} to {max} (px).",
+			"size.frameAria": "{name} {width} by {height}",
+			"size.frameTitle": "{title} artboard at {name} {width} × {height}",
+			"implement.start": "Implement this",
+			"implement.startAria": "Implement {title} in the project",
+			"implement.confirmAria": "Confirm implementing {title}",
+			"implement.question": "Send it to the session to implement?",
+			"implement.queued": "Queued: the session will implement {title} after its current task.",
+			"implement.sent": "Sent: the session is implementing {title} now.",
+			"menu.aria": "{title} actions",
+			"menu.variant": "Try another direction from this…",
+			"menu.compare": "Compare with app",
+			"menu.exportPng": "Export as PNG",
+			"menu.exportPng2x": "Export as PNG at 2×",
+			"menu.implement": "Implement this",
+			"export.failed": "Could not export the artboard. Use your browser's screenshot tool instead.",
+			"export.unavailable": "Tab capture is not available in this browser.",
+			"export.confirm": "Choose this canvas tab in the browser's capture selector. Choosing another tab or screen may export the wrong content.",
+			"export.sharedScreen": "You shared a screen, not this tab, so the artboard cannot be cropped from it.",
+			"export.sharedOther": "You shared a {surface}, not this tab, so the artboard cannot be cropped from it.",
+			"export.window": "The artboard needs a browser window of at least {width} × {height} px. Make the window bigger or use full screen (F11), then try again.",
+			"export.noFrame": "The captured frame has no dimensions.",
+			"export.noPng": "PNG export is not available.",
+			"export.encode": "Could not encode the PNG.",
+			"export.denied": "Capture was denied or failed.",
+			"export.done": "Exported PNG.",
+			"export.doneUpscaled": "Exported PNG at 2× (upscaled).",
+			"variant.title": "Another direction from",
+			"variant.note": "The session writes a new artboard, {number}, and keeps the others.",
+			"variant.hint": "1 to 2000 characters",
+			"variant.suggestions": "Suggestions",
+			"variant.send": "Send to the session",
+			"variant.problem": "Write 1 to {max} characters about what should change.",
+			"variant.queued": "Queued: the session will add a new direction based on {title} after its current task.",
+			"variant.sent": "Sent: the session is adding a new direction based on {title} now.",
+			"variant.compact": "More compact",
+			"variant.bolder": "Bolder",
+			"variant.mobile": "Mobile first",
+			"variant.calmer": "Calmer colors",
+			"placeholder.title": "New direction",
+			"placeholder.aria": "{number} · New direction",
+			"placeholder.state": "Designing…",
+			"handoff.queued": "Queued",
+			"handoff.sent": "Implementing…",
+			"handoff.in_progress": "In progress",
+			"handoff.implemented": "Implemented ✓",
+			"choice.chosen": "Chosen",
+			"choice.alternative": "Alternative",
+			"handoff.featureTitle": "Tracked in this ODD feature document",
+			"handoff.compare": "Compare",
+			"handoff.compareAria": "Compare {title} with the running app",
+			"timeline.title": "Handoff · {title}",
+			"timeline.sent": "Sent to the session",
+			"timeline.implemented": "Implemented",
+			"timeline.queued": "Queued · {time}",
+			"timeline.useImplement": "Use Implement this to send it",
+			"timeline.compareWhenReady": "Compare with the running app when ready",
+			"timeline.done": "(done)",
+			"timeline.current": "(current)",
+			"timeline.pending": "(not yet)",
+			"time.today": "Today {clock}",
+			"compare.title": "Compare",
+			"compare.titleFor": "Compare: {title}",
+			"compare.modeGroup": "Compare mode",
+			"compare.side": "Side by side",
+			"compare.overlay": "Overlay",
+			"compare.slider": "Slider",
+			"compare.opacity": "App opacity",
+			"compare.fit": "Scale to fit",
+			"compare.open": "Open in new tab",
+			"compare.design": "Design",
+			"compare.app": "App",
+			"compare.designCaption": "Design: {file}",
+			"compare.appCaption": "Implementation: {url}",
+			"compare.appFrame": "Running app at {url}",
+			"compare.position": "Comparison position",
+			"compare.overlayAria": "Design and running app overlaid, app at {opacity}% opacity",
+			"compare.sliderAria": "Design and running app, split at {pos}%",
+			"compare.valueText": "{pos}%: Design on the left, App on the right",
+			"compare.hint": "If the app refuses to be framed, use Open in new tab.",
+			"compare.hintIpv6": "Browsers do not frame [::1] under the canvas policy (CSP has no IPv6 sources): use Open in new tab, or report the preview on localhost.",
+			"compare.errorFrame": "The app at {url} could not be loaded in the frame. Use Open in new tab.",
+			"compare.errorTimeout": "The app at {url} has not loaded; it may be down or refuse to be framed. Use Open in new tab.",
+			"inspector.color": "Color",
+			"inspector.background": "Background",
+			"inspector.contrast": "Contrast",
+			"inspector.font": "Font",
+			"inspector.size": "Size",
+			"inspector.lineHeight": "Line height",
+			"inspector.spacing": "Spacing",
+			"inspector.radius": "Radius",
+			"inspector.unreadable": "unreadable",
+			"inspector.imageBackground": "image or gradient",
+			"inspector.unknownBackground": "unknown background",
+			"inspector.aaLarge": "AA large text (3 : 1)",
+			"inspector.aa": "AA (4.5 : 1)",
+			"inspector.needs": "needs {needed} : 1",
+			"inspector.needsLarge": "needs {needed} : 1 (large text)",
+			"inspector.noToken": "no token",
+			"inspector.nearest": "Nearest {name}",
+			"inspector.weight": "weight {value}",
+			"inspector.normal": "normal",
+			"inspector.margin": "margin {sides}",
+			"inspector.padding": "padding {sides}",
+			"inspector.onScale": "on scale",
+			"inspector.offScale": "{value} px off scale",
+			"inspector.radiusNoToken": "{value} px no token",
+			"inspector.noTokens": "No design/system.md tokens found, so values and contrast are shown without a comparison.",
+			"inspector.nothingToFix": "Nothing is off the design system, so there is nothing to fix.",
+			"inspector.copied": "Copied",
+			"inspector.copyFailed": "Could not copy. Use Ask the agent to fix and copy the text from the comment box.",
+			"checks.empty": "Checks run when an artboard loads.",
+			"checks.groupAria": "Checks for {name}",
+			"checks.passed": "Passed: {list}",
+			"checks.kind.fail": "Problem",
+			"checks.kind.advice": "Advice",
+			"checks.show": "Show",
+			"checks.showAria": "Show {title} on {label} in {name}",
+			"checks.fix": "Ask the agent to fix",
+			"checks.fixAria": "Ask the agent to fix {title} on {label}",
+			"check.name.contrast": "Text contrast",
+			"check.name.target": "Target size",
+			"check.name.alt": "Images have alt text",
+			"check.name.label": "Form fields have labels",
+			"check.name.heading": "Headings in order",
+			"check.contrast.title": "Low contrast",
+			"check.contrast.detail": "\"{text}\" is {ratio} : 1 ({fg} on {bg}); WCAG AA needs {needed} : 1.",
+			"check.contrast.detailLarge": "\"{text}\" is {ratio} : 1 ({fg} on {bg}); WCAG AA needs {needed} : 1 for large text.",
+			"check.target.title": "Small touch target",
+			"check.target.detail": "{subject} is {width} × {height} px; WCAG 2.2 needs at least {min} × {min} px.",
+			"check.targetAdvice.title": "Touch target under 44 px",
+			"check.targetAdvice.detail": "{subject} is {width} × {height} px; {advised} × {advised} px is recommended for touch.",
+			"check.alt.title": "Image without alt text",
+			"check.alt.detail": "{subject} has no alt attribute. Describe it, or use alt=\"\" if it is decorative.",
+			"check.alt.detailImage": "The image has no alt attribute. Describe it, or use alt=\"\" if it is decorative.",
+			"check.label.title": "Form field without a label",
+			"check.label.detail": "The {kind}{hint} has no label. Add a <label for>, aria-label or aria-labelledby; a placeholder is not a label.",
+			"check.field.select": "select",
+			"check.field.textarea": "text area",
+			"check.field.text": "text field",
+			"check.field.email": "email field",
+			"check.field.password": "password field",
+			"check.field.number": "number field",
+			"check.field.tel": "tel field",
+			"check.field.search": "search field",
+			"check.field.url": "url field",
+			"check.field.generic": "{type} field",
+			"check.heading.title": "Heading level skipped",
+			"check.heading.detail.one": "h{level} \"{text}\" follows h{previous}: {missing} is missing.",
+			"check.heading.detail.other": "h{level} \"{text}\" follows h{previous}: {missing} are missing.",
+			"history.empty": "No versions of this artboard yet. The canvas keeps one when it first sees an artboard and whenever its file changes.",
+			"history.note": "Versions are kept in design/{slug}/.history/; Restore saves the current one first, so nothing is lost.",
+			"version.aria": "Version {n}",
+			"version.ariaCurrent": "Version {n} (current)",
+			"version.current": "Current",
+			"version.original": "Original",
+			"version.comparing": "Comparing",
+			"version.applied": "Applied #{number}",
+			"version.source.agent": "Agent",
+			"version.source.hand": "You",
+			"version.source.restore": "Restore",
+			"version.view": "View",
+			"version.viewAria": "View the current version, v{n}",
+			"version.compare": "Compare with current",
+			"version.compareAria": "Compare v{n} with the current version",
+			"version.restore": "Restore",
+			"version.restoreAria": "Restore v{n}",
+			"version.confirmAria": "Confirm restoring v{n}",
+			"version.confirmText": "Restore v{n}? The current version is saved first, so nothing is lost.",
+			"version.restored": "Restored v{n} as v{made}",
+			"version.same": "v{n} already has the current content, so nothing changed.",
+			"versions.group": "Comparison mode",
+			"versions.close": "Close comparison",
+			"versions.closeTitle": "Close comparison (Esc)",
+			"versions.title": "Compare versions · {title}",
+			"versions.frameOld": "{title} artboard, v{n}",
+			"versions.frameCurrent": "{title} artboard, current version",
+			"versions.valueText": "{pos}%: v{n} on the left, v{current} (current) on the right",
+			"versions.boxAria": "Comparison of v{n} and the current version of {title}",
+			"versions.labelCurrent": "v{n} · Current",
+			"versions.goneOld": "v{n} is no longer kept, so the comparison was closed.",
+			"versions.goneCurrent": "v{n} is now the current version, so the comparison was closed.",
+			"keys.navigate": "Navigate",
+			"keys.comment": "Comment on an element",
+			"keys.or": "or",
+			"keys.fit": "Fit all artboards",
+			"keys.zoom": "Zoom in and out",
+			"keys.pan": "Pan (Shift for larger steps)",
+			"keys.minimap": "Show or hide the minimap",
+			"keys.nav": "Show or hide the artboard list",
+			"keys.panel": "Show or hide the review panel",
+			"keys.esc": "Leave Comment mode or close the comment box",
+			"keys.shiftEsc": "Back to canvas from an artboard or Compare",
+			"keys.help": "This list",
+			"keys.note": "Single keys are off while you type, while the comment box is open and while an artboard is in use.",
+			"reason.batch-delivery-unavailable": "This canvas is not connected to a Pi session, so comments cannot be sent. They stay saved; open the canvas from your session with /gentle:design open, then use Send all.",
+			"reason.implement-unavailable": "This canvas is not connected to a Pi session, so it cannot hand the artboard off. Open the canvas from your session with /gentle:design open.",
+			"reason.variant-unavailable": "This canvas is not connected to a Pi session, so it cannot ask for another direction. Open the canvas from your session with /gentle:design open.",
+			"reason.invalid-instruction": "This request was rejected by the server. Write 1 to {max} characters and try again.",
+			"reason.delivery-failed": "The session did not accept the message. Your comments stay saved and unsent; check that the session is running, then try again.",
+			"reason.too-many-comments": "This design has too many comments. Resolve or delete some in comments.json, then try again.",
+			"reason.too-many-handoffs": "This design has too many handoffs recorded. Remove old ones from handoffs.json, then try again.",
+			"reason.invalid-comments": "comments.json for this design is not valid, so it cannot be changed. Fix or remove the file, then try again.",
+			"reason.invalid-handoffs": "handoffs.json for this design is not valid, so it cannot be changed. Fix or remove the file, then try again.",
+			"reason.invalid-history": "The version history of this design cannot be used right now (its index or a version file is damaged, or the artboard is a link), so nothing was changed. Fix or remove what the detail names under .history, then try again.",
+			"reason.history-limit": "The history index is full, so this change was not recorded. Delete old versions from .history to make room, then try again.",
+			"reason.invalid-comment": "This comment was rejected by the server. Write 1 to 2000 characters and try again.",
+			"reason.invalid-handoff": "This handoff was rejected by the server. Reload the canvas and try again.",
+			"reason.invalid-screenshot": "The screenshot was rejected. Attach a PNG, JPEG, WebP or GIF image of at most 5 MB, or remove it.",
+			"reason.body-too-large": "The request was too large. Remove the screenshot or shorten the comment, then try again with something smaller.",
+			"reason.file-too-large": "That file is too large for the canvas to show. Make the artboard or asset smaller.",
+			"reason.not-found": "That item no longer exists. Reload the canvas to see the current state.",
+			"reason.too-many-streams": "Too many canvas tabs are open. Close the ones you do not use, then reload this one.",
+			"reason.internal": "An unexpected error happened in the canvas server. Try again; if it keeps failing, reopen it: open the canvas from your session with /gentle:design open.",
+			"reason.forbidden": "The server refused this request. Reload the canvas page, or reopen it with /gentle:design open.",
+			"reason.misdirected": "The server refused this request. Reload the canvas page, or reopen it with /gentle:design open.",
+			"reason.network": "The canvas could not reach its server; it may have been stopped. Reopen it: open the canvas from your session with /gentle:design open.",
+			"reason.invalid": "The server rejected the request as invalid. Reload the canvas and try again.",
+			"reason.unknown": "Something went wrong. Try again; if it keeps failing, reopen the canvas: open the canvas from your session with /gentle:design open.",
+			"reason.implement.delivery-failed": "The session did not accept the handoff, so it was not recorded. Check that the session is running, then use Implement this again.",
+			"reason.variant.delivery-failed": "The session did not accept the request, so nothing was sent. Check that the session is running, then use Send to the session again.",
+			"reason.restore.file-too-large": "The artboard is too large to save a copy before restoring (versions are limited to 8 MB), so nothing was changed. Make it smaller, then try again.",
+			"reason.restore.not-found": "That version is no longer kept, so nothing was changed. Choose another version.",
+		},
+		es: {
+			"common.cancel": "Cancelar",
+			"common.close": "Cerrar",
+			"common.copy": "Copiar",
+			"common.dismiss": "Descartar",
+			"common.remove": "Quitar",
+			"common.send": "Enviar",
+			"common.save": "Guardar",
+			"change.prompt": "¿Qué debería cambiar?",
+			"session.notConnected": "El canvas no está conectado a una sesión de Pi.",
+			"lang.button": "Idioma ({code})",
+			"lang.title": "Language / Idioma",
+			"lang.menu": "Idioma",
+			"lang.es": "Español",
+			"lang.en": "English",
+			"lang.auto": "Igual que el navegador",
+			"lang.note": "Se guarda en este navegador. Los comentarios se quedan en el idioma en que los escribes; los mensajes al agente siguen en inglés.",
+			"rail.label": "Herramientas",
+			"rail.navigate": "Navegar",
+			"rail.navigate.title": "Navegar (V)",
+			"rail.comment": "Comentar",
+			"rail.comment.title": "Comentar (C)",
+			"rail.overview": "Ver todo: ajustar todos los artboards",
+			"rail.overview.title": "Ver todo: ajustar todo (F)",
+			"rail.list": "Lista de artboards",
+			"rail.list.title": "Lista de artboards ([)",
+			"rail.system": "Tablero del design system",
+			"rail.keys": "Atajos de teclado",
+			"rail.keys.title": "Atajos de teclado (?)",
+			"bar.label": "Controles del canvas de diseño",
+			"bar.design": "Diseño",
+			"bar.feature": "Documento de la funcionalidad",
+			"bar.compareApp": "Comparar con la app",
+			"zoom.group": "Zoom",
+			"zoom.out": "Alejar",
+			"zoom.out.title": "Alejar (-)",
+			"zoom.level": "Nivel de zoom",
+			"zoom.in": "Acercar",
+			"zoom.in.title": "Acercar (+)",
+			"zoom.fit": "Ajustar todo",
+			"zoom.fit.title": "Ajustar todo (0)",
+			"nav.title": "Artboards · {count}",
+			"nav.note": "El tablero del design system siempre va primero en Ver todo.",
+			"nav.thumb": "Vista previa de {title}",
+			"nav.summary.open.one": "{count} comentario abierto",
+			"nav.summary.open.other": "{count} comentarios abiertos",
+			"nav.summary.resolved.one": "{count} resuelto",
+			"nav.summary.resolved.other": "{count} resueltos",
+			"nav.summary.none": "Sin comentarios",
+			"a11y.ok": "A11y ✓",
+			"a11y.fails.one": "{count} comprobación",
+			"a11y.fails.other": "{count} comprobaciones",
+			"a11y.okTitle": "Las comprobaciones automáticas no encontraron problemas. Son heurísticas, no una auditoría completa.",
+			"a11y.failTitle": "Abre la pestaña Comprobaciones para verlas.",
+			"viewport.label": "Artboards",
+			"mode.navigating": "Navegando",
+			"mode.commenting": "Haz clic en un elemento para comentar · Esc",
+			"mode.using": "Usando: {title} · Shift+Esc para salir",
+			"back": "Volver al canvas",
+			"back.title": "Volver al canvas (Shift+Esc)",
+			"minimap.title": "Minimapa",
+			"minimap.aria": "Posición del área visible entre los artboards. Haz clic o arrastra para mover la vista; usa la lista de artboards con el teclado.",
+			"minimap.aria.one": "Posición del área visible entre {count} artboard. Haz clic o arrastra para mover la vista; usa la lista de artboards con el teclado.",
+			"minimap.aria.other": "Posición del área visible entre {count} artboards. Haz clic o arrastra para mover la vista; usa la lista de artboards con el teclado.",
+			"panel.label": "Revisión",
+			"panel.toggleTitle": "Panel de revisión (])",
+			"tab.comments": "Comentarios",
+			"tab.resolved": "Resueltos",
+			"tab.history": "Historial",
+			"tab.checks": "Comprobaciones",
+			"tab.brief": "Encargo",
+			"panel.comments": "Comentarios",
+			"panel.empty.none": "Aún no hay comentarios. Activa el modo Comentar y haz clic en un elemento.",
+			"panel.empty.open": "No hay comentarios abiertos.",
+			"panel.empty.resolved": "No hay comentarios resueltos.",
+			"panel.sendMode": "Cuándo se envía un comentario a la sesión",
+			"panel.sendNow": "Enviar ya",
+			"panel.collect": "Acumular",
+			"panel.sendAll": "Enviar todo ({count})",
+			"panel.sent.one": "Se envió {count} comentario a la sesión",
+			"panel.sent.other": "Se enviaron {count} comentarios a la sesión",
+			"panel.noUnsent": "No hay comentarios sin enviar",
+			"brief.noDesign": "Ningún diseño seleccionado",
+			"brief.none": "Aún no hay encargo escrito.",
+			"comment.sent": "Enviado",
+			"comment.waiting": "Esperando",
+			"comment.detached": "Desvinculado",
+			"comment.show": "Mostrar el comentario {number} en {file}",
+			"comment.madeAt": "Hecho en {label}",
+			"comment.shot": "Captura del comentario {number}",
+			"comment.resolve": "Resolver",
+			"comment.reopen": "Reabrir",
+			"comment.resolveAria": "Resolver comentario {number}",
+			"comment.reopenAria": "Reabrir comentario {number}",
+			"comment.agent": "Agente:",
+			"comment.resolved": "Comentario resuelto",
+			"comment.reopened": "Comentario reabierto",
+			"comment.status.open": "abierto",
+			"comment.status.resolved": "resuelto",
+			"pin.aria": "Comentario {number} ({status}): {text}",
+			"popover.title": "Comentar en",
+			"popover.label": "Comentario",
+			"popover.attach": "Adjuntar captura",
+			"popover.attachTitle": "O pega una imagen, o suelta una aquí (PNG, JPEG, WebP o GIF, hasta 5 MB)",
+			"popover.shotAlt": "Captura adjunta",
+			"popover.sending": "Enviando…",
+			"popover.tooLong": "Escribe un comentario de 1 a {max} caracteres.",
+			"popover.saved": "Guardado; usa Enviar todo para enviarlo",
+			"popover.sentDone": "Enviado a la sesión",
+			"popover.savedOnly": "Guardado, pero no enviado a la sesión. Usa Enviar todo para volver a intentarlo.",
+			"shot.type": "Adjunta una imagen PNG, JPEG, WebP o GIF.",
+			"shot.size": "La captura debe pesar 5 MB como máximo.",
+			"shot.read": "No se pudo leer la captura.",
+			"designs.invalid": "{slug} (design.json no válido)",
+			"empty.noDesigns": "Aún no hay diseños. Ejecuta /gentle:design con un encargo para crear uno.",
+			"empty.cannotShow": "No se puede mostrar el diseño «{slug}»: {message}",
+			"empty.noArtboards": "Este diseño aún no tiene artboards.",
+			"empty.cannotList": "No se pueden listar los diseños: {message}",
+			"status.invalidManifest": "design.json de {slug} no es válido",
+			"status.warnings": "design.json: {warnings}",
+			"status.handoffs": "No se puede leer handoffs.json de {slug}: {message}",
+			"status.comments": "No se puede leer comments.json de {slug}: {message}",
+			"status.disconnected": "Recarga en vivo desconectada, reintentando…",
+			"board.use": "Usar {title}",
+			"board.hintUse": "Haz clic para usar este diseño",
+			"board.hintSystem": "Haz clic para ver el design system",
+			"board.frameTitle": "Artboard {title}",
+			"board.menuButton": "Más acciones de {title}",
+			"system.title": "Design system",
+			"system.tradeoff": "Tokens del proyecto (design/system.md)",
+			"system.note": "Los comentarios solo se aplican a los artboards de diseño. Para cambiar el sistema, actualiza las fuentes de diseño del proyecto y ejecuta /gentle:design sync.",
+			"system.commentsOff": "Comentarios desactivados en este tablero",
+			"system.view": "Ver el design system (solo lectura)",
+			"system.frameTitle": "Artboard del design system",
+			"overflow.label": "Desborda",
+			"overflow.note": "El contenido es más ancho que {width} px, así que parte se corta o requiere desplazamiento lateral con este tamaño.",
+			"size.group": "Tamaño de la vista previa",
+			"size.phone": "Móvil",
+			"size.tablet": "Tablet",
+			"size.desktop": "Escritorio",
+			"size.preset.title": "{name} {width} × {height}",
+			"size.all": "Todos los tamaños",
+			"size.all.title": "Todos los tamaños: móvil, tablet y escritorio, lado a lado",
+			"size.custom": "Personalizado",
+			"size.customAria": "Ancho personalizado en píxeles",
+			"size.current": "Tamaño actual",
+			"size.error": "Introduce un número entero de {min} a {max} (px).",
+			"size.frameAria": "{name} {width} por {height}",
+			"size.frameTitle": "Artboard {title} en {name} {width} × {height}",
+			"implement.start": "Implementar esto",
+			"implement.startAria": "Implementar {title} en el proyecto",
+			"implement.confirmAria": "Confirmar la implementación de {title}",
+			"implement.question": "¿Enviarlo a la sesión para implementarlo?",
+			"implement.queued": "En cola: la sesión implementará {title} cuando termine su tarea actual.",
+			"implement.sent": "Enviado: la sesión está implementando {title} ahora.",
+			"menu.aria": "Acciones de {title}",
+			"menu.variant": "Probar otra dirección a partir de esta…",
+			"menu.compare": "Comparar con la app",
+			"menu.exportPng": "Exportar como PNG",
+			"menu.exportPng2x": "Exportar como PNG a 2×",
+			"menu.implement": "Implementar esto",
+			"export.failed": "No se pudo exportar el artboard. Usa en su lugar la herramienta de capturas de tu navegador.",
+			"export.unavailable": "La captura de pestañas no está disponible en este navegador.",
+			"export.confirm": "Elige esta pestaña del canvas en el selector de captura del navegador. Si eliges otra pestaña o pantalla, puede exportarse un contenido equivocado.",
+			"export.sharedScreen": "Has compartido una pantalla, no esta pestaña, así que no se puede recortar el artboard de ahí.",
+			"export.sharedOther": "Has compartido «{surface}», no esta pestaña, así que no se puede recortar el artboard de ahí.",
+			"export.window": "El artboard necesita una ventana del navegador de al menos {width} × {height} px. Agranda la ventana o usa la pantalla completa (F11) y vuelve a intentarlo.",
+			"export.noFrame": "El fotograma capturado no tiene dimensiones.",
+			"export.noPng": "La exportación a PNG no está disponible.",
+			"export.encode": "No se pudo codificar el PNG.",
+			"export.denied": "Se denegó la captura o falló.",
+			"export.done": "PNG exportado.",
+			"export.doneUpscaled": "PNG exportado a 2× (ampliado).",
+			"variant.title": "Otra dirección a partir de",
+			"variant.note": "La sesión escribe un nuevo artboard, {number}, y conserva los demás.",
+			"variant.hint": "De 1 a 2000 caracteres",
+			"variant.suggestions": "Sugerencias",
+			"variant.send": "Enviar a la sesión",
+			"variant.problem": "Escribe de 1 a {max} caracteres sobre lo que debería cambiar.",
+			"variant.queued": "En cola: la sesión añadirá una nueva dirección basada en {title} cuando termine su tarea actual.",
+			"variant.sent": "Enviado: la sesión está añadiendo una nueva dirección basada en {title} ahora.",
+			"variant.compact": "Más compacto",
+			"variant.bolder": "Más atrevido",
+			"variant.mobile": "Primero móvil",
+			"variant.calmer": "Colores más calmados",
+			"placeholder.title": "Nueva dirección",
+			"placeholder.aria": "{number} · Nueva dirección",
+			"placeholder.state": "Diseñando…",
+			"handoff.queued": "En cola",
+			"handoff.sent": "Implementando…",
+			"handoff.in_progress": "En curso",
+			"handoff.implemented": "Implementado ✓",
+			"choice.chosen": "Elegido",
+			"choice.alternative": "Alternativa",
+			"handoff.featureTitle": "Seguimiento en este documento de funcionalidad ODD",
+			"handoff.compare": "Comparar",
+			"handoff.compareAria": "Comparar {title} con la app en ejecución",
+			"timeline.title": "Handoff · {title}",
+			"timeline.sent": "Enviado a la sesión",
+			"timeline.implemented": "Implementado",
+			"timeline.queued": "En cola · {time}",
+			"timeline.useImplement": "Usa Implementar esto para enviarlo",
+			"timeline.compareWhenReady": "Compara con la app en ejecución cuando esté lista",
+			"timeline.done": "(hecho)",
+			"timeline.current": "(actual)",
+			"timeline.pending": "(pendiente)",
+			"time.today": "Hoy {clock}",
+			"compare.title": "Comparar",
+			"compare.titleFor": "Comparar: {title}",
+			"compare.modeGroup": "Modo de comparación",
+			"compare.side": "Lado a lado",
+			"compare.overlay": "Superponer",
+			"compare.slider": "Deslizador",
+			"compare.opacity": "Opacidad de la app",
+			"compare.fit": "Ajustar a la ventana",
+			"compare.open": "Abrir en una pestaña nueva",
+			"compare.design": "Diseño",
+			"compare.app": "App",
+			"compare.designCaption": "Diseño: {file}",
+			"compare.appCaption": "Implementación: {url}",
+			"compare.appFrame": "App en ejecución en {url}",
+			"compare.position": "Posición de la comparación",
+			"compare.overlayAria": "Diseño y app en ejecución superpuestos, app al {opacity}% de opacidad",
+			"compare.sliderAria": "Diseño y app en ejecución, divididos al {pos}%",
+			"compare.valueText": "{pos}%: Diseño a la izquierda, App a la derecha",
+			"compare.hint": "Si la app no permite mostrarse en un marco, usa Abrir en una pestaña nueva.",
+			"compare.hintIpv6": "Los navegadores no muestran [::1] en un marco con la política del canvas (CSP no admite fuentes IPv6): usa Abrir en una pestaña nueva, o indica la vista previa en localhost.",
+			"compare.errorFrame": "No se pudo cargar la app de {url} en el marco. Usa Abrir en una pestaña nueva.",
+			"compare.errorTimeout": "La app de {url} no se ha cargado; puede estar caída o no permitir mostrarse en un marco. Usa Abrir en una pestaña nueva.",
+			"inspector.color": "Color",
+			"inspector.background": "Fondo",
+			"inspector.contrast": "Contraste",
+			"inspector.font": "Fuente",
+			"inspector.size": "Tamaño",
+			"inspector.lineHeight": "Interlineado",
+			"inspector.spacing": "Espaciado",
+			"inspector.radius": "Radio",
+			"inspector.unreadable": "ilegible",
+			"inspector.imageBackground": "imagen o degradado",
+			"inspector.unknownBackground": "fondo desconocido",
+			"inspector.aaLarge": "AA texto grande (3 : 1)",
+			"inspector.aa": "AA (4.5 : 1)",
+			"inspector.needs": "requiere {needed} : 1",
+			"inspector.needsLarge": "requiere {needed} : 1 (texto grande)",
+			"inspector.noToken": "sin token",
+			"inspector.nearest": "Más cercano: {name}",
+			"inspector.weight": "peso {value}",
+			"inspector.normal": "normal",
+			"inspector.margin": "margen {sides}",
+			"inspector.padding": "relleno {sides}",
+			"inspector.onScale": "en la escala",
+			"inspector.offScale": "{value} px fuera de la escala",
+			"inspector.radiusNoToken": "{value} px sin token",
+			"inspector.noTokens": "No se encontraron tokens de design/system.md, así que se muestran los valores y el contraste sin comparación.",
+			"inspector.nothingToFix": "Nada se sale del design system, así que no hay nada que corregir.",
+			"inspector.copied": "Copiado",
+			"inspector.copyFailed": "No se pudo copiar. Usa Pedir al agente que lo corrija y copia el texto del cuadro de comentario.",
+			"checks.empty": "Las comprobaciones se ejecutan al cargar un artboard.",
+			"checks.groupAria": "Comprobaciones de {name}",
+			"checks.passed": "Superadas: {list}",
+			"checks.kind.fail": "Problema",
+			"checks.kind.advice": "Consejo",
+			"checks.show": "Mostrar",
+			"checks.showAria": "Mostrar {title} en {label} de {name}",
+			"checks.fix": "Pedir al agente que lo corrija",
+			"checks.fixAria": "Pedir al agente que corrija {title} en {label}",
+			"check.name.contrast": "Contraste del texto",
+			"check.name.target": "Tamaño de los objetivos táctiles",
+			"check.name.alt": "Imágenes con texto alternativo",
+			"check.name.label": "Campos de formulario con etiqueta",
+			"check.name.heading": "Encabezados en orden",
+			"check.contrast.title": "Contraste bajo",
+			"check.contrast.detail": "\"{text}\" tiene {ratio} : 1 ({fg} sobre {bg}); WCAG AA exige {needed} : 1.",
+			"check.contrast.detailLarge": "\"{text}\" tiene {ratio} : 1 ({fg} sobre {bg}); WCAG AA exige {needed} : 1 para texto grande.",
+			"check.target.title": "Objetivo táctil pequeño",
+			"check.target.detail": "{subject} mide {width} × {height} px; WCAG 2.2 exige al menos {min} × {min} px.",
+			"check.targetAdvice.title": "Objetivo táctil de menos de 44 px",
+			"check.targetAdvice.detail": "{subject} mide {width} × {height} px; se recomiendan {advised} × {advised} px para uso táctil.",
+			"check.alt.title": "Imagen sin texto alternativo",
+			"check.alt.detail": "{subject} no tiene atributo alt. Descríbela o usa alt=\"\" si es decorativa.",
+			"check.alt.detailImage": "La imagen no tiene atributo alt. Descríbela o usa alt=\"\" si es decorativa.",
+			"check.label.title": "Campo de formulario sin etiqueta",
+			"check.label.detail": "Falta etiqueta en {kind}{hint}. Añade un <label for>, aria-label o aria-labelledby; un placeholder no es una etiqueta.",
+			"check.field.select": "lista desplegable",
+			"check.field.textarea": "área de texto",
+			"check.field.text": "campo de texto",
+			"check.field.email": "campo de correo electrónico",
+			"check.field.password": "campo de contraseña",
+			"check.field.number": "campo numérico",
+			"check.field.tel": "campo de teléfono",
+			"check.field.search": "campo de búsqueda",
+			"check.field.url": "campo de URL",
+			"check.field.generic": "campo {type}",
+			"check.heading.title": "Nivel de encabezado omitido",
+			"check.heading.detail.one": "h{level} \"{text}\" sigue a h{previous}: falta {missing}.",
+			"check.heading.detail.other": "h{level} \"{text}\" sigue a h{previous}: faltan {missing}.",
+			"history.empty": "Aún no hay versiones de este artboard. El canvas guarda una cuando ve un artboard por primera vez y cada vez que cambia su archivo.",
+			"history.note": "Las versiones se guardan en design/{slug}/.history/; Restaurar guarda antes la actual, así que no se pierde nada.",
+			"version.aria": "Versión {n}",
+			"version.ariaCurrent": "Versión {n} (actual)",
+			"version.current": "Actual",
+			"version.original": "Original",
+			"version.comparing": "Comparando",
+			"version.applied": "Aplicado #{number}",
+			"version.source.agent": "Agente",
+			"version.source.hand": "Tú",
+			"version.source.restore": "Restauración",
+			"version.view": "Ver",
+			"version.viewAria": "Ver la versión actual, v{n}",
+			"version.compare": "Comparar con la actual",
+			"version.compareAria": "Comparar v{n} con la versión actual",
+			"version.restore": "Restaurar",
+			"version.restoreAria": "Restaurar v{n}",
+			"version.confirmAria": "Confirmar la restauración de v{n}",
+			"version.confirmText": "¿Restaurar v{n}? La versión actual se guarda antes, así que no se pierde nada.",
+			"version.restored": "v{n} restaurada como v{made}",
+			"version.same": "v{n} ya tiene el contenido actual, así que no cambió nada.",
+			"versions.group": "Modo de comparación",
+			"versions.close": "Cerrar comparación",
+			"versions.closeTitle": "Cerrar comparación (Esc)",
+			"versions.title": "Comparar versiones · {title}",
+			"versions.frameOld": "Artboard {title}, v{n}",
+			"versions.frameCurrent": "Artboard {title}, versión actual",
+			"versions.valueText": "{pos}%: v{n} a la izquierda, v{current} (actual) a la derecha",
+			"versions.boxAria": "Comparación de v{n} y la versión actual de {title}",
+			"versions.labelCurrent": "v{n} · Actual",
+			"versions.goneOld": "v{n} ya no se conserva, así que se cerró la comparación.",
+			"versions.goneCurrent": "v{n} es ahora la versión actual, así que se cerró la comparación.",
+			"keys.navigate": "Navegar",
+			"keys.comment": "Comentar un elemento",
+			"keys.or": "o",
+			"keys.fit": "Ajustar todos los artboards",
+			"keys.zoom": "Acercar y alejar",
+			"keys.pan": "Desplazar (Shift para pasos más grandes)",
+			"keys.minimap": "Mostrar u ocultar el minimapa",
+			"keys.nav": "Mostrar u ocultar la lista de artboards",
+			"keys.panel": "Mostrar u ocultar el panel de revisión",
+			"keys.esc": "Salir del modo Comentar o cerrar el cuadro de comentario",
+			"keys.shiftEsc": "Volver al canvas desde un artboard o Comparar",
+			"keys.help": "Esta lista",
+			"keys.note": "Las teclas sueltas se desactivan mientras escribes, mientras el cuadro de comentario está abierto y mientras usas un artboard.",
+			"reason.batch-delivery-unavailable": "Este canvas no está conectado a una sesión de Pi, así que no se pueden enviar los comentarios. Se quedan guardados; abre el canvas desde tu sesión con /gentle:design open y usa Enviar todo.",
+			"reason.implement-unavailable": "Este canvas no está conectado a una sesión de Pi, así que no puede entregar el artboard. Abre el canvas desde tu sesión con /gentle:design open.",
+			"reason.variant-unavailable": "Este canvas no está conectado a una sesión de Pi, así que no puede pedir otra dirección. Abre el canvas desde tu sesión con /gentle:design open.",
+			"reason.invalid-instruction": "El servidor rechazó esta solicitud. Escribe de 1 a {max} caracteres y vuelve a intentarlo.",
+			"reason.delivery-failed": "La sesión no aceptó el mensaje. Tus comentarios quedan guardados y sin enviar; comprueba que la sesión esté en marcha y vuelve a intentarlo.",
+			"reason.too-many-comments": "Este diseño tiene demasiados comentarios. Resuelve o elimina algunos en comments.json y vuelve a intentarlo.",
+			"reason.too-many-handoffs": "Este diseño tiene demasiados handoffs registrados. Elimina los antiguos de handoffs.json y vuelve a intentarlo.",
+			"reason.invalid-comments": "comments.json de este diseño no es válido, así que no se puede modificar. Corrige o elimina el archivo y vuelve a intentarlo.",
+			"reason.invalid-handoffs": "handoffs.json de este diseño no es válido, así que no se puede modificar. Corrige o elimina el archivo y vuelve a intentarlo.",
+			"reason.invalid-history": "El historial de versiones de este diseño no se puede usar ahora (su índice o un archivo de versión está dañado, o el artboard es un enlace), así que no se cambió nada. Corrige o elimina lo que indica el detalle dentro de .history y vuelve a intentarlo.",
+			"reason.history-limit": "El índice del historial está lleno, así que este cambio no se registró. Elimina versiones antiguas de .history para hacer sitio y vuelve a intentarlo.",
+			"reason.invalid-comment": "El servidor rechazó este comentario. Escribe de 1 a 2000 caracteres y vuelve a intentarlo.",
+			"reason.invalid-handoff": "El servidor rechazó este handoff. Recarga el canvas y vuelve a intentarlo.",
+			"reason.invalid-screenshot": "Se rechazó la captura. Adjunta una imagen PNG, JPEG, WebP o GIF de 5 MB como máximo, o quítala.",
+			"reason.body-too-large": "La solicitud era demasiado grande. Quita la captura o acorta el comentario y vuelve a intentarlo con algo más pequeño.",
+			"reason.file-too-large": "Ese archivo es demasiado grande para que el canvas lo muestre. Reduce el tamaño del artboard o del recurso.",
+			"reason.not-found": "Ese elemento ya no existe. Recarga el canvas para ver el estado actual.",
+			"reason.too-many-streams": "Hay demasiadas pestañas del canvas abiertas. Cierra las que no uses y recarga esta.",
+			"reason.internal": "Ocurrió un error inesperado en el servidor del canvas. Inténtalo de nuevo; si sigue fallando, vuelve a abrirlo: abre el canvas desde tu sesión con /gentle:design open.",
+			"reason.forbidden": "El servidor rechazó esta solicitud. Recarga la página del canvas o vuelve a abrirla con /gentle:design open.",
+			"reason.misdirected": "El servidor rechazó esta solicitud. Recarga la página del canvas o vuelve a abrirla con /gentle:design open.",
+			"reason.network": "El canvas no pudo conectar con su servidor; es posible que se haya detenido. Vuelve a abrirlo: abre el canvas desde tu sesión con /gentle:design open.",
+			"reason.invalid": "El servidor rechazó la solicitud por no ser válida. Recarga el canvas y vuelve a intentarlo.",
+			"reason.unknown": "Algo salió mal. Inténtalo de nuevo; si sigue fallando, vuelve a abrir el canvas: abre el canvas desde tu sesión con /gentle:design open.",
+			"reason.implement.delivery-failed": "La sesión no aceptó el handoff, así que no se registró. Comprueba que la sesión esté en marcha y usa Implementar esto de nuevo.",
+			"reason.variant.delivery-failed": "La sesión no aceptó la solicitud, así que no se envió nada. Comprueba que la sesión esté en marcha y usa Enviar a la sesión de nuevo.",
+			"reason.restore.file-too-large": "El artboard es demasiado grande para guardar una copia antes de restaurar (las versiones están limitadas a 8 MB), así que no se cambió nada. Redúcelo e inténtalo de nuevo.",
+			"reason.restore.not-found": "Esa versión ya no se conserva, así que no se cambió nada. Elige otra versión.",
+		},
+	};
+	/* catalog:end */
+
+	// ---- language (S1, S2, S4) ---------------------------------------------------
+	// The language is a stored choice (es, en or auto = the browser's); `language` is what it resolves to.
+	// Text is written through t / tn; text that stays on screen after it is written is also marked with
+	// data-i18n attributes (see loc), so a switch rewrites it in place and nothing reloads.
+
+	const LANG_KEY = "gentle-design:language";
+	const LANG_CHOICES = ["es", "en", "auto"];
+	// Where each kind of localized text goes, and the attribute that names its key (its arguments are in "<attribute>-args").
+	const LOC_TARGETS = [
+		["text", "data-i18n"],
+		["title", "data-i18n-title"],
+		["aria-label", "data-i18n-aria-label"],
+		["aria-valuetext", "data-i18n-aria-valuetext"],
+		["placeholder", "data-i18n-placeholder"],
+		["alt", "data-i18n-alt"],
+	];
+
+	/** The browser's language: es, es-MX... is Spanish; anything else, or nothing, is English. */
+	function browserLanguage() {
+		try {
+			const agent = typeof navigator === "object" && navigator ? navigator : null;
+			const first = agent && Array.isArray(agent.languages) && typeof agent.languages[0] === "string" && agent.languages[0] ? agent.languages[0] : agent && typeof agent.language === "string" ? agent.language : "";
+			return /^es([-_]|$)/i.test(first) ? "es" : "en";
+		} catch {
+			return "en";
+		}
+	}
+
+	function storedLanguage() {
+		try {
+			const value = localStorage.getItem(LANG_KEY);
+			return LANG_CHOICES.includes(value) ? value : "auto";
+		} catch {
+			return "auto";
+		}
+	}
+
+	const resolveLanguage = (choice) => (choice === "es" || choice === "en" ? choice : browserLanguage());
+	let languageChoice = storedLanguage();
+	let language = resolveLanguage(languageChoice);
+
+	const hasKey = (key) => Object.prototype.hasOwnProperty.call(CATALOG.en, key);
+
+	/** The text of `key` in the current language, or in English when the Spanish entry is missing; {name} takes `params`. */
+	function t(key, params) {
+		const own = Object.prototype.hasOwnProperty.call(CATALOG[language], key);
+		const text = own ? CATALOG[language][key] : hasKey(key) ? CATALOG.en[key] : key;
+		return text.replace(/\{(\w+)\}/g, (match, name) => {
+			if (!params || !Object.prototype.hasOwnProperty.call(params, name)) return match;
+			const value = params[name];
+			return value && typeof value === "object" && typeof value.ref === "string" ? t(value.ref) : String(value);
+		});
+	}
+
+	/** The key for a count: key.one for 1, key.other otherwise (English and Spanish agree). */
+	const plural = (key, count) => `${key}.${count === 1 ? "one" : "other"}`;
+	const tn = (key, count, params) => t(plural(key, count), { count, ...params });
+	/** A parameter that is itself a catalog key, so the sentence that holds it follows a switch of language. */
+	const ref = (key) => ({ ref: key });
+	/** Text for the agent, not for the person: S3 keeps it English whatever the language. */
+	const toSession = (text) => text;
+
+	function writeLoc(element, target, value) {
+		if (target === "text") element.textContent = value;
+		else if (target === "title") element.title = value;
+		else if (value === null) element.removeAttribute(target);
+		else element.setAttribute(target, value);
+	}
+
+	/**
+	 * Writes the text of `key` into `target` of `element` (text, title or an attribute) and remembers the key
+	 * and its arguments on the element, so the next switch of language rewrites it. No key clears it.
+	 */
+	function loc(element, target, key, params, pad) {
+		const attribute = LOC_TARGETS.find((entry) => entry[0] === target)[1];
+		if (!key) {
+			element.removeAttribute(attribute);
+			element.removeAttribute(`${attribute}-args`);
+			element.removeAttribute(`${attribute}-pad`);
+			writeLoc(element, target, target === "text" || target === "title" ? "" : null);
+			return;
+		}
+		element.setAttribute(attribute, key);
+		if (params) element.setAttribute(`${attribute}-args`, JSON.stringify(params));
+		else element.removeAttribute(`${attribute}-args`);
+		// A space ahead of text that follows other text (visually hidden sentences).
+		if (pad) element.setAttribute(`${attribute}-pad`, "1");
+		else element.removeAttribute(`${attribute}-pad`);
+		writeLoc(element, target, (pad ? " " : "") + t(key, params));
+	}
+
+	/** Rewrites everything marked with a key: the static text of index.html and what loc remembered. */
+	function refreshLoc() {
+		for (const [target, attribute] of LOC_TARGETS) {
+			for (const element of document.querySelectorAll(`[${attribute}]`)) {
+				let params;
+				const raw = element.getAttribute(`${attribute}-args`);
+				if (raw) {
+					try { params = JSON.parse(raw); } catch { params = undefined; }
+				}
+				writeLoc(element, target, (element.getAttribute(`${attribute}-pad`) ? " " : "") + t(element.getAttribute(attribute), params));
+			}
+		}
+	}
+
+	/** Intl locale for dates. */
+	const dateLocale = () => (language === "es" ? "es" : "en-US");
 
 	const $ = (id) => document.getElementById(id);
 	const els = {
@@ -199,6 +1023,9 @@
 		inspectorFix: $("gd-inspector-fix"),
 		inspectorCopy: $("gd-inspector-copy"),
 		menu: $("gd-menu"),
+		lang: $("gd-lang"),
+		langCode: $("gd-lang-code"),
+		langMenu: $("gd-lang-menu"),
 		variantDialog: $("gd-variant"),
 		variantForm: $("gd-variant-form"),
 		variantSource: $("gd-variant-source"),
@@ -243,6 +1070,8 @@
 		minimap: true,
 		// The open artboard menu: { board, button, items, actions }, or null.
 		menu: null,
+		// The open language menu: { items }, or null.
+		langMenu: null,
 		// The open "another direction" dialog: { board, button, sending }, or null.
 		variant: null,
 		// The "<NN> · New direction" board shown until the manifest changes, or null.
@@ -284,35 +1113,32 @@
 		cardErrors: new Map(),
 	};
 
-	function setStatus(text, isError) {
-		els.status.textContent = text;
+	/** The status line: the text of `key` (none clears it), kept in the language of the page. */
+	function setStatus(key, isError, params) {
+		loc(els.status, "text", key, params);
 		els.status.classList.toggle("gd-error", Boolean(isError));
 	}
 
-	/**
-	 * A failed reply in words: { text: cause and way out, detail: the raw code (and the server's own reason) }.
-	 * `reply` is what postJson returns; a code without a sentence gets a generic one that still names it.
-	 */
-	// Sentences that depend on the action: a refused handoff is taken back, so it is not "unsent comments".
-	const ACTION_REASONS = {
-		implement: { "delivery-failed": "The session did not accept the handoff, so it was not recorded. Check that the session is running, then use Implement this again." },
-		variant: { "delivery-failed": "The session did not accept the request, so nothing was sent. Check that the session is running, then use Send to the session again." },
-		restore: {
-			"file-too-large": "The artboard is too large to save a copy before restoring (versions are limited to 8 MB), so nothing was changed. Make it smaller, then try again.",
-			"not-found": "That version is no longer kept, so nothing was changed. Choose another version.",
-		},
-	};
+	/** Text that is not the canvas's own (a code, a server reason, a browser message): shown as it is, never translated. */
+	function setRaw(element, text) {
+		loc(element, "text", null);
+		element.textContent = text;
+	}
 
-	/** `action` picks an action-specific sentence over the generic one, when it has one. */
+	/**
+	 * A failed reply in words: { key, params, text, detail }: the catalog key of the sentence with the cause and the way out,
+	 * that sentence now, and the raw code (and the server's own reason) as the detail, which is never translated.
+	 * `action` picks an action-specific sentence over the generic one, when it has one: a refused handoff is taken back,
+	 * so it is not "unsent comments". `reply` is what postJson returns; a code without a sentence gets a generic one.
+	 */
 	function explain(reply, action) {
 		const body = reply && reply.body && typeof reply.body === "object" ? reply.body : {};
 		const code = typeof body.error === "string" && body.error ? body.error : `http-${reply ? reply.status : 0}`;
 		const reason = typeof body.reason === "string" && body.reason ? body.reason : "";
-		const specific = action && ACTION_REASONS[action] && Object.prototype.hasOwnProperty.call(ACTION_REASONS[action], code) ? ACTION_REASONS[action][code] : "";
-		let text = specific || (Object.prototype.hasOwnProperty.call(REASONS, code) ? REASONS[code] : "");
-		if (!text && code.startsWith("invalid-")) text = "The server rejected the request as invalid. Reload the canvas and try again.";
-		if (!text) text = `Something went wrong. Try again; if it keeps failing, reopen the canvas: ${OPEN_HINT}.`;
-		return { text, detail: reason ? `${code}: ${reason}` : code };
+		let key = action && hasKey(`reason.${action}.${code}`) ? `reason.${action}.${code}` : `reason.${code}`;
+		if (!hasKey(key)) key = code.startsWith("invalid-") ? "reason.invalid" : "reason.unknown";
+		const params = { max: LIMITS.variant };
+		return { key, params, text: t(key, params), detail: reason ? `${code}: ${reason}` : code };
 	}
 
 	/** A sprite icon; the SVG namespace comes from the page's own icon in the footer alert. */
@@ -343,8 +1169,8 @@
 		const dismiss = document.createElement("button");
 		dismiss.type = "button";
 		dismiss.className = "gd-alert-dismiss";
-		dismiss.setAttribute("aria-label", "Dismiss");
-		dismiss.title = "Dismiss";
+		loc(dismiss, "aria-label", "common.dismiss");
+		loc(dismiss, "title", "common.dismiss");
 		dismiss.append(icon("i-x", "gd-i"));
 		root.append(icon("i-alert", "gd-i gd-alert-icon"), body, dismiss);
 		return alertParts(root, text, detail, dismiss);
@@ -361,16 +1187,16 @@
 
 	function showAlert(parts, reply, action) {
 		const info = explain(reply, action);
-		parts.text.textContent = info.text;
-		parts.detail.textContent = info.detail;
+		loc(parts.text, "text", info.key, info.params);
+		setRaw(parts.detail, info.detail);
 		parts.root.title = info.detail;
 		parts.root.hidden = false;
 	}
 
 	function hideAlert(parts) {
 		parts.root.hidden = true;
-		parts.text.textContent = "";
-		parts.detail.textContent = "";
+		loc(parts.text, "text", null);
+		setRaw(parts.detail, "");
 	}
 
 	const sendAlert = alertParts($("gd-send-alert"), $("gd-send-alert-text"), $("gd-send-alert-detail"), $("gd-send-alert-dismiss"));
@@ -484,8 +1310,11 @@
 		const block = document.createElement("span");
 		block.className = "gd-minimap-block";
 		block.setAttribute("aria-hidden", "true");
-		block.title = entry.board ? `${entry.board.system ? "" : `${String(entry.board.number).padStart(2, "0")} · `}${entry.board.artboard.title}` : "New direction";
 		return block;
+	}
+
+	function minimapTitle(entry) {
+		return entry.board ? `${entry.board.system ? "" : `${String(entry.board.number).padStart(2, "0")} · `}${titleOf(entry.board)}` : t("placeholder.title");
 	}
 
 	/** The world, the boards and the visible area, drawn small. Blocks are plain boxes: the artboard list stays the keyboard path. */
@@ -498,7 +1327,7 @@
 			.map((entry) => ({ ...entry, rect: { x: entry.wrapper.offsetLeft, y: entry.wrapper.offsetTop, width: entry.wrapper.offsetWidth, height: entry.wrapper.offsetHeight } }))
 			.filter((entry) => entry.rect.width > 0 && entry.rect.height > 0);
 		const count = state.boards.length;
-		els.minimapMap.setAttribute("aria-label", `Position of the visible area among ${count} ${count === 1 ? "artboard" : "artboards"}. Click or drag to move the view; use the artboard list with the keyboard.`);
+		loc(els.minimapMap, "aria-label", plural("minimap.aria", count), { count });
 		const blocks = entries.map((entry, index) => {
 			const old = els.minimapMap.children[index];
 			const block = old && old !== els.minimapView && old.entry === entry.wrapper ? old : minimapBlock(entry);
@@ -511,6 +1340,7 @@
 			block.classList.toggle("gd-minimap-system", Boolean(entry.board && entry.board.system));
 			block.classList.toggle("gd-minimap-chosen", Boolean(entry.board && entry.board === chosen));
 			block.classList.toggle("gd-minimap-placeholder", !entry.board);
+			block.title = minimapTitle(entry);
 			block.style.left = rounded(map.x + entry.rect.x * map.scale);
 			block.style.top = rounded(map.y + entry.rect.y * map.scale);
 			block.style.width = rounded(Math.max(MINIMAP.minBlock, entry.rect.width * map.scale));
@@ -791,7 +1621,8 @@
 	/** The floating chip: focus mode, comment mode or plain navigation. */
 	function renderNavMode() {
 		const focused = state.focus;
-		els.navMode.textContent = focused ? `Using: ${focused.artboard.title} · Shift+Esc to exit` : state.commenting ? COMMENT_CHIP : "Navigating";
+		if (focused) loc(els.navMode, "text", "mode.using", { title: titleOf(focused) });
+		else loc(els.navMode, "text", state.commenting ? "mode.commenting" : "mode.navigating");
 		els.navMode.classList.toggle("gd-using", Boolean(focused));
 		els.navMode.classList.toggle("gd-commenting-chip", !focused && state.commenting);
 	}
@@ -840,7 +1671,7 @@
 
 	// ---- designs and artboards -------------------------------------------
 
-	function showEmpty(text) {
+	function showEmpty(key, params) {
 		exitFocus();
 		closeMenu(false);
 		state.placeholder = null;
@@ -849,7 +1680,7 @@
 		els.railSystem.disabled = !state.systemBoard;
 		renderHandoffViews();
 		renderMinimap();
-		els.empty.textContent = text;
+		loc(els.empty, "text", key, params);
 		els.empty.hidden = false;
 	}
 
@@ -857,7 +1688,8 @@
 		const options = designs.map((design) => {
 			const option = document.createElement("option");
 			option.value = design.slug;
-			option.textContent = design.valid ? design.title : `${design.slug} (invalid design.json)`;
+			if (design.valid) option.textContent = design.title;
+			else loc(option, "text", "designs.invalid", { slug: design.slug });
 			return option;
 		});
 		els.design.replaceChildren(...options);
@@ -883,10 +1715,14 @@
 		return board.system ? `${base}system.html` : fileUrl(board.slug, board.artboard.file);
 	}
 
+	/** A board's title: the system board's is the canvas's own text, a design's artboard is the user's. */
+	const titleOf = (board) => (board.system ? t("system.title") : board.artboard.title);
+
 	function createBoard(slug, artboard, system = false, number = 0) {
 		const wrapper = document.createElement("section");
 		wrapper.className = system ? "gd-artboard gd-system-board" : "gd-artboard";
-		wrapper.setAttribute("aria-label", artboard.title);
+		if (system) loc(wrapper, "aria-label", "system.title");
+		else wrapper.setAttribute("aria-label", artboard.title);
 		const label = document.createElement("div");
 		label.className = "gd-artboard-label";
 		// The header: number, title and, while focused, the handoff state chip.
@@ -894,7 +1730,8 @@
 		head.className = "gd-artboard-head";
 		const title = document.createElement("h2");
 		title.className = "gd-artboard-title";
-		title.textContent = artboard.title;
+		if (system) loc(title, "text", "system.title");
+		else title.textContent = artboard.title;
 		let stateChip = null;
 		let menuButton = null;
 		if (!system) {
@@ -911,7 +1748,8 @@
 		if (artboard.tradeoff) {
 			const tradeoff = document.createElement("p");
 			tradeoff.className = "gd-artboard-tradeoff";
-			tradeoff.textContent = artboard.tradeoff;
+			if (system) loc(tradeoff, "text", "system.tradeoff");
+			else tradeoff.textContent = artboard.tradeoff;
 			label.append(tradeoff);
 		}
 		const sizeControl = system ? null : createSizeControl(artboard);
@@ -930,18 +1768,19 @@
 			label.append(actions);
 		}
 		if (system) {
-			label.title = SYSTEM_NOTE;
+			loc(label, "title", "system.note");
 			const note = document.createElement("p");
 			note.className = "gd-system-note";
-			note.title = SYSTEM_NOTE;
-			note.textContent = "Comments off on this board";
+			loc(note, "title", "system.note");
+			loc(note, "text", "system.commentsOff");
 			label.append(note);
 		}
 		const frame = document.createElement("iframe");
 		frame.className = "gd-artboard-frame";
 		frame.setAttribute("sandbox", "allow-scripts");
 		frame.setAttribute("referrerpolicy", "no-referrer");
-		frame.title = `${artboard.title} artboard`;
+		if (system) loc(frame, "title", "system.frameTitle");
+		else loc(frame, "title", "board.frameTitle", { title: artboard.title });
 		frame.style.width = `${artboard.width}px`;
 		const box = document.createElement("div");
 		box.className = "gd-frame-box";
@@ -949,11 +1788,12 @@
 		shield.className = "gd-shield";
 		shield.setAttribute("role", "button");
 		shield.tabIndex = 0;
-		shield.setAttribute("aria-label", system ? `View ${artboard.title} (read-only)` : `Use ${artboard.title}`);
+		if (system) loc(shield, "aria-label", "system.view");
+		else loc(shield, "aria-label", "board.use", { title: artboard.title });
 		const hint = document.createElement("span");
 		hint.className = "gd-shield-hint";
 		hint.setAttribute("aria-hidden", "true");
-		hint.textContent = system ? "Click to view the design system" : "Click to use this design";
+		loc(hint, "text", system ? "board.hintSystem" : "board.hintUse");
 		shield.append(hint);
 		const pins = document.createElement("div");
 		pins.className = "gd-pins";
@@ -1004,7 +1844,9 @@
 		const flag = document.createElement("span");
 		flag.className = "gd-overflow-flag";
 		flag.hidden = true;
-		flag.append(chip("gd-overflow-text", "Overflows"), chip("gd-visually-hidden", ""));
+		const label = chip("gd-overflow-text", "");
+		loc(label, "text", "overflow.label");
+		flag.append(label, chip("gd-visually-hidden", ""));
 		return flag;
 	}
 
@@ -1017,9 +1859,8 @@
 		const shown = Boolean(surface.overflow) && (surface !== board || (state.focus === board && state.size.kind !== "all"));
 		surface.flag.hidden = !shown;
 		if (!shown) return;
-		const note = `Content is wider than ${surface.viewWidth} px, so part of it is cut off or needs sideways scrolling at this size.`;
-		surface.flag.title = note;
-		surface.flag.children[1].textContent = ` ${note}`;
+		loc(surface.flag, "title", "overflow.note", { width: surface.viewWidth });
+		loc(surface.flag.children[1], "text", "overflow.note", { width: surface.viewWidth }, true);
 	}
 
 	/** The size control in an artboard's header: presets, All sizes, a custom width and the current size. */
@@ -1029,42 +1870,46 @@
 		const group = document.createElement("div");
 		group.className = "gd-devices";
 		group.setAttribute("role", "group");
-		group.setAttribute("aria-label", "Preview size");
+		loc(group, "aria-label", "size.group");
 		const buttons = {};
-		const addButton = (kind, label, iconName, title) => {
+		const addButton = (kind, labelKey, iconName, titleKey, titleParams) => {
 			const button = document.createElement("button");
 			button.type = "button";
 			button.className = "gd-size-button";
 			button.dataset.size = kind;
-			button.title = title;
+			loc(button, "title", titleKey, titleParams);
 			button.setAttribute("aria-pressed", "false");
 			if (iconName) button.append(icon(iconName, "gd-i gd-i-s"));
-			button.append(chip("gd-size-label", label));
+			const label = chip("gd-size-label", "");
+			loc(label, "text", labelKey);
+			button.append(label);
 			button.addEventListener("click", () => setSize({ kind }));
 			buttons[kind] = button;
 			group.append(button);
 		};
 		for (const preset of SIZE_PRESETS) {
 			const { width, height } = presetSize({ artboard }, preset);
-			addButton(preset.kind, preset.label, preset.icon, `${preset.label} ${width} × ${height}`);
+			addButton(preset.kind, preset.name, preset.icon, "size.preset.title", { name: ref(preset.name), width, height });
 		}
-		addButton("all", "All sizes", null, "All sizes: Phone, Tablet and Desktop side by side");
+		addButton("all", "size.all", null, "size.all.title");
 		const custom = document.createElement("label");
 		custom.className = "gd-size-custom";
 		const input = document.createElement("input");
 		input.type = "number";
 		input.className = "gd-size-input";
-		input.setAttribute("aria-label", "Custom width in pixels");
+		loc(input, "aria-label", "size.customAria");
 		input.setAttribute("min", String(CUSTOM_WIDTH.min));
 		input.setAttribute("max", String(CUSTOM_WIDTH.max));
 		input.setAttribute("step", "1");
 		input.setAttribute("inputmode", "numeric");
 		const unit = chip("gd-size-unit", "px");
 		unit.setAttribute("aria-hidden", "true");
-		custom.append(chip("gd-size-custom-label", "Custom"), input, unit);
+		const customLabel = chip("gd-size-custom-label", "");
+		loc(customLabel, "text", "size.custom");
+		custom.append(customLabel, input, unit);
 		const readout = document.createElement("output");
 		readout.className = "gd-size-readout";
-		readout.setAttribute("aria-label", "Current size");
+		loc(readout, "aria-label", "size.current");
 		readout.setAttribute("aria-live", "polite");
 		const error = chip("gd-size-error", "");
 		error.setAttribute("role", "alert");
@@ -1074,7 +1919,7 @@
 			const width = Number(text);
 			if (!/^\d+$/.test(text) || width < CUSTOM_WIDTH.min || width > CUSTOM_WIDTH.max) {
 				input.setAttribute("aria-invalid", "true");
-				error.textContent = `Enter a whole number from ${CUSTOM_WIDTH.min} to ${CUSTOM_WIDTH.max} (px).`;
+				loc(error, "text", "size.error", { min: CUSTOM_WIDTH.min, max: CUSTOM_WIDTH.max });
 				error.hidden = false;
 				return;
 			}
@@ -1099,7 +1944,7 @@
 		if (size.kind === "custom") control.input.value = String(size.width);
 		else if (document.activeElement !== control.input) control.input.value = "";
 		const { width, height } = focusSize(board);
-		control.readout.textContent = size.kind === "all" ? "All sizes" : `${width} × ${height}`;
+		control.readout.textContent = size.kind === "all" ? t("size.all") : `${width} × ${height}`;
 	}
 
 	/**
@@ -1122,7 +1967,7 @@
 	function describeViewport(viewport) {
 		const size = `${viewport.width} × ${viewport.height}`;
 		const preset = SIZE_PRESETS.find((candidate) => !candidate.manifest && candidate.width === viewport.width && candidate.height === viewport.height);
-		return preset ? `${preset.label} ${size}` : size;
+		return preset ? `${t(preset.name)} ${size}` : size;
 	}
 
 	/** Picks a size for the focused artboard; a bad custom width never gets here (the field refuses it). */
@@ -1159,7 +2004,7 @@
 		view.className = "gd-sizes-all";
 		view.classList.toggle("gd-commenting", state.commenting);
 		view.setAttribute("role", "group");
-		view.setAttribute("aria-label", "All sizes");
+		loc(view, "aria-label", "size.all");
 		board.sizeFrames = SIZE_PRESETS.map((preset) => createSizeFrame(board, preset));
 		view.append(...board.sizeFrames.map((surface) => surface.root));
 		board.sizesView = view;
@@ -1170,11 +2015,13 @@
 		const { width, height } = presetSize(board, preset);
 		const root = document.createElement("section");
 		root.className = "gd-size-frame";
-		root.setAttribute("aria-label", `${preset.label} ${width} by ${height}`);
+		loc(root, "aria-label", "size.frameAria", { name: ref(preset.name), width, height });
 		const head = document.createElement("div");
 		head.className = "gd-size-head";
 		const scaleLabel = chip("gd-size-scale", "");
-		head.append(icon(preset.icon, "gd-i gd-i-s"), chip("gd-size-name", preset.label), chip("gd-size-dim", `${width} × ${height}`), scaleLabel);
+		const name = chip("gd-size-name", "");
+		loc(name, "text", preset.name);
+		head.append(icon(preset.icon, "gd-i gd-i-s"), name, chip("gd-size-dim", `${width} × ${height}`), scaleLabel);
 		const scaled = document.createElement("div");
 		scaled.className = "gd-size-scaled";
 		const stage = document.createElement("div");
@@ -1185,7 +2032,7 @@
 		frame.className = "gd-size-iframe";
 		frame.setAttribute("sandbox", "allow-scripts");
 		frame.setAttribute("referrerpolicy", "no-referrer");
-		frame.title = `${board.artboard.title} artboard at ${preset.label} ${width} × ${height}`;
+		loc(frame, "title", "size.frameTitle", { title: board.artboard.title, name: ref(preset.name), width, height });
 		frame.style.width = `${width}px`;
 		frame.style.height = `${height}px`;
 		const pins = document.createElement("div");
@@ -1240,25 +2087,26 @@
 		const start = document.createElement("button");
 		start.type = "button";
 		start.className = "gd-implement-start";
-		start.textContent = "Implement this";
-		start.setAttribute("aria-label", `Implement ${artboard.title} in the project`);
+		loc(start, "text", "implement.start");
+		loc(start, "aria-label", "implement.startAria", { title: artboard.title });
 		const confirm = document.createElement("div");
 		confirm.className = "gd-implement-confirm";
 		confirm.setAttribute("role", "group");
-		confirm.setAttribute("aria-label", `Confirm implementing ${artboard.title}`);
+		loc(confirm, "aria-label", "implement.confirmAria", { title: artboard.title });
 		confirm.hidden = true;
 		const question = document.createElement("span");
-		question.textContent = "Send it to the session to implement?";
+		loc(question, "text", "implement.question");
 		const yes = document.createElement("button");
 		yes.type = "button";
 		yes.className = "gd-primary";
-		yes.textContent = "Send";
+		loc(yes, "text", "common.send");
 		const no = document.createElement("button");
 		no.type = "button";
-		no.textContent = "Cancel";
+		loc(no, "text", "common.cancel");
 		confirm.append(question, yes, no);
 		const alert = createAlert();
 		let note = null;
+		let refreshNote = () => {};
 		if (!DELIVERY.implement) {
 			// No session to hand off to: say so up front instead of failing on click.
 			const info = explain({ status: 501, body: { error: "implement-unavailable" } });
@@ -1266,9 +2114,17 @@
 			start.title = info.detail;
 			// A short visible line keeps the artboard header readable; the full sentence stays
 			// in the tooltip and, for screen readers, in the visually hidden rest of the note.
-			note = chip("gd-implement-note", "Canvas not connected to a Pi session.");
-			note.title = info.text;
-			note.append(chip("gd-visually-hidden", ` ${info.text}`));
+			note = chip("gd-implement-note", "");
+			const hidden = chip("gd-visually-hidden", "");
+			// Text and a child in one element: a switch of language writes both again.
+			refreshNote = () => {
+				const words = explain({ status: 501, body: { error: "implement-unavailable" } });
+				note.textContent = t("session.notConnected");
+				note.title = words.text;
+				hidden.textContent = ` ${words.text}`;
+				note.append(hidden);
+			};
+			refreshNote();
 			note.id = `gd-implement-note-${++implementNotes}`;
 			start.setAttribute("aria-describedby", note.id);
 		}
@@ -1300,10 +2156,7 @@
 			const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/implement`, { file: artboard.file });
 			if (reply.ok) {
 				const queued = reply.body.queued === true;
-				const text = queued
-					? `Queued: the session will implement ${artboard.title} after its current task.`
-					: `Sent: the session is implementing ${artboard.title} now.`;
-				showToast(text, false);
+				showToast(t(queued ? "implement.queued" : "implement.sent", { title: artboard.title }), false);
 				// The server recorded it before answering; the handoffs.json change event confirms it.
 				noteHandoff(slug, artboard.file, queued);
 			} else {
@@ -1314,7 +2167,7 @@
 			close(true);
 		});
 		box.append(start, confirm, ...(note ? [note] : []), alert.root);
-		return { root: box, open };
+		return { root: box, open, refresh: refreshNote };
 	}
 
 	// ---- artboard menu ---------------------------------------------------------
@@ -1327,7 +2180,7 @@
 		const button = document.createElement("button");
 		button.type = "button";
 		button.className = "gd-menu-button";
-		button.setAttribute("aria-label", `More actions for ${title}`);
+		loc(button, "aria-label", "board.menuButton", { title });
 		button.setAttribute("aria-haspopup", "menu");
 		button.setAttribute("aria-expanded", "false");
 		button.setAttribute("aria-controls", "gd-menu");
@@ -1340,12 +2193,12 @@
 		const { entry } = handoffOf(board);
 		const preview = entry && handoffKind(entry) === "implemented" ? previewTarget(entry.previewUrl) : null;
 		const off = (available, code) => (available ? null : explain({ status: 501, body: { error: code } }));
-		const actions = [{ label: "Try another direction from this…", icon: "i-sparkles", off: off(DELIVERY.variant, "variant-unavailable"), run: (button) => openVariantDialog(board, button) }];
-		if (preview) actions.push({ label: "Compare with app", icon: "i-compare", run: () => enterCompare(board, preview) });
+		const actions = [{ label: "menu.variant", icon: "i-sparkles", off: off(DELIVERY.variant, "variant-unavailable"), run: (button) => openVariantDialog(board, button) }];
+		if (preview) actions.push({ label: "menu.compare", icon: "i-compare", run: () => enterCompare(board, preview) });
 		actions.push(
-			{ label: "Export as PNG", icon: "i-image", separator: true, run: () => exportArtboard(board, 1) },
-			{ label: "Export as PNG at 2×", icon: "i-image", run: () => exportArtboard(board, 2) },
-			{ label: "Implement this", separator: true, off: off(DELIVERY.implement, "implement-unavailable"), run: () => board.implement.open() },
+			{ label: "menu.exportPng", icon: "i-image", separator: true, run: () => exportArtboard(board, 1) },
+			{ label: "menu.exportPng2x", icon: "i-image", run: () => exportArtboard(board, 2) },
+			{ label: "menu.implement", separator: true, off: off(DELIVERY.implement, "implement-unavailable"), run: () => board.implement.open() },
 		);
 		return actions;
 	}
@@ -1358,21 +2211,28 @@
 		return new Promise((resolve) => (video.requestVideoFrameCallback ? video.requestVideoFrameCallback(() => resolve()) : setTimeout(resolve, 100)));
 	}
 
+	/** An Error whose message is the catalog text of `key` and which remembers the key, so an alert that shows it can follow the language. */
+	function exportError(key, params) {
+		return Object.assign(new Error(t(key, params)), { i18n: { key, params } });
+	}
+
 	/** Export a visible artboard from the browser's tab capture, without sending pixels to the server. */
 	async function exportArtboard(board, scale) {
 		const alert = board.exportAlert || (board.exportAlert = createAlert());
 		if (!alert.root.parentElement) board.implement.root.append(alert.root);
 		hideAlert(alert);
+		// A reason is an error made by exportError (the catalog key it carries follows a switch of language) or a browser's own text.
 		const fail = (reason) => {
-			alert.text.textContent = "Could not export the artboard. Use your browser's screenshot tool instead.";
-			alert.detail.textContent = reason;
+			loc(alert.text, "text", "export.failed");
+			if (reason.i18n) loc(alert.detail, "text", reason.i18n.key, reason.i18n.params);
+			else setRaw(alert.detail, reason.message || "");
 			alert.root.hidden = false;
 		};
 		if (!navigator.mediaDevices?.getDisplayMedia) {
-			fail("Tab capture is not available in this browser.");
+			fail(exportError("export.unavailable"));
 			return;
 		}
-		if (!window.confirm("Choose this canvas tab in the browser's capture selector. Choosing another tab or screen may export the wrong content.")) return;
+		if (!window.confirm(t("export.confirm"))) return;
 		let stream;
 		const previous = { focus: state.focus, size: state.size, zoom: state.zoom, x: state.x, y: state.y };
 		try {
@@ -1380,7 +2240,7 @@
 			stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: "browser" }, audio: false, preferCurrentTab: true });
 			// Some systems (such as Linux on Wayland) only offer windows or screens; their frame is not this tab's viewport.
 			const surface = stream.getVideoTracks?.()[0]?.getSettings?.().displaySurface;
-			if (surface && surface !== "browser") throw new Error(`You shared a ${surface === "monitor" ? "screen" : surface}, not this tab, so the artboard cannot be cropped from it.`);
+			if (surface && surface !== "browser") throw exportError(surface === "monitor" ? "export.sharedScreen" : "export.sharedOther", { surface });
 			if (state.focus !== board) enterFocus(board);
 			if (state.size.kind !== "desktop") setSize({ kind: "desktop" });
 			// The viewport covers the window without the canvas chrome; the artboard goes to its top left at 100%.
@@ -1395,7 +2255,7 @@
 			await nextPaint();
 			const rect = board.frame.getBoundingClientRect();
 			if (rect.width <= 0 || rect.height <= 0 || rect.left < 0 || rect.top < 0 || rect.right > window.innerWidth || rect.bottom > window.innerHeight) {
-				throw new Error(`The artboard needs a browser window of at least ${Math.ceil(rect.width)} × ${Math.ceil(rect.height)} px. Make the window bigger or use full screen (F11), then try again.`);
+				throw exportError("export.window", { width: Math.ceil(rect.width), height: Math.ceil(rect.height) });
 			}
 			const video = document.createElement("video");
 			video.srcObject = stream;
@@ -1406,17 +2266,17 @@
 			await nextVideoFrame(video);
 			const sx = video.videoWidth / window.innerWidth;
 			const sy = video.videoHeight / window.innerHeight;
-			if (!Number.isFinite(sx) || !Number.isFinite(sy) || sx <= 0 || sy <= 0) throw new Error("The captured frame has no dimensions.");
+			if (!Number.isFinite(sx) || !Number.isFinite(sy) || sx <= 0 || sy <= 0) throw exportError("export.noFrame");
 			const canvas = document.createElement("canvas");
 			canvas.width = Math.round(rect.width * scale);
 			canvas.height = Math.round(rect.height * scale);
 			const context = canvas.getContext("2d");
-			if (!context) throw new Error("PNG export is not available.");
+			if (!context) throw exportError("export.noPng");
 			context.drawImage(video, rect.left * sx, rect.top * sy, rect.width * sx, rect.height * sy, 0, 0, canvas.width, canvas.height);
 			stream.getTracks().forEach((track) => track.stop());
 			stream = null;
 			const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
-			if (!blob) throw new Error("Could not encode the PNG.");
+			if (!blob) throw exportError("export.encode");
 			const url = URL.createObjectURL(blob);
 			try {
 				const link = document.createElement("a");
@@ -1424,9 +2284,9 @@
 				link.download = `${board.artboard.file.split("/").pop().replace(/\.[^.]+$/, "")}${scale === 2 ? "@2x" : ""}.png`;
 				link.click();
 			} finally { URL.revokeObjectURL(url); }
-			showToast(scale === 2 && (sx < 2 || sy < 2) ? "Exported PNG at 2× (upscaled)." : "Exported PNG.", false);
+			showToast(t(scale === 2 && (sx < 2 || sy < 2) ? "export.doneUpscaled" : "export.done"), false);
 		} catch (error) {
-			fail(error?.message || "Capture was denied or failed.");
+			fail(error?.i18n ? error : error?.message ? error : exportError("export.denied"));
 		} finally {
 			stream?.getTracks().forEach((track) => track.stop());
 			document.body.classList.remove("gd-exporting");
@@ -1445,12 +2305,12 @@
 		item.setAttribute("role", "menuitem");
 		item.setAttribute("tabindex", "-1");
 		if (action.icon) item.append(icon(action.icon, "gd-i gd-i-s"));
-		item.append(chip("gd-menu-label", action.label));
+		item.append(chip("gd-menu-label", t(action.label)));
 		if (action.off) {
 			// Like the disabled Implement this: a short visible line, the full way out in its tooltip and for screen readers.
 			item.setAttribute("aria-disabled", "true");
 			item.title = action.off.detail;
-			const note = chip("gd-menu-note", "Canvas not connected to a Pi session.");
+			const note = chip("gd-menu-note", t("session.notConnected"));
 			note.title = action.off.text;
 			note.append(chip("gd-visually-hidden", ` ${action.off.text}`));
 			note.id = `gd-menu-note-${++menuNotes}`;
@@ -1460,21 +2320,23 @@
 		return item;
 	}
 
-	function placeMenu(button) {
+	/** Puts `menu` (the artboard menu or the language menu) under `button`, inside the window. */
+	function placeMenu(button, menu) {
 		const rect = button.getBoundingClientRect();
 		// A fixed box without a width shrinks to the room right of its left edge: measure it where nothing narrows it.
-		els.menu.style.left = "0px";
-		const width = els.menu.offsetWidth;
-		const height = els.menu.offsetHeight;
+		menu.style.left = "0px";
+		const width = menu.offsetWidth;
+		const height = menu.offsetHeight;
 		const left = Math.max(0, Math.min(rect.left, window.innerWidth - width - 12));
 		let top = rect.bottom + 4;
 		if (top + height > window.innerHeight - 12) top = Math.max(0, rect.top - height - 4);
-		els.menu.style.left = `${left}px`;
-		els.menu.style.top = `${top}px`;
+		menu.style.left = `${left}px`;
+		menu.style.top = `${top}px`;
 	}
 
 	function openMenu(board, button, last) {
 		closeMenu(false);
+		closeLangMenu(false);
 		const actions = menuActions(board);
 		const nodes = [];
 		const items = [];
@@ -1492,12 +2354,12 @@
 			items.push(item);
 			nodes.push(item);
 		}
-		els.menu.setAttribute("aria-label", `${board.artboard.title} actions`);
+		els.menu.setAttribute("aria-label", t("menu.aria", { title: board.artboard.title }));
 		els.menu.replaceChildren(...nodes);
 		els.menu.hidden = false;
 		button.setAttribute("aria-expanded", "true");
 		state.menu = { board, button, items, byItem };
-		placeMenu(button);
+		placeMenu(button, els.menu);
 		(last ? items[items.length - 1] : items[0]).focus();
 	}
 
@@ -1540,10 +2402,8 @@
 		});
 	}
 
-	els.menu.addEventListener("keydown", (event) => {
-		const open = state.menu;
-		if (!open) return;
-		const { items } = open;
+	/** The keys both menus share: arrows, Home and End move; Escape closes with focus back on the button; Tab closes; Enter and Space choose. */
+	function menuKeydown(event, items, close, choose) {
 		const current = items.findIndex((item) => item.contains(event.target));
 		const move = (index) => {
 			event.preventDefault();
@@ -1556,19 +2416,150 @@
 		else if (event.key === "Escape") {
 			event.preventDefault();
 			event.stopPropagation();
-			closeMenu(true);
-		} else if (event.key === "Tab") closeMenu(true);
+			close(true);
+		} else if (event.key === "Tab") close(true);
 		else if ((event.key === "Enter" || event.key === " ") && current >= 0) {
 			event.preventDefault();
-			chooseMenuItem(items[current]);
+			choose(items[current]);
 		}
+	}
+
+	els.menu.addEventListener("keydown", (event) => {
+		if (state.menu) menuKeydown(event, state.menu.items, closeMenu, chooseMenuItem);
 	});
 
 	document.addEventListener("pointerdown", (event) => {
 		const open = state.menu;
-		if (!open || els.menu.contains(event.target) || open.button.contains(event.target)) return;
-		closeMenu(false);
+		if (open && !els.menu.contains(event.target) && !open.button.contains(event.target)) closeMenu(false);
+		if (state.langMenu && !els.langMenu.contains(event.target) && !els.lang.contains(event.target)) closeLangMenu(false);
 	});
+
+	// ---- language switch -------------------------------------------------------------
+	// A globe button with the code of the language in the top bar opens a menu of radio items: Español, English and Match the
+	// browser. It is built when it opens and keeps the artboard menu's keyboard behavior.
+
+	function openLangMenu(last) {
+		closeMenu(false);
+		closeLangMenu(false);
+		const nodes = [];
+		const items = [];
+		for (const choice of LANG_CHOICES) {
+			if (choice === "auto") {
+				const separator = document.createElement("div");
+				separator.className = "gd-menu-separator";
+				separator.setAttribute("role", "separator");
+				nodes.push(separator);
+			}
+			const item = document.createElement("button");
+			item.type = "button";
+			item.className = "gd-menu-item gd-lang-item";
+			item.setAttribute("role", "menuitemradio");
+			item.setAttribute("aria-checked", String(choice === languageChoice));
+			item.setAttribute("tabindex", "-1");
+			item.dataset.lang = choice;
+			item.append(chip("gd-menu-label", t(`lang.${choice}`)), icon("i-check", "gd-i gd-i-s gd-lang-check"));
+			item.addEventListener("click", () => chooseLangItem(item));
+			items.push(item);
+			nodes.push(item);
+		}
+		const note = document.createElement("p");
+		note.className = "gd-lang-note";
+		note.textContent = t("lang.note");
+		els.langMenu.replaceChildren(...nodes, note);
+		els.langMenu.hidden = false;
+		els.lang.setAttribute("aria-expanded", "true");
+		state.langMenu = { items };
+		placeMenu(els.lang, els.langMenu);
+		(last ? items[items.length - 1] : items[0]).focus();
+	}
+
+	/** Closes the language menu; focus goes back to its button when it was inside the menu (or `refocus`). */
+	function closeLangMenu(refocus) {
+		const open = state.langMenu;
+		if (!open) return;
+		state.langMenu = null;
+		const inside = els.langMenu.contains(document.activeElement);
+		els.langMenu.hidden = true;
+		els.langMenu.replaceChildren();
+		els.lang.setAttribute("aria-expanded", "false");
+		if (refocus || inside) els.lang.focus();
+	}
+
+	function chooseLangItem(item) {
+		// Back on the button first, then the page changes language under it.
+		closeLangMenu(true);
+		setLanguage(item.dataset.lang);
+	}
+
+	els.lang.addEventListener("click", () => {
+		if (state.langMenu) closeLangMenu(true);
+		else openLangMenu(false);
+	});
+	els.lang.addEventListener("keydown", (event) => {
+		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+			event.preventDefault();
+			openLangMenu(event.key === "ArrowUp");
+		} else if (event.key === "Escape" && state.langMenu) {
+			event.preventDefault();
+			event.stopPropagation();
+			closeLangMenu(true);
+		}
+	});
+	els.langMenu.addEventListener("keydown", (event) => {
+		if (state.langMenu) menuKeydown(event, state.langMenu.items, closeLangMenu, chooseLangItem);
+	});
+
+	/** Saves the choice (es, en or auto) and rewrites the page in the language it resolves to. */
+	function setLanguage(choice) {
+		if (!LANG_CHOICES.includes(choice)) return;
+		languageChoice = choice;
+		language = resolveLanguage(choice);
+		try { localStorage.setItem(LANG_KEY, choice); } catch { /* storage may be unavailable */ }
+		applyLanguage();
+	}
+
+	/** The compare view's frame titles, captions and texts in the current language. */
+	function renderCompareText() {
+		const compare = state.compare;
+		if (!compare) return;
+		compare.artboardFrame.title = t("board.frameTitle", { title: compare.board.artboard.title });
+		compare.appFrame.title = t("compare.appFrame", { url: compare.preview });
+		compare.handle.setAttribute("aria-label", t("compare.position"));
+		setCompareView(state.compareMode);
+	}
+
+	function renderVersionText() {
+		const compare = state.vcompare;
+		if (!compare) return;
+		const { title } = compare.board.artboard;
+		compare.older.frame.title = t("versions.frameOld", { title, n: compare.n });
+		compare.current.frame.title = t("versions.frameCurrent", { title });
+		compare.handle.setAttribute("aria-label", t("compare.position"));
+		els.versionsTitle.textContent = t("versions.title", { title });
+		renderVersionLabels();
+		setSlider(compare.pos);
+	}
+
+	/**
+	 * The whole page in the current language, live: <html lang>, the code on the button, everything marked with a key (index.html and
+	 * what loc wrote), then what is built from state. No artboard frame is touched, so nothing reloads.
+	 */
+	function applyLanguage() {
+		document.documentElement.lang = language;
+		els.langCode.textContent = language.toUpperCase();
+		loc(els.lang, "aria-label", "lang.button", { code: language.toUpperCase() });
+		refreshLoc();
+		if (state.systemBoard) Object.assign(state.systemBoard.artboard, { title: t("system.title"), tradeoff: t("system.tradeoff") });
+		renderNavMode();
+		renderComments();
+		renderHandoffs();
+		renderBrief();
+		for (const board of state.boards) board.implement.refresh();
+		if (state.focus) renderSizeControl(state.focus);
+		renderCompareText();
+		renderVersionText();
+		if (state.inspect && !els.inspector.hidden) showInspector(state.inspect.surface, state.inspect.measure);
+	}
 
 	// ---- another direction -------------------------------------------------------
 	// "Try another direction from this…" asks the session for the next artboard of the design, based on one
@@ -1593,7 +2584,7 @@
 	function openVariantDialog(board, button) {
 		state.variant = { board, button, sending: false };
 		els.variantSource.textContent = board.artboard.title;
-		els.variantNote.textContent = `The session writes a new artboard, ${nextNumber()}, and keeps the others.`;
+		loc(els.variantNote, "text", "variant.note", { number: nextNumber() });
 		els.variantText.value = "";
 		els.variantSend.disabled = false;
 		clearVariantProblem();
@@ -1623,12 +2614,13 @@
 	});
 	els.variantCancel.addEventListener("click", closeVariantDialog);
 
-	for (const suggestion of VARIANT_SUGGESTIONS) {
+	for (const key of VARIANT_SUGGESTIONS) {
 		const button = document.createElement("button");
 		button.type = "button";
 		button.className = "gd-suggestion";
-		button.textContent = suggestion;
+		loc(button, "text", key);
 		button.addEventListener("click", () => {
+			const suggestion = button.textContent;
 			const text = els.variantText.value.trim();
 			const added = text ? `${text}, ${suggestion.toLowerCase()}` : suggestion;
 			const present = text.toLowerCase().includes(suggestion.toLowerCase());
@@ -1647,7 +2639,7 @@
 		if (!open || open.sending) return;
 		const instruction = els.variantText.value.replace(/\r\n?/g, "\n").trim();
 		if (instruction.length < 1 || instruction.length > LIMITS.variant) {
-			variantProblem(`Write 1 to ${LIMITS.variant} characters about what should change.`);
+			variantProblem(t("variant.problem", { max: LIMITS.variant }));
 			els.variantText.focus();
 			return;
 		}
@@ -1667,7 +2659,7 @@
 		}
 		if (stillOpen) closeVariantDialog();
 		const title = board.artboard.title;
-		showToast(reply.body.queued === true ? `Queued: the session will add a new direction based on ${title} after its current task.` : `Sent: the session is adding a new direction based on ${title} now.`, false);
+		showToast(t(reply.body.queued === true ? "variant.queued" : "variant.sent", { title }), false);
 		// A design change while the request was in flight leaves nothing to wait for here.
 		if (board.slug === state.slug) showPlaceholder(board);
 	});
@@ -1678,7 +2670,7 @@
 		const number = nextNumber();
 		const wrapper = document.createElement("section");
 		wrapper.className = "gd-artboard gd-placeholder";
-		wrapper.setAttribute("aria-label", `${number} · New direction`);
+		loc(wrapper, "aria-label", "placeholder.aria", { number });
 		const label = document.createElement("div");
 		label.className = "gd-artboard-label";
 		const head = document.createElement("div");
@@ -1687,8 +2679,9 @@
 		num.setAttribute("aria-hidden", "true");
 		const title = document.createElement("h2");
 		title.className = "gd-artboard-title";
-		title.textContent = "New direction";
-		const designing = chip("gd-placeholder-state", "Designing…");
+		loc(title, "text", "placeholder.title");
+		const designing = chip("gd-placeholder-state", "");
+		loc(designing, "text", "placeholder.state");
 		designing.setAttribute("role", "status");
 		head.append(num, title, designing);
 		label.append(head);
@@ -1759,20 +2752,20 @@
 		const isChosen = typeof chosen === "string" && chosen === board.artboard.file;
 		board.wrapper.classList.toggle("gd-chosen", isChosen);
 		const parts = [];
-		if (typeof chosen === "string") parts.push(chip(`gd-choice ${isChosen ? "gd-choice-chosen" : "gd-choice-alternative"}`, isChosen ? "Chosen" : "Alternative"));
+		if (typeof chosen === "string") parts.push(chip(`gd-choice ${isChosen ? "gd-choice-chosen" : "gd-choice-alternative"}`, t(isChosen ? "choice.chosen" : "choice.alternative")));
 		const kind = entry ? handoffKind(entry) : null;
 		board.stateChip.hidden = !kind;
-		board.stateChip.textContent = kind ? HANDOFF_LABELS[kind] : "";
+		board.stateChip.textContent = kind ? t(`handoff.${kind}`) : "";
 		if (kind) board.stateChip.dataset.status = kind;
 		else delete board.stateChip.dataset.status;
 		let compare = null;
 		if (kind) {
-			const badge = chip("gd-handoff-badge", HANDOFF_LABELS[kind]);
+			const badge = chip("gd-handoff-badge", t(`handoff.${kind}`));
 			badge.dataset.status = kind;
 			parts.push(badge);
 			if (typeof entry.feature === "string" && entry.feature) {
 				const feature = chip("gd-handoff-feature", entry.feature);
-				feature.title = "Tracked in this ODD feature document";
+				feature.title = t("handoff.featureTitle");
 				parts.push(feature);
 			}
 			if (typeof entry.note === "string" && entry.note) {
@@ -1785,8 +2778,8 @@
 				compare = document.createElement("button");
 				compare.type = "button";
 				compare.className = "gd-compare-start";
-				compare.textContent = "Compare";
-				compare.setAttribute("aria-label", `Compare ${board.artboard.title} with the running app`);
+				compare.textContent = t("handoff.compare");
+				compare.setAttribute("aria-label", t("handoff.compareAria", { title: board.artboard.title }));
 				compare.addEventListener("click", () => enterCompare(board, preview));
 				parts.push(compare);
 			}
@@ -1830,14 +2823,17 @@
 		if (state.comparePreview) enterCompare(state.comparePreview.board, state.comparePreview.preview);
 	});
 
-	/** A short local time: "Today 10:42", "Oct 26, 10:42", or "Mar 4 2020, 09:05" from another year; "" when unreadable. */
+	/**
+	 * A short local time: "Today 10:42" / "Hoy 10:42", "Oct 26, 10:42" / "26 oct, 10:42", or "Mar 4 2020, 09:05" / "4 mar 2020, 09:05"
+	 * from another year (month names from Intl); "" when unreadable.
+	 */
 	function shortTime(value) {
 		const date = typeof value === "string" ? new Date(value) : null;
 		if (!date || Number.isNaN(date.getTime())) return "";
 		const now = new Date();
 		const clock = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-		if (date.toDateString() === now.toDateString()) return `Today ${clock}`;
-		const day = `${MONTHS[date.getMonth()]} ${date.getDate()}`;
+		if (date.toDateString() === now.toDateString()) return t("time.today", { clock });
+		const day = new Intl.DateTimeFormat(dateLocale(), { month: "short", day: "numeric" }).format(date);
 		return `${date.getFullYear() === now.getFullYear() ? day : `${day} ${date.getFullYear()}`}, ${clock}`;
 	}
 
@@ -1849,7 +2845,7 @@
 			els.timeline.replaceChildren();
 			return;
 		}
-		els.handoffTitle.textContent = `Handoff · ${board.artboard.title}`;
+		els.handoffTitle.textContent = t("timeline.title", { title: board.artboard.title });
 		const entry = handoffOf(board).entry;
 		const kind = entry ? handoffKind(entry) : null;
 		// The index of the step the handoff is at; steps before it are done, a step at it is current.
@@ -1861,10 +2857,10 @@
 		const note = entry && typeof entry.note === "string" && entry.note ? `“${entry.note}”` : "";
 		const queued = kind === "queued";
 		const defs = [
-			["Chosen", []],
-			["Sent to the session", queued ? [sent ? `Queued · ${sent}` : "Queued"] : kind ? [sent] : ["Use Implement this to send it"]],
-			["In progress", kind ? [started, note] : []],
-			["Implemented", [kind === "implemented" ? finished : "Compare with the running app when ready"]],
+			[t("choice.chosen"), []],
+			[t("timeline.sent"), queued ? [sent ? t("timeline.queued", { time: sent }) : t("handoff.queued")] : kind ? [sent] : [t("timeline.useImplement")]],
+			[t("handoff.in_progress"), kind ? [started, note] : []],
+			[t("timeline.implemented"), [kind === "implemented" ? finished : t("timeline.compareWhenReady")]],
 		];
 		els.timeline.replaceChildren(...defs.map(([label, details], index) => {
 			const status = stateOf(index);
@@ -1878,7 +2874,7 @@
 			const body = document.createElement("span");
 			body.className = "gd-step-body";
 			// Never color alone: the state is also in words for assistive technology.
-			const words = chip("gd-visually-hidden gd-step-state", status === "done" ? " (done)" : status === "current" ? " (current)" : " (not yet)");
+			const words = chip("gd-visually-hidden gd-step-state", ` ${t(status === "done" ? "timeline.done" : status === "current" ? "timeline.current" : "timeline.pending")}`);
 			body.append(chip("gd-step-label", label), words, ...details.filter(Boolean).map((text) => chip("gd-step-detail", text)));
 			item.append(dot, body);
 			return item;
@@ -1890,9 +2886,9 @@
 		const open = mine.filter((comment) => comment.status === "open").length;
 		const resolved = mine.filter((comment) => comment.status === "resolved").length;
 		const parts = [];
-		if (open > 0) parts.push(`${open} open comment${open === 1 ? "" : "s"}`);
-		if (resolved > 0) parts.push(`${resolved} resolved`);
-		return parts.length > 0 ? parts.join(" · ") : "No comments";
+		if (open > 0) parts.push(tn("nav.summary.open", open));
+		if (resolved > 0) parts.push(tn("nav.summary.resolved", resolved));
+		return parts.length > 0 ? parts.join(" · ") : t("nav.summary.none");
 	}
 
 	/**
@@ -1939,7 +2935,7 @@
 		frame.setAttribute("tabindex", "-1");
 		frame.setAttribute("aria-hidden", "true");
 		frame.inert = true;
-		frame.title = `${title} preview`;
+		loc(frame, "title", "nav.thumb", { title });
 		frame.style.width = `${width}px`;
 		frame.style.height = `${height}px`;
 		frame.style.transform = `scale(${THUMB_WIDTH / width})`;
@@ -1954,7 +2950,7 @@
 
 	/** The artboard navigator: one item per design artboard; the system board is not listed. */
 	function renderNav() {
-		els.navTitle.textContent = `Artboards · ${state.boards.length}`;
+		loc(els.navTitle, "text", "nav.title", { count: state.boards.length });
 		els.navNote.hidden = !state.systemBoard;
 		const refocus = els.navList.contains(document.activeElement) ? document.activeElement.dataset.file : null;
 		const items = state.boards.map((board) => {
@@ -1968,14 +2964,14 @@
 			if (typeof chosen === "string") {
 				const isChosen = chosen === board.artboard.file;
 				nav.tag.className = `gd-nav-tag${isChosen ? " gd-nav-tag-chosen" : ""}`;
-				nav.tag.textContent = isChosen ? "Chosen" : "Alternative";
+				nav.tag.textContent = t(isChosen ? "choice.chosen" : "choice.alternative");
 				tags.push(nav.tag);
 			}
 			const failures = checkFailures(board);
 			if (failures !== null) {
-				nav.a11y.textContent = failures === 0 ? "A11y ✓" : `${failures} check${failures === 1 ? "" : "s"}`;
+				nav.a11y.textContent = failures === 0 ? t("a11y.ok") : tn("a11y.fails", failures);
 				nav.a11y.dataset.state = failures === 0 ? "ok" : "warn";
-				nav.a11y.title = failures === 0 ? "Automatic checks found no problems. They are heuristics, not a full audit." : "Open the Checks tab to see them.";
+				nav.a11y.title = t(failures === 0 ? "a11y.okTitle" : "a11y.failTitle");
 				tags.push(nav.a11y);
 			}
 			nav.tags.replaceChildren(...tags);
@@ -2001,7 +2997,7 @@
 		try {
 			data = await getJson(`api/designs/${encodeURIComponent(slug)}/handoffs`);
 		} catch (error) {
-			setStatus(`handoffs.json for ${slug} cannot be read: ${error.message}`, true);
+			setStatus("status.handoffs", true, { slug, message: error.message });
 		}
 		if (slug === state.slug) setHandoffs(slug, data);
 	}
@@ -2020,14 +3016,13 @@
 
 	// ---- compare -------------------------------------------------------------
 
-	function comparePane(caption, frame) {
+	function comparePane(frame) {
 		const figure = document.createElement("figure");
 		figure.className = "gd-compare-pane";
 		const label = document.createElement("figcaption");
 		label.className = "gd-compare-caption";
-		label.textContent = caption;
 		figure.append(label, frame);
-		return { figure, label, caption };
+		return { figure, label };
 	}
 
 	function compareFrame(width, height, title) {
@@ -2040,8 +3035,8 @@
 		return frame;
 	}
 
-	function setCompareMessage(text, isError) {
-		els.compareMessage.textContent = text;
+	function setCompareMessage(key, params, isError) {
+		loc(els.compareMessage, "text", key, params);
 		els.compareMessage.classList.toggle("gd-error", Boolean(isError));
 	}
 
@@ -2075,8 +3070,8 @@
 		els.comparePanes.dataset.mode = mode;
 		for (const [name, button] of Object.entries(els.compareModes)) button.setAttribute("aria-pressed", String(name === mode));
 		const stacked = mode !== "side";
-		compare.design.label.textContent = stacked ? "Design" : compare.design.caption;
-		compare.app.label.textContent = stacked ? "App" : compare.app.caption;
+		compare.design.label.textContent = stacked ? t("compare.design") : t("compare.designCaption", { file: compare.board.artboard.file });
+		compare.app.label.textContent = stacked ? t("compare.app") : t("compare.appCaption", { url: compare.preview });
 		compare.handle.hidden = mode !== "slider";
 		compare.shield.hidden = mode !== "slider";
 		els.compareOpacityField.hidden = mode !== "overlay";
@@ -2108,7 +3103,7 @@
 		compare.app.figure.style.clipPath = state.compareMode === "slider" ? `inset(0 0 0 ${compare.pos}%)` : "";
 		compare.handle.style.left = `${compare.pos}%`;
 		compare.handle.setAttribute("aria-valuenow", String(compare.pos));
-		compare.handle.setAttribute("aria-valuetext", `${compare.pos}%: Design on the left, App on the right`);
+		compare.handle.setAttribute("aria-valuetext", t("compare.valueText", { pos: compare.pos }));
 		describeCompare();
 	}
 
@@ -2117,8 +3112,8 @@
 		const compare = state.compare;
 		if (!compare) return;
 		const mode = state.compareMode;
-		if (mode === "overlay") els.comparePanes.setAttribute("aria-label", `Design and running app overlaid, app at ${compare.opacity}% opacity`);
-		else if (mode === "slider") els.comparePanes.setAttribute("aria-label", `Design and running app, split at ${compare.pos}%`);
+		if (mode === "overlay") els.comparePanes.setAttribute("aria-label", t("compare.overlayAria", { opacity: compare.opacity }));
+		else if (mode === "slider") els.comparePanes.setAttribute("aria-label", t("compare.sliderAria", { pos: compare.pos }));
 		else els.comparePanes.removeAttribute("aria-label");
 	}
 
@@ -2129,38 +3124,38 @@
 		closePopover();
 		setHoverBoard(null);
 		const { width, height, title } = board.artboard;
-		const artboardFrame = compareFrame(width, height, `${title} artboard`);
+		const artboardFrame = compareFrame(width, height, t("board.frameTitle", { title }));
 		artboardFrame.setAttribute("sandbox", "allow-scripts");
 		// Like focus mode: the artboard owns its scroll, and Shift+Esc inside it asks to leave.
 		artboardFrame.addEventListener("load", () => artboardFrame.contentWindow?.postMessage({ type: "gd:focus", enabled: true }, "*"));
 		artboardFrame.src = boardUrl(board);
-		const app = compareFrame(width, height, `Running app at ${preview}`);
+		const app = compareFrame(width, height, t("compare.appFrame", { url: preview }));
 		app.setAttribute("sandbox", PREVIEW_SANDBOX);
-		const design = comparePane(`Design: ${board.artboard.file}`, artboardFrame);
-		const running = comparePane(`Implementation: ${preview}`, app);
-		const handle = splitHandle("Comparison position");
+		const design = comparePane(artboardFrame);
+		const running = comparePane(app);
+		const handle = splitHandle(t("compare.position"));
 		const shield = splitShield();
 		const compare = { board, preview, artboardFrame, appFrame: app, design, app: running, handle, shield, pos: 50, opacity: 50, timer: 0, loaded: false };
 		bindSplitInput({ shield, handle, box: els.comparePanes, position: () => compare.pos, move: setCompareSplit });
-		const failed = (text) => {
-			if (state.compare === compare) setCompareMessage(text, true);
+		const failed = (key) => {
+			if (state.compare === compare) setCompareMessage(key, { url: preview }, true);
 		};
 		// A frame refused by X-Frame-Options or frame-ancestors may still fire load, so the
 		// Open in new tab fallback is always shown; a missing load also says so.
 		app.addEventListener("load", () => { compare.loaded = true; });
-		app.addEventListener("error", () => failed(`The app at ${preview} could not be loaded in the frame. Use Open in new tab.`));
+		app.addEventListener("error", () => failed("compare.errorFrame"));
 		compare.timer = setTimeout(() => {
-			if (!compare.loaded) failed(`The app at ${preview} has not loaded; it may be down or refuse to be framed. Use Open in new tab.`);
+			if (!compare.loaded) failed("compare.errorTimeout");
 		}, PREVIEW_TIMEOUT_MS);
 		app.src = preview;
 		state.compare = compare;
 		renderMinimap();
-		els.compareTitle.textContent = `Compare: ${title}`;
+		loc(els.compareTitle, "text", "compare.titleFor", { title });
 		// A new tab with no opener and no Referer: the canvas URL carries the server token.
 		els.compareOpen.setAttribute("target", "_blank");
 		els.compareOpen.setAttribute("rel", "noopener noreferrer");
 		els.compareOpen.href = preview;
-		setCompareMessage(new URL(preview).hostname === "[::1]" ? IPV6_HINT : PREVIEW_HINT, false);
+		setCompareMessage(new URL(preview).hostname === "[::1]" ? "compare.hintIpv6" : "compare.hint", undefined, false);
 		els.comparePanes.replaceChildren(design.figure, running.figure, handle, shield);
 		els.compareFit.checked = false;
 		els.compare.hidden = false;
@@ -2213,8 +3208,11 @@
 	/** The Brief tab: the design's title, brief and feature document. */
 	function renderBrief() {
 		const manifest = state.manifest;
-		els.briefTitle.textContent = manifest ? manifest.title : "No design selected";
-		els.briefText.textContent = manifest ? (typeof manifest.brief === "string" && manifest.brief ? manifest.brief : "No brief written.") : "";
+		if (manifest) setRaw(els.briefTitle, manifest.title);
+		else loc(els.briefTitle, "text", "brief.noDesign");
+		if (manifest && typeof manifest.brief === "string" && manifest.brief) setRaw(els.briefText, manifest.brief);
+		else if (manifest) loc(els.briefText, "text", "brief.none");
+		else setRaw(els.briefText, "");
 	}
 
 	/** No design selected: only the system board, or the empty notice. */
@@ -2224,7 +3222,7 @@
 		showFeature(null);
 		renderBrief();
 		if (!state.systemBoard) {
-			showEmpty("No designs yet. Run /gentle:design with a brief to create one.");
+			showEmpty("empty.noDesigns");
 			return;
 		}
 		els.empty.hidden = true;
@@ -2239,8 +3237,8 @@
 		try {
 			manifest = await getJson(`api/designs/${encodeURIComponent(slug)}`);
 		} catch (error) {
-			showEmpty(`Design "${slug}" cannot be shown: ${error.message}`);
-			setStatus(`design.json for ${slug} is invalid`, true);
+			showEmpty("empty.cannotShow", { slug, message: error.message });
+			setStatus("status.invalidManifest", true, { slug });
 			return;
 		}
 		if (slug !== state.slug) return;
@@ -2253,7 +3251,7 @@
 		document.title = `${manifest.title} · Gentle Design`;
 		history.replaceState(null, "", `${base}d/${encodeURIComponent(slug)}/`);
 		if (manifest.artboards.length === 0 && !state.systemBoard) {
-			showEmpty("This design has no artboards yet.");
+			showEmpty("empty.noArtboards");
 			return;
 		}
 		els.empty.hidden = true;
@@ -2265,7 +3263,8 @@
 		placeBoards();
 		if (state.focus) requestAnimationFrame(applySize);
 		const warnings = Array.isArray(manifest.warnings) ? manifest.warnings.filter((warning) => typeof warning === "string") : [];
-		setStatus(warnings.length > 0 ? `design.json: ${warnings.join("; ")}` : state.boards.length === 0 ? "This design has no artboards yet." : "", warnings.length > 0);
+		if (warnings.length > 0) setStatus("status.warnings", true, { warnings: warnings.join("; ") });
+		else setStatus(state.boards.length === 0 ? "empty.noArtboards" : "", false);
 		if (!keepView) requestAnimationFrame(fit);
 		await loadHandoffs();
 		await loadComments();
@@ -2296,7 +3295,7 @@
 		const exists = Boolean(info && info.exists === true && isFiniteNumber(info.width) && isFiniteNumber(info.height));
 		state.system = exists ? info : null;
 		if (exists === Boolean(state.systemBoard)) return false;
-		state.systemBoard = exists ? createBoard(null, { file: String(info.file), ...SYSTEM_LABEL, width: info.width, height: info.height }, true) : null;
+		state.systemBoard = exists ? createBoard(null, { file: String(info.file), title: t("system.title"), tradeoff: t("system.tradeoff"), width: info.width, height: info.height }, true) : null;
 		return true;
 	}
 
@@ -2321,7 +3320,7 @@
 			return;
 		}
 		if (!state.manifest || state.manifest.slug !== state.slug) return;
-		if (state.boards.length === 0 && !state.systemBoard) showEmpty("This design has no artboards yet.");
+		if (state.boards.length === 0 && !state.systemBoard) showEmpty("empty.noArtboards");
 		else {
 			els.empty.hidden = true;
 			placeBoards();
@@ -2358,7 +3357,7 @@
 		try {
 			await refreshDesigns(false);
 		} catch (error) {
-			setStatus(`Designs cannot be listed: ${error.message}`, true);
+			setStatus("empty.cannotList", true, { message: error.message });
 		}
 		if (slug !== state.slug) return;
 		if (slug === null) {
@@ -2377,7 +3376,7 @@
 		try {
 			await refreshDesigns();
 		} catch (error) {
-			showEmpty(`Designs cannot be listed: ${error.message}`);
+			showEmpty("empty.cannotList", { message: error.message });
 			return;
 		}
 		if (!state.slug) {
@@ -2394,7 +3393,7 @@
 		source.addEventListener("open", () => {
 			if (els.status.classList.contains("gd-error")) setStatus("", false);
 		});
-		source.addEventListener("error", () => setStatus("Live reload disconnected, retrying…", true));
+		source.addEventListener("error", () => setStatus("status.disconnected", true));
 		source.addEventListener("show", (event) => {
 			let request;
 			try { request = JSON.parse(event.data); } catch { return; }
@@ -2556,6 +3555,8 @@
 	const span = (className, text) => chip(className, text);
 	const okChip = (text) => span("gd-inspector-ok", `✓ ${text}`);
 	const badChip = (text) => span("gd-inspector-bad", `⚠ ${text}`);
+	// The flagged values below are written as sentences too: they become the comment that Ask the agent to fix sends,
+	// so they are for the session (toSession) and stay English whatever the panel shows.
 
 	function swatch(color) {
 		const box = span("gd-inspector-swatch", "");
@@ -2595,7 +3596,7 @@
 			nodes.push(okChip(same.map((entry) => entry.token.name).join(" / ")));
 			return nodes;
 		}
-		nodes.push(badChip("no token"));
+		nodes.push(badChip(t("inspector.noToken")));
 		let nearest = null;
 		let best = Infinity;
 		for (const entry of tokens) {
@@ -2607,9 +3608,9 @@
 			}
 		}
 		if (nearest) {
-			nodes.push(span("gd-inspector-near", `Nearest ${nearest.token.name}`), span("gd-inspector-code", nearest.token.value));
-			flags.push(`${label} ${colorHex(color)} is not a token; nearest is ${nearest.token.name} (${nearest.token.value}).`);
-		} else flags.push(`${label} ${colorHex(color)} is not a token.`);
+			nodes.push(span("gd-inspector-near", t("inspector.nearest", { name: nearest.token.name })), span("gd-inspector-code", nearest.token.value));
+			flags.push(toSession(`${label} ${colorHex(color)} is not a token; nearest is ${nearest.token.name} (${nearest.token.value}).`));
+		} else flags.push(toSession(`${label} ${colorHex(color)} is not a token.`));
 		return nodes;
 	}
 
@@ -2622,11 +3623,11 @@
 			nodes.push(okChip(match.exact.map((token) => token.name).join(" / ")));
 			return nodes;
 		}
-		nodes.push(badChip("no token"));
+		nodes.push(badChip(t("inspector.noToken")));
 		if (match.nearest) {
-			nodes.push(span("gd-inspector-near", `Nearest ${match.nearest.name}`), span("gd-inspector-code", match.nearest.value));
-			flags.push(`${label} ${fmt(px)}px is not a token; nearest is ${match.nearest.name} (${match.nearest.value}).`);
-		} else flags.push(`${label} ${fmt(px)}px is not a token.`);
+			nodes.push(span("gd-inspector-near", t("inspector.nearest", { name: match.nearest.name })), span("gd-inspector-code", match.nearest.value));
+			flags.push(toSession(`${label} ${fmt(px)}px is not a token; nearest is ${match.nearest.name} (${match.nearest.value}).`));
+		} else flags.push(toSession(`${label} ${fmt(px)}px is not a token.`));
 		return nodes;
 	}
 
@@ -2639,23 +3640,23 @@
 		const rows = [];
 		const text = m.color;
 		const behind = m.background;
-		rows.push(row("Color", text ? colorValue(text, kinds.color, flags, "Text color") : [span("gd-inspector-code", "unreadable")]));
-		rows.push(row("Background", behind ? colorValue(behind, kinds.color, flags, "Background") : [span("gd-inspector-code", "image or gradient")]));
+		rows.push(row(t("inspector.color"), text ? colorValue(text, kinds.color, flags, toSession("Text color")) : [span("gd-inspector-code", t("inspector.unreadable"))]));
+		rows.push(row(t("inspector.background"), behind ? colorValue(behind, kinds.color, flags, toSession("Background")) : [span("gd-inspector-code", t("inspector.imageBackground"))]));
 
 		let contrast = [span("gd-inspector-code", "—")];
-		if (m.hasText && text && !behind) contrast = [span("gd-inspector-code", "unknown background")];
+		if (m.hasText && text && !behind) contrast = [span("gd-inspector-code", t("inspector.unknownBackground"))];
 		else if (m.hasText && text && behind) {
 			const over = text.a < 1 ? { r: Math.round(text.r * text.a + behind.r * (1 - text.a)), g: Math.round(text.g * text.a + behind.g * (1 - text.a)), b: Math.round(text.b * text.a + behind.b * (1 - text.a)) } : text;
 			const ratio = contrastRatio(over, behind);
 			const large = m.fontSize >= 24 || (m.fontSize >= 18.66 && m.fontWeight >= 700);
 			const needed = large ? 3 : 4.5;
-			if (ratio >= needed) contrast = [okChip(`${fmtRatio(ratio)} : 1`), span("gd-inspector-near", large ? "AA large text (3 : 1)" : "AA (4.5 : 1)")];
+			if (ratio >= needed) contrast = [okChip(`${fmtRatio(ratio)} : 1`), span("gd-inspector-near", t(large ? "inspector.aaLarge" : "inspector.aa"))];
 			else {
-				contrast = [badChip(`${fmtRatio(ratio)} : 1`), span("gd-inspector-near", `needs ${needed} : 1${large ? " (large text)" : ""}`)];
-				flags.push(`Contrast ${fmtRatio(ratio)}:1 is below WCAG AA (${needed}:1 for ${large ? "large" : "normal"} text).`);
+				contrast = [badChip(`${fmtRatio(ratio)} : 1`), span("gd-inspector-near", t(large ? "inspector.needsLarge" : "inspector.needs", { needed }))];
+				flags.push(toSession(`Contrast ${fmtRatio(ratio)}:1 is below WCAG AA (${needed}:1 for ${large ? "large" : "normal"} text).`));
 			}
 		}
-		rows.push(row("Contrast", contrast));
+		rows.push(row(t("inspector.contrast"), contrast));
 
 		const mine = familyList(m.fontFamily);
 		const first = mine[0] || "—";
@@ -2666,49 +3667,49 @@
 			const byFirst = exact.length > 0 ? exact : kinds.family.filter((token) => mine.length > 0 && familyList(token.value)[0]?.toLowerCase() === mine[0].toLowerCase());
 			if (byFirst.length > 0) family.push(okChip(byFirst.map((token) => token.name).join(" / ")));
 			else {
-				family.push(badChip("no token"));
-				flags.push(`Font family "${first}" is not a token (${kinds.family.map((token) => token.name).join(", ")}).`);
+				family.push(badChip(t("inspector.noToken")));
+				flags.push(toSession(`Font family "${first}" is not a token (${kinds.family.map((token) => token.name).join(", ")}).`));
 			}
 		}
-		rows.push(row("Font", family));
-		rows.push(row("Size", [...lengthValue(m.fontSize, kinds.fontSize, flags, "Font size"), span("gd-inspector-near", `weight ${m.fontWeight}`)]));
-		rows.push(row("Line height", [span("gd-inspector-code", m.lineHeight === null ? "normal" : `${fmt(m.lineHeight)} px`)]));
+		rows.push(row(t("inspector.font"), family));
+		rows.push(row(t("inspector.size"), [...lengthValue(m.fontSize, kinds.fontSize, flags, toSession("Font size")), span("gd-inspector-near", t("inspector.weight", { value: m.fontWeight }))]));
+		rows.push(row(t("inspector.lineHeight"), [span("gd-inspector-code", m.lineHeight === null ? t("inspector.normal") : `${fmt(m.lineHeight)} px`)]));
 
 		const spacing = [];
-		if (m.margin.some((value) => value !== 0)) spacing.push(span("gd-inspector-code", `margin ${sides(m.margin)}`));
-		if (m.padding.some((value) => value !== 0)) spacing.push(span("gd-inspector-code", `padding ${sides(m.padding)}`));
+		if (m.margin.some((value) => value !== 0)) spacing.push(span("gd-inspector-code", t("inspector.margin", { sides: sides(m.margin) })));
+		if (m.padding.some((value) => value !== 0)) spacing.push(span("gd-inspector-code", t("inspector.padding", { sides: sides(m.padding) })));
 		if (spacing.length === 0) spacing.push(span("gd-inspector-code", "—"));
 		else if (kinds.spacing.length > 0) {
 			const values = [...new Set([...m.margin, ...m.padding].filter((value) => value > 0))];
 			const off = values.map((value) => ({ value, match: matchLength(value, kinds.spacing) })).filter((entry) => entry.match.exact.length === 0);
-			if (off.length === 0) spacing.push(okChip("on scale"));
+			if (off.length === 0) spacing.push(okChip(t("inspector.onScale")));
 			for (const entry of off) {
 				const near = entry.match.nearest;
-				spacing.push(badChip(`${fmt(entry.value)} px off scale`));
-				if (near) spacing.push(span("gd-inspector-near", `Nearest ${near.name}`), span("gd-inspector-code", near.value));
-				flags.push(`Spacing ${fmt(entry.value)}px is not on the token scale${near ? `; nearest is ${near.name} (${near.value})` : ""}.`);
+				spacing.push(badChip(t("inspector.offScale", { value: fmt(entry.value) })));
+				if (near) spacing.push(span("gd-inspector-near", t("inspector.nearest", { name: near.name })), span("gd-inspector-code", near.value));
+				flags.push(toSession(`Spacing ${fmt(entry.value)}px is not on the token scale${near ? `; nearest is ${near.name} (${near.value})` : ""}.`));
 			}
 		}
-		rows.push(row("Spacing", spacing));
+		rows.push(row(t("inspector.spacing"), spacing));
 
 		const corners = m.radius;
 		let radius;
 		if (corners.every((value) => value === 0)) radius = [span("gd-inspector-code", "—")];
-		else if (corners.every((value) => value === corners[0])) radius = lengthValue(corners[0], kinds.radius, flags, "Border radius");
+		else if (corners.every((value) => value === corners[0])) radius = lengthValue(corners[0], kinds.radius, flags, toSession("Border radius"));
 		else {
 			radius = [span("gd-inspector-code", `${sides(corners)} px`)];
 			for (const value of new Set(corners.filter((corner) => corner > 0))) {
 				const match = kinds.radius.length > 0 ? matchLength(value, kinds.radius) : { exact: [{}] };
 				if (match.exact.length > 0) continue;
-				radius.push(badChip(`${fmt(value)} px no token`));
-				flags.push(`Border radius ${fmt(value)}px is not a token${match.nearest ? `; nearest is ${match.nearest.name} (${match.nearest.value})` : ""}.`);
+				radius.push(badChip(t("inspector.radiusNoToken", { value: fmt(value) })));
+				flags.push(toSession(`Border radius ${fmt(value)}px is not a token${match.nearest ? `; nearest is ${match.nearest.name} (${match.nearest.value})` : ""}.`));
 			}
 		}
-		rows.push(row("Radius", radius));
+		rows.push(row(t("inspector.radius"), radius));
 
 		const message = flags.length > 0
-			? `Fix the values on ${m.selector} that are off the design system (design/system.md):\n${flags.map((flag) => `- ${flag}`).join("\n")}`
-			: `Nothing is off the design system on ${m.selector}.`;
+			? toSession(`Fix the values on ${m.selector} that are off the design system (design/system.md):\n${flags.map((flag) => `- ${flag}`).join("\n")}`)
+			: toSession(`Nothing is off the design system on ${m.selector}.`);
 		return { rows, flags, text: message.slice(0, LIMITS.comment) };
 	}
 
@@ -2785,10 +3786,10 @@
 		els.inspectorSelector.title = measure.selector;
 		els.inspectorList.replaceChildren(...result.rows);
 		els.inspectorNote.hidden = state.tokens.length > 0;
-		els.inspectorNote.textContent = "No design/system.md tokens found, so values and contrast are shown without a comparison.";
+		els.inspectorNote.textContent = t("inspector.noTokens");
 		const nothing = result.flags.length === 0;
 		els.inspectorFix.disabled = nothing;
-		els.inspectorFix.title = nothing ? "Nothing is off the design system, so there is nothing to fix." : "";
+		els.inspectorFix.title = nothing ? t("inspector.nothingToFix") : "";
 		els.inspector.hidden = false;
 		placeInspector(surface, measure.rect);
 	}
@@ -2856,7 +3857,7 @@
 		const current = state.inspect;
 		if (!current) return;
 		const ok = await copyText(current.text);
-		showToast(ok ? "Copied" : "Could not copy. Use Ask the agent to fix and copy the text from the comment box.", !ok);
+		showToast(t(ok ? "inspector.copied" : "inspector.copyFailed"), !ok);
 	});
 
 	// ---- accessibility checks -------------------------------------------------
@@ -2880,6 +3881,7 @@
 		const checks = [];
 		for (const entry of data.checks) {
 			if (!entry || !CHECK_IDS.includes(entry.id) || typeof entry.label !== "string" || !Number.isInteger(entry.count) || entry.count < 0 || !Number.isInteger(entry.advice) || entry.advice < 0) return null;
+			// The artboard names its checks in English; the canvas names them from its catalog (check.name.<id>).
 			checks.push({ id: entry.id, label: entry.label.slice(0, 60), count: entry.count, advice: entry.advice });
 		}
 		const issues = [];
@@ -2903,11 +3905,42 @@
 		if (state.tab !== "checks") return;
 		const groups = state.boards.filter((board) => board.checks).map(checkGroup);
 		if (groups.length === 0) {
-			const empty = chip("gd-check-empty", "Checks run when an artboard loads.");
+			const empty = chip("gd-check-empty", t("checks.empty"));
 			els.checks.replaceChildren(empty);
 			return;
 		}
 		els.checks.replaceChildren(...groups);
+	}
+
+	/**
+	 * The title and detail of a finding in the current language. The artboard's inspector writes them in English with the
+	 * numbers and names in fixed places; a finding that does not have the shape of one of those sentences is shown as it came.
+	 */
+	function issueWords(issue) {
+		const raw = { title: issue.title, detail: issue.detail };
+		const fail = issue.severity === "fail";
+		let found;
+		if (issue.check === "contrast" && fail && (found = /^"([^]*)" is ([\d.]+) : 1 \((#[0-9a-f]{6}) on (#[0-9a-f]{6})\); WCAG AA needs ([\d.]+) : 1( for large text)?\.$/.exec(issue.detail))) {
+			return { title: t("check.contrast.title"), detail: t(found[6] ? "check.contrast.detailLarge" : "check.contrast.detail", { text: found[1], ratio: found[2], fg: found[3], bg: found[4], needed: found[5] }) };
+		}
+		if (issue.check === "target" && fail && (found = /^([^]*) is (\d+) × (\d+) px; WCAG 2\.2 needs at least (\d+) × \d+ px\.$/.exec(issue.detail))) {
+			return { title: t("check.target.title"), detail: t("check.target.detail", { subject: found[1], width: found[2], height: found[3], min: found[4] }) };
+		}
+		if (issue.check === "target" && !fail && (found = /^([^]*) is (\d+) × (\d+) px; (\d+) × \d+ px is recommended for touch\.$/.exec(issue.detail))) {
+			return { title: t("check.targetAdvice.title"), detail: t("check.targetAdvice.detail", { subject: found[1], width: found[2], height: found[3], advised: found[4] }) };
+		}
+		if (issue.check === "alt" && fail && (found = /^([^]*) has no alt attribute\. Describe it, or use alt="" if it is decorative\.$/.exec(issue.detail))) {
+			return { title: t("check.alt.title"), detail: found[1] === "The image" ? t("check.alt.detailImage") : t("check.alt.detail", { subject: found[1] }) };
+		}
+		if (issue.check === "label" && fail && (found = /^The (select|text area|([a-z]+) field)(?: "([^]*)")? has no label\. Add a <label for>, aria-label or aria-labelledby; a placeholder is not a label\.$/.exec(issue.detail))) {
+			const kind = found[1] === "select" ? "check.field.select" : found[1] === "text area" ? "check.field.textarea" : `check.field.${found[2]}`;
+			const named = hasKey(kind) ? t(kind) : t("check.field.generic", { type: found[2] });
+			return { title: t("check.label.title"), detail: t("check.label.detail", { kind: named, hint: found[3] === undefined ? "" : ` "${found[3]}"` }) };
+		}
+		if (issue.check === "heading" && fail && (found = /^h(\d) "([^]*)" follows h(\d): ([^]*) (?:is|are) missing\.$/.exec(issue.detail))) {
+			return { title: t("check.heading.title"), detail: tn("check.heading.detail", found[4].split(", ").length, { level: found[1], text: found[2], previous: found[3], missing: found[4] }) };
+		}
+		return raw;
 	}
 
 	function checkGroup(board) {
@@ -2915,17 +3948,17 @@
 		const failures = checkFailures(board);
 		const group = document.createElement("section");
 		group.className = "gd-check-group";
-		group.setAttribute("aria-label", `Checks for ${String(board.number).padStart(2, "0")} ${board.artboard.title}`);
+		group.setAttribute("aria-label", t("checks.groupAria", { name: `${String(board.number).padStart(2, "0")} ${board.artboard.title}` }));
 		const heading = document.createElement("h3");
 		heading.className = "gd-check-heading";
 		heading.textContent = `${String(board.number).padStart(2, "0")} ${board.artboard.title}`;
-		const summary = chip(`gd-check-summary${failures === 0 ? " gd-check-summary-ok" : ""}`, failures === 0 ? "A11y ✓" : `${failures} check${failures === 1 ? "" : "s"}`);
+		const summary = chip(`gd-check-summary${failures === 0 ? " gd-check-summary-ok" : ""}`, failures === 0 ? t("a11y.ok") : tn("a11y.fails", failures));
 		const head = document.createElement("div");
 		head.className = "gd-check-head";
 		head.append(heading, summary);
-		const passed = checks.filter((check) => check.count === 0).map((check) => check.label);
+		const passed = checks.filter((check) => check.count === 0).map((check) => t(`check.name.${check.id}`));
 		const parts = [head, ...issues.map((issue) => checkCard(board, issue))];
-		if (passed.length > 0) parts.push(chip("gd-check-passed", `Passed: ${passed.join(" · ")}`));
+		if (passed.length > 0) parts.push(chip("gd-check-passed", t("checks.passed", { list: passed.join(" · ") })));
 		group.append(...parts);
 		return group;
 	}
@@ -2936,15 +3969,16 @@
 		card.className = `gd-check ${fail ? "gd-check-fail" : "gd-check-advice"}`;
 		const body = document.createElement("div");
 		body.className = "gd-check-body";
+		const words = issueWords(issue);
 		const title = document.createElement("b");
 		title.className = "gd-check-title";
-		title.textContent = issue.title;
+		title.textContent = words.title;
 		const heading = document.createElement("div");
 		heading.className = "gd-check-top";
-		heading.append(title, chip("gd-check-kind", fail ? "Problem" : "Advice"));
+		heading.append(title, chip("gd-check-kind", t(fail ? "checks.kind.fail" : "checks.kind.advice")));
 		const detail = document.createElement("small");
 		detail.className = "gd-check-detail";
-		detail.textContent = issue.detail;
+		detail.textContent = words.detail;
 		const selector = document.createElement("code");
 		selector.className = "gd-check-selector";
 		selector.textContent = issue.selector;
@@ -2954,14 +3988,14 @@
 		const show = document.createElement("button");
 		show.type = "button";
 		show.className = "gd-check-show gd-small";
-		show.setAttribute("aria-label", `Show ${issue.title} on ${issue.label} in ${String(board.number).padStart(2, "0")} ${board.artboard.title}`);
-		show.append(icon("i-target", "gd-i gd-i-s"), chip("", "Show"));
+		show.setAttribute("aria-label", t("checks.showAria", { title: words.title, label: issue.label, name: `${String(board.number).padStart(2, "0")} ${board.artboard.title}` }));
+		show.append(icon("i-target", "gd-i gd-i-s"), chip("", t("checks.show")));
 		show.addEventListener("click", () => showIssue(board, issue));
 		const fix = document.createElement("button");
 		fix.type = "button";
 		fix.className = "gd-check-fix gd-small";
-		fix.setAttribute("aria-label", `Ask the agent to fix ${issue.title} on ${issue.label}`);
-		fix.append(chip("", "Ask the agent to fix"));
+		fix.setAttribute("aria-label", t("checks.fixAria", { title: words.title, label: issue.label }));
+		fix.append(chip("", t("checks.fix")));
 		fix.addEventListener("click", () => askAboutIssue(board, issue));
 		actions.append(show, fix);
 		body.append(heading, detail, selector, actions);
@@ -2991,8 +4025,8 @@
 		for (const surface of surfacesOf(board)) surface.frame.contentWindow?.postMessage({ type: "gd:highlight", selector: issue.selector }, "*");
 		const fail = issue.severity === "fail";
 		const text = fail
-			? `Accessibility check on ${issue.selector}: ${issue.title}.\n${issue.detail}\nFix it so it meets WCAG 2.2 AA, keeping the design's tokens.`
-			: `Accessibility advice on ${issue.selector}: ${issue.title}.\n${issue.detail}\nConsider fixing it, keeping the design's tokens.`;
+			? toSession(`Accessibility check on ${issue.selector}: ${issue.title}.\n${issue.detail}\nFix it so it meets WCAG 2.2 AA, keeping the design's tokens.`)
+			: toSession(`Accessibility advice on ${issue.selector}: ${issue.title}.\n${issue.detail}\nConsider fixing it, keeping the design's tokens.`);
 		// In All sizes the artboard's own frame is hidden: ask on the Desktop frame, the manifest size.
 		openPopover(board.sizeFrames.length > 0 ? board.sizeFrames[board.sizeFrames.length - 1] : board, { selector: issue.selector, excerpt: issue.label, rect: issue.rect });
 		els.text.value = text.slice(0, LIMITS.comment);
@@ -3004,7 +4038,7 @@
 	// current artboard over each other (a slider) or next to each other; Restore writes a version back through the server.
 	// The frames of a comparison run sandboxed like artboards but are never registered as message sources: nothing they post is trusted.
 
-	const VERSION_SOURCES = { agent: "Agent", hand: "You", restore: "Restore" };
+	const VERSION_SOURCES = ["agent", "hand", "restore"];
 	// Room above a comparison for its bar; below it the Back to canvas button keeps BACK_SPACE.
 	const VERSIONS_BAR = 72;
 	const VERSIONS_GAP = 20;
@@ -3036,7 +4070,7 @@
 			const list = entry && Array.isArray(entry.versions) ? entry.versions.slice(0, LIMITS.versions) : [];
 			const versions = [];
 			for (const item of list) {
-				if (!item || !Number.isInteger(item.n) || item.n < 1 || typeof item.createdAt !== "string" || !Object.prototype.hasOwnProperty.call(VERSION_SOURCES, item.source)) continue;
+				if (!item || !Number.isInteger(item.n) || item.n < 1 || typeof item.createdAt !== "string" || !VERSION_SOURCES.includes(item.source)) continue;
 				const version = { n: item.n, createdAt: item.createdAt.slice(0, 64), source: item.source };
 				if (typeof item.comment === "string" && item.comment.length <= 32) version.comment = item.comment;
 				if (typeof item.note === "string" && item.note) version.note = item.note.slice(0, 500);
@@ -3122,13 +4156,13 @@
 		if (board) parts.push(chip("gd-history-title", `${String(board.number).padStart(2, "0")} ${board.artboard.title}`));
 		parts.push(state.historyAlert.root);
 		for (const warning of state.history.slug === state.slug ? state.history.warnings : []) parts.push(chip("gd-history-warning", warning));
-		if (board && versions.length === 0) parts.push(chip("gd-history-empty", "No versions of this artboard yet. The canvas keeps one when it first sees an artboard and whenever its file changes."));
+		if (board && versions.length === 0) parts.push(chip("gd-history-empty", t("history.empty")));
 		const newest = versions[versions.length - 1];
 		for (let index = versions.length - 1; index >= 0; index--) parts.push(versionCard(board, versions[index], newest, keyed));
 		if (board) {
 			const note = document.createElement("p");
 			note.className = "gd-history-note";
-			note.textContent = `Versions are kept in design/${state.slug}/.history/; Restore saves the current one first, so nothing is lost.`;
+			note.textContent = t("history.note", { slug: state.slug });
 			parts.push(note);
 		}
 		els.history.replaceChildren(...parts);
@@ -3144,23 +4178,24 @@
 		card.classList.toggle("gd-version-current", current);
 		card.classList.toggle("gd-version-comparing", comparing);
 		card.dataset.n = String(version.n);
-		card.setAttribute("aria-label", `Version ${version.n}${current ? " (current)" : ""}`);
+		card.setAttribute("aria-label", t(current ? "version.ariaCurrent" : "version.aria", { n: version.n }));
 		const title = document.createElement("h4");
 		title.className = "gd-version-title";
 		title.append(chip("gd-version-number", `v${version.n}`));
-		if (current) title.append(chip("gd-version-tag", "Current"));
-		else if (version.n === 1) title.append(chip("gd-version-tag", "Original"));
-		if (comparing) title.append(chip("gd-version-comparing-chip", "Comparing"));
+		if (current) title.append(chip("gd-version-tag", t("version.current")));
+		else if (version.n === 1) title.append(chip("gd-version-tag", t("version.original")));
+		if (comparing) title.append(chip("gd-version-comparing-chip", t("version.comparing")));
 		const comment = version.comment ? state.comments.find((candidate) => candidate.id === version.comment) : null;
-		if (comment) title.append(chip("gd-version-applied", `Applied #${commentNumber(comment)}`));
+		if (comment) title.append(chip("gd-version-applied", t("version.applied", { number: commentNumber(comment) })));
 		const time = versionLabelTime(version);
 		const body = document.createElement("div");
 		body.className = "gd-version-body";
-		body.append(title, chip("gd-version-meta", time ? `${VERSION_SOURCES[version.source]} · ${time}` : VERSION_SOURCES[version.source]));
+		const source = t(`version.source.${version.source}`);
+		body.append(title, chip("gd-version-meta", time ? `${source} · ${time}` : source));
 		if (version.note && version.source === "agent") {
 			const reply = document.createElement("div");
 			reply.className = "gd-version-reply";
-			reply.append(chip("gd-version-reply-label", "Agent:"), chip("gd-version-reply-text", version.note));
+			reply.append(chip("gd-version-reply-label", t("comment.agent")), chip("gd-version-reply-text", version.note));
 			body.append(reply);
 		} else if (version.note) body.append(chip("gd-version-note", version.note));
 		const actions = document.createElement("div");
@@ -3176,10 +4211,10 @@
 			keyed.set(key, element);
 			actions.append(element);
 		};
-		if (current) button("gd-version-view", "View", "i-eye", `View the current version, v${version.n}`, `view-${version.n}`, () => viewCurrent(board));
+		if (current) button("gd-version-view", t("version.view"), "i-eye", t("version.viewAria", { n: version.n }), `view-${version.n}`, () => viewCurrent(board));
 		else {
-			button("gd-version-compare", "Compare with current", "i-compare", `Compare v${version.n} with the current version`, `compare-${version.n}`, () => startVersionCompare(board, version));
-			button("gd-version-restore", "Restore", "i-restore", `Restore v${version.n}`, `restore-${version.n}`, () => askRestore(board, version));
+			button("gd-version-compare", t("version.compare"), "i-compare", t("version.compareAria", { n: version.n }), `compare-${version.n}`, () => startVersionCompare(board, version));
+			button("gd-version-restore", t("version.restore"), "i-restore", t("version.restoreAria", { n: version.n }), `restore-${version.n}`, () => askRestore(board, version));
 		}
 		const asking = state.restoreAsk && state.restoreAsk.slug === state.slug && state.restoreAsk.file === board.artboard.file && state.restoreAsk.n === version.n;
 		actions.hidden = Boolean(asking);
@@ -3193,18 +4228,18 @@
 		const box = document.createElement("div");
 		box.className = "gd-version-confirm";
 		box.setAttribute("role", "group");
-		box.setAttribute("aria-label", `Confirm restoring v${version.n}`);
-		const question = chip("gd-version-confirm-text", `Restore v${version.n}? The current version is saved first, so nothing is lost.`);
+		box.setAttribute("aria-label", t("version.confirmAria", { n: version.n }));
+		const question = chip("gd-version-confirm-text", t("version.confirmText", { n: version.n }));
 		const yes = document.createElement("button");
 		yes.type = "button";
 		yes.className = "gd-version-confirm-restore gd-primary gd-small";
-		yes.textContent = "Restore";
+		yes.textContent = t("version.restore");
 		yes.dataset.key = `confirm-${version.n}`;
 		yes.disabled = state.restoreBusy;
 		const no = document.createElement("button");
 		no.type = "button";
 		no.className = "gd-version-confirm-cancel gd-small";
-		no.textContent = "Cancel";
+		no.textContent = t("common.cancel");
 		no.dataset.key = `cancel-${version.n}`;
 		const cancel = () => {
 			state.restoreAsk = null;
@@ -3250,7 +4285,7 @@
 			return;
 		}
 		const made = Number.isInteger(reply.body.version) ? reply.body.version : null;
-		showToast(made === null ? `v${version.n} already has the current content, so nothing changed.` : `Restored v${version.n} as v${made}`, false);
+		showToast(made === null ? t("version.same", { n: version.n }) : t("version.restored", { n: version.n, made }), false);
 		reloadBoard(board);
 		reloadThumb(board);
 		state.historyFocus = null;
@@ -3370,19 +4405,19 @@
 		const enteredFocus = state.focus !== board;
 		if (enteredFocus) enterFocus(board);
 		closePopover();
-		const older = versionPane("old", board, versionUrl(state.slug, version.n, board.artboard.file), `${board.artboard.title} artboard, v${version.n}`);
-		const current = versionPane("new", board, boardUrl(board), `${board.artboard.title} artboard, current version`);
+		const older = versionPane("old", board, versionUrl(state.slug, version.n, board.artboard.file), t("versions.frameOld", { title: board.artboard.title, n: version.n }));
+		const current = versionPane("new", board, boardUrl(board), t("versions.frameCurrent", { title: board.artboard.title }));
 		const box = document.createElement("div");
 		box.className = "gd-versions-compare";
 		box.setAttribute("role", "group");
-		const handle = splitHandle("Comparison position");
+		const handle = splitHandle(t("compare.position"));
 		const shield = splitShield();
 		box.append(older.root, current.root, handle, shield);
 		const compare = { board, n: version.n, mode: "slider", pos: 50, enteredFocus, older, current, box, handle, shield };
 		state.vcompare = compare;
 		renderMinimap();
 		bindSplitInput({ shield, handle, box, position: () => compare.pos, move: setSlider });
-		els.versionsTitle.textContent = `Compare versions · ${board.artboard.title}`;
+		els.versionsTitle.textContent = t("versions.title", { title: board.artboard.title });
 		els.versionsStage.replaceChildren(box);
 		els.versions.hidden = false;
 		els.world.inert = true;
@@ -3414,8 +4449,8 @@
 		compare.handle.setAttribute("aria-valuenow", String(compare.pos));
 		const versions = boardVersions(compare.board);
 		const newest = versions[versions.length - 1];
-		compare.handle.setAttribute("aria-valuetext", `${compare.pos}%: v${compare.n} on the left, v${newest ? newest.n : "?"} (current) on the right`);
-		compare.box.setAttribute("aria-label", `Comparison of v${compare.n} and the current version of ${compare.board.artboard.title}`);
+		compare.handle.setAttribute("aria-valuetext", t("versions.valueText", { pos: compare.pos, n: compare.n, current: newest ? newest.n : "?" }));
+		compare.box.setAttribute("aria-label", t("versions.boxAria", { n: compare.n, title: compare.board.artboard.title }));
 	}
 
 	/** One scale for the frames, small enough to fit under the bar and above Back to canvas. */
@@ -3447,7 +4482,7 @@
 		const newest = versions[versions.length - 1];
 		const time = older ? versionLabelTime(older) : "";
 		compare.older.label.textContent = time ? `v${compare.n} · ${time}` : `v${compare.n}`;
-		compare.current.label.textContent = `v${newest ? newest.n : "?"} · Current`;
+		compare.current.label.textContent = t("versions.labelCurrent", { n: newest ? newest.n : "?" });
 	}
 
 	/** After the history changed: the labels follow the newest version, and a comparison whose version is gone closes. */
@@ -3457,7 +4492,7 @@
 		const versions = boardVersions(compare.board);
 		const newest = versions[versions.length - 1];
 		if (!newest || !versions.some((version) => version.n === compare.n) || compare.n === newest.n) {
-			const gone = newest && compare.n !== newest.n ? `v${compare.n} is no longer kept, so the comparison was closed.` : `v${compare.n} is now the current version, so the comparison was closed.`;
+			const gone = t(newest && compare.n !== newest.n ? "versions.goneOld" : "versions.goneCurrent", { n: compare.n });
 			closeVersionCompare(true);
 			showToast(gone, false);
 			return;
@@ -3529,7 +4564,7 @@
 			pin.dataset.status = comment.status;
 			pin.classList.toggle("gd-pin-active", comment.id === state.activeId);
 			pin.textContent = String(commentNumber(comment));
-			pin.setAttribute("aria-label", `Comment ${commentNumber(comment)} (${comment.status}): ${comment.comment}`);
+			pin.setAttribute("aria-label", t("pin.aria", { number: commentNumber(comment), status: t(`comment.status.${comment.status}`), text: comment.comment }));
 			pin.style.left = `${Math.max(0, rect.x)}px`;
 			pin.style.top = `${Math.max(0, rect.y)}px`;
 			pin.addEventListener("click", (event) => {
@@ -3557,7 +4592,7 @@
 		});
 		els.tabPanel.setAttribute("aria-labelledby", tabButtons()[TAB_NAMES.indexOf(state.tab)].id);
 		const unsent = open.filter((comment) => comment.sentAt === null).length;
-		els.sendAll.textContent = `Send all (${unsent})`;
+		loc(els.sendAll, "text", "panel.sendAll", { count: unsent });
 		els.sendAll.disabled = unsent === 0 || !DELIVERY.batch;
 		const brief = state.tab === "brief";
 		const checks = state.tab === "checks";
@@ -3570,9 +4605,7 @@
 		renderHistory();
 		const shown = state.tab === "resolved" ? resolved : open;
 		els.panelEmpty.hidden = brief || checks || history || shown.length > 0;
-		els.panelEmpty.textContent = state.comments.length === 0
-			? "No comments yet. Turn on Comment mode and click an element."
-			: state.tab === "open" ? "No open comments." : "No resolved comments.";
+		loc(els.panelEmpty, "text", state.comments.length === 0 ? "panel.empty.none" : state.tab === "open" ? "panel.empty.open" : "panel.empty.resolved");
 		els.list.replaceChildren(...shown.map((comment) => {
 			const item = document.createElement("li");
 			item.className = "gd-comment-item";
@@ -3581,7 +4614,7 @@
 			const show = document.createElement("button");
 			show.type = "button";
 			show.className = "gd-comment-show";
-			show.setAttribute("aria-label", `Show comment ${commentNumber(comment)} on ${comment.file}`);
+			show.setAttribute("aria-label", t("comment.show", { number: commentNumber(comment), file: comment.file }));
 			// Pin number, the element's selector, and whether the session has it yet.
 			const meta = document.createElement("span");
 			meta.className = "gd-comment-meta";
@@ -3599,8 +4632,8 @@
 				element.textContent = text;
 				meta.append(element);
 			};
-			badge(comment.sentAt ? "Sent" : "Waiting", comment.sentAt ? "sent" : "unsent");
-			if (isDetached(comment)) badge("Detached", "detached");
+			badge(t(comment.sentAt ? "comment.sent" : "comment.waiting"), comment.sentAt ? "sent" : "unsent");
+			if (isDetached(comment)) badge(t("comment.detached"), "detached");
 			const text = document.createElement("span");
 			text.className = "gd-comment-text";
 			text.style.display = "block";
@@ -3613,14 +4646,14 @@
 			if (comment.viewport && typeof comment.viewport === "object") {
 				const label = describeViewport(comment.viewport);
 				const size = chip("gd-comment-viewport", label);
-				size.title = `Made at ${label}`;
+				size.title = t("comment.madeAt", { label });
 				show.append(size);
 			}
 			show.append(file);
 			if (comment.screenshot) {
 				const shot = document.createElement("img");
 				shot.className = "gd-comment-shot";
-				shot.alt = `Screenshot of comment ${commentNumber(comment)}`;
+				shot.alt = t("comment.shot", { number: commentNumber(comment) });
 				shot.loading = "lazy";
 				shot.src = `${base}api/designs/${encodeURIComponent(state.slug)}/comments/${encodeURIComponent(comment.id)}/screenshot`;
 				show.append(shot);
@@ -3632,8 +4665,8 @@
 			toggle.type = "button";
 			toggle.className = "gd-comment-toggle";
 			const next = comment.status === "open" ? "resolved" : "open";
-			toggle.textContent = next === "resolved" ? "Resolve" : "Reopen";
-			toggle.setAttribute("aria-label", `${toggle.textContent} comment ${commentNumber(comment)}`);
+			toggle.textContent = t(next === "resolved" ? "comment.resolve" : "comment.reopen");
+			toggle.setAttribute("aria-label", t(next === "resolved" ? "comment.resolveAria" : "comment.reopenAria", { number: commentNumber(comment) }));
 			toggle.addEventListener("click", () => setCommentStatus(comment.id, next));
 			actions.append(toggle);
 			item.append(show);
@@ -3641,7 +4674,7 @@
 			if (comment.status === "resolved" && typeof comment.resolution === "string" && comment.resolution) {
 				const reply = document.createElement("div");
 				reply.className = "gd-comment-reply";
-				reply.append(chip("gd-comment-reply-label", "Agent:"), chip("gd-comment-reply-text", comment.resolution));
+				reply.append(chip("gd-comment-reply-label", t("comment.agent")), chip("gd-comment-reply-text", comment.resolution));
 				item.append(reply);
 			}
 			item.append(actions);
@@ -3668,7 +4701,7 @@
 		try {
 			comments = (await getJson(`api/designs/${encodeURIComponent(slug)}/comments`)).comments;
 		} catch (error) {
-			setStatus(`comments.json for ${slug} cannot be read: ${error.message}`, true);
+			setStatus("status.comments", true, { slug, message: error.message });
 		}
 		if (slug !== state.slug || !Array.isArray(comments)) return;
 		state.comments = comments;
@@ -3727,7 +4760,7 @@
 			state.cardErrors.set(id, reply);
 			renderList();
 			els.list.querySelector(`[data-id="${CSS.escape(id)}"] .gd-comment-toggle`)?.focus();
-		} else showToast(status === "resolved" ? "Comment resolved" : "Comment reopened", false);
+		} else showToast(t(status === "resolved" ? "comment.resolved" : "comment.reopened"), false);
 		await loadComments();
 	}
 
@@ -3738,7 +4771,7 @@
 		hideAlert(sendAlert);
 		const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/comments/send-all`, {});
 		if (!reply.ok) showAlert(sendAlert, reply);
-		else showToast(reply.body.sent ? `Sent ${reply.body.sent} comment${reply.body.sent === 1 ? "" : "s"} to the session` : "No unsent comments", false);
+		else showToast(reply.body.sent ? tn("panel.sent", reply.body.sent) : t("panel.noUnsent"), false);
 		await loadComments();
 		renderList();
 	});
@@ -3747,7 +4780,7 @@
 		state.mode = mode === "collect" ? "collect" : "send";
 		els.modeSend.checked = state.mode === "send";
 		els.modeCollect.checked = state.mode === "collect";
-		els.send.textContent = state.mode === "collect" ? "Save" : "Send";
+		loc(els.send, "text", state.mode === "collect" ? "common.save" : "common.send");
 		try { localStorage.setItem(MODE_KEY, state.mode); } catch { /* storage may be unavailable */ }
 	}
 
@@ -3865,7 +4898,7 @@
 			}
 			return;
 		}
-		if (!els.popover.hidden || state.focus || state.compare || state.menu || els.variantDialog.hasAttribute("open")) return;
+		if (!els.popover.hidden || state.focus || state.compare || state.menu || state.langMenu || els.variantDialog.hasAttribute("open")) return;
 		const actions = {
 			v: () => setCommenting(false),
 			c: () => setCommenting(true),
@@ -3938,8 +4971,8 @@
 	/** Reads one image file into the popover; a later attach or a clear discards a read still running. */
 	function attachShot(file) {
 		if (!file || els.popover.hidden) return;
-		if (!SCREENSHOT_TYPES.includes(file.type)) return shotError("Attach a PNG, JPEG, WebP or GIF image.");
-		if (file.size === 0 || file.size > LIMITS.screenshotBytes) return shotError("The screenshot must be at most 5 MB.");
+		if (!SCREENSHOT_TYPES.includes(file.type)) return shotError(t("shot.type"));
+		if (file.size === 0 || file.size > LIMITS.screenshotBytes) return shotError(t("shot.size"));
 		const token = ++state.shotToken;
 		const reader = new FileReader();
 		reader.addEventListener("load", () => {
@@ -3952,7 +4985,7 @@
 			els.message.textContent = "";
 			els.message.classList.remove("gd-error");
 		});
-		reader.addEventListener("error", () => { if (token === state.shotToken) shotError("The screenshot could not be read."); });
+		reader.addEventListener("error", () => { if (token === state.shotToken) shotError(t("shot.read")); });
 		reader.readAsDataURL(file);
 	}
 
@@ -4034,13 +5067,13 @@
 		if (!pick) return;
 		const comment = els.text.value.trim();
 		if (!comment || comment.length > LIMITS.comment) {
-			els.message.textContent = `Write a comment of 1 to ${LIMITS.comment} characters.`;
+			els.message.textContent = t("popover.tooLong", { max: LIMITS.comment });
 			els.message.classList.add("gd-error");
 			return;
 		}
 		els.send.disabled = true;
 		els.message.classList.remove("gd-error");
-		els.message.textContent = "Sending…";
+		els.message.textContent = t("popover.sending");
 		const shot = state.shot;
 		const reply = await postJson("api/comments", { slug: pick.board.slug, file: pick.board.artboard.file, selector: pick.selector, excerpt: pick.excerpt, comment, mode: state.mode, ...(shot ? { screenshot: shot } : {}), ...(pick.viewport ? { viewport: pick.viewport } : {}) });
 		// Delivery can fail after the comment was saved; it then waits for "Send all".
@@ -4058,7 +5091,7 @@
 		if (state.pick !== pick) return;
 		els.text.value = "";
 		if (state.shot === shot) clearShot();
-		const done = savedOnly ? "Saved, but not sent to the session. Use Send all to try again." : reply.status === 201 ? "Saved; use Send all to send it" : "Sent to the session";
+		const done = t(savedOnly ? "popover.savedOnly" : reply.status === 201 ? "popover.saved" : "popover.sentDone");
 		els.message.textContent = done;
 		els.message.title = savedOnly ? explain(reply).detail : "";
 		els.message.classList.toggle("gd-error", savedOnly);
@@ -4130,6 +5163,7 @@
 
 	window.addEventListener("resize", closePopover);
 	window.addEventListener("resize", () => closeMenu(false));
+	window.addEventListener("resize", () => closeLangMenu(false));
 	window.addEventListener("resize", layoutCompare);
 	window.addEventListener("resize", layoutVersions);
 	window.addEventListener("resize", renderMinimap);
@@ -4140,16 +5174,18 @@
 	if (typeof ResizeObserver === "function") new ResizeObserver(updateTabFades).observe(els.tabs);
 	else window.addEventListener("resize", () => centerFocus());
 
-	// index.html starts both hidden; the menu is built when it opens.
+	// index.html starts both hidden; the menus are built when they open.
 	els.menu.hidden = true;
+	els.langMenu.hidden = true;
 	setMode(state.mode);
 	renderTools();
 	if (!DELIVERY.batch) {
 		const info = explain({ status: 501, body: { error: "batch-delivery-unavailable" } });
-		els.sendNote.textContent = info.text;
+		loc(els.sendNote, "text", info.key, info.params);
 		els.sendNote.title = info.detail;
 		els.sendNote.hidden = false;
 	}
+	applyLanguage();
 	start();
 	connectEvents();
 })();

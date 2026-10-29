@@ -46,6 +46,7 @@ class FakeElement {
 	constructor(tag: string, doc: FakeDocument) {
 		Object.defineProperties(this, { parentElement: { value: null, writable: true }, doc: { value: doc, writable: true } });
 		this.localName = tag;
+		doc.all.push(this);
 		if (tag === "iframe") {
 			const posted: any[] = [];
 			this.contentWindow = { posted, postMessage: (message) => posted.push(structuredCopy(message)) };
@@ -135,8 +136,11 @@ class FakeDocument {
 	title = "";
 	byId = new Map<string, FakeElement>();
 	listeners = new Map<string, Listener[]>();
+	// Every element ever created, so querySelectorAll can find the ones that carry a data attribute.
+	all: FakeElement[] = [];
 
 	constructor() {
+		Object.defineProperty(this, "all", { enumerable: false });
 		this.documentElement = new FakeElement("html", this);
 		this.body = new FakeElement("body", this);
 		this.documentElement.append(this.body);
@@ -156,13 +160,38 @@ class FakeDocument {
 	addEventListener(type: string, listener: Listener) {
 		this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
 	}
-	querySelectorAll() { return []; }
+	/** Only `[attribute]` selectors (the canvas's data-i18n lookups); anything else finds nothing. */
+	querySelectorAll(selector: string) {
+		const match = /^\[([\w-]+)\]$/.exec(selector);
+		return match ? this.all.filter((element) => element.attributes.has(match[1])) : [];
+	}
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknown> = {}, config: Record<string, unknown> = {}, extraContext: Record<string, unknown> = {}) {
+/**
+ * index.html is not parsed by the fake DOM. With `hydrate`, every element of index.html that carries a data-i18n attribute is
+ * created (by id when it has one) with its attributes and its English text, so the canvas's language pass can find it.
+ */
+function hydrateStatic(document: FakeDocument) {
+	const html = read("index.html").replace(/<script[^]*?<\/script>/g, "");
+	for (const match of html.matchAll(/<([a-z0-9]+)\b((?:"[^"]*"|[^>"])*)>([^<]*)/g)) {
+		const attributes = [...match[2].matchAll(/([\w:-]+)(?:="([^"]*)")?/g)].map((entry) => [entry[1], entry[2] ?? ""] as const);
+		if (!attributes.some(([name]) => name.startsWith("data-i18n"))) continue;
+		const id = attributes.find(([name]) => name === "id")?.[1];
+		const element = id ? document.getElementById(id) : document.createElement(match[1]);
+		Object.defineProperty(element, "hydrated", { value: true, enumerable: false });
+		for (const [name, value] of attributes) {
+			if (name === "title") element.title = value;
+			else if (name !== "id" && name !== "class") element.setAttribute(name, value);
+		}
+		if (attributes.some(([name]) => name === "data-i18n")) element.textContent = match[3].trim();
+	}
+}
+
+async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknown> = {}, config: Record<string, unknown> = {}, extraContext: Record<string, unknown> = {}, options: { hydrate?: boolean; script?: string } = {}) {
 	const document = new FakeDocument();
+	if (options.hydrate) hydrateStatic(document);
 	document.getElementById("gd-config").textContent = JSON.stringify({ base: "/t/", slug: "alpha", ...config });
 	// Hidden in index.html until a delivery problem is shown.
 	for (const id of ["gd-send-note", "gd-send-alert", "gd-inspector", "gd-history", "gd-versions"]) document.getElementById(id).hidden = true;
@@ -239,7 +268,7 @@ async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknow
 		...extraContext,
 	};
 	context.window = context;
-	vm.runInNewContext(read("canvas.js"), context);
+	vm.runInNewContext(options.script ?? read("canvas.js"), context);
 	for (let i = 0; i < 10; i++) await flush();
 	const boards = world.children.map((wrapper) => {
 		const box = wrapper.children.find((child) => child.classes.has("gd-frame-box"))!;
@@ -1334,7 +1363,7 @@ test("the T2 markup: tablist with five tabs, tabpanel, timeline region, Compare 
 	assert.match(html, /id="gd-filter-open"[^>]*role="tab"|role="tab"[^>]*id="gd-filter-open"/);
 	assert.match(html, /role="tabpanel"/);
 	assert.match(html, /<section id="gd-handoff-panel"[^>]*aria-labelledby="gd-handoff-title"/);
-	assert.match(html, /id="gd-compare-app"[^>]*hidden>.*Compare with app<\/button>/);
+	assert.match(html, /id="gd-compare-app"[^>]*hidden>.*Compare with app<\/span><\/button>/);
 	assert.match(html, /Design system board is always first in Overview\./);
 	assert.match(html, /<code id="gd-feature"/);
 });
@@ -3304,7 +3333,7 @@ test("S4: the Checks tab follows the design: results of the old design never sho
 
 test("S4: index.html and canvas.css carry the Checks tab, the issue cards and the list tag with tokens only", () => {
 	const html = read("index.html");
-	assert.match(html, /<button type="button" role="tab" id="gd-tab-checks" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1">Checks <span id="gd-count-checks" class="gd-count">0<\/span><\/button>/);
+	assert.match(html, /<button type="button" role="tab" id="gd-tab-checks" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.checks">Checks<\/span> <span id="gd-count-checks" class="gd-count">0<\/span><\/button>/);
 	assert.ok(html.indexOf('id="gd-filter-resolved"') < html.indexOf('id="gd-tab-checks"') && html.indexOf('id="gd-tab-checks"') < html.indexOf('id="gd-tab-brief"'));
 	assert.match(html, /<div id="gd-checks" class="gd-checks" hidden>/);
 	const css = read("canvas.css");
@@ -3873,13 +3902,13 @@ test("S4: the restore question survives a refresh of the list while it is open",
 
 test("S2-S4: the History tab and the comparison are in index.html and canvas.css with tokens only, focus rings and no inline script or style", () => {
 	const html = read("index.html");
-	assert.match(html, /<button type="button" role="tab" id="gd-tab-history" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1">History <span id="gd-count-history" class="gd-count">0<\/span><\/button>/);
+	assert.match(html, /<button type="button" role="tab" id="gd-tab-history" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.history">History<\/span> <span id="gd-count-history" class="gd-count">0<\/span><\/button>/);
 	assert.ok(html.indexOf('id="gd-filter-resolved"') < html.indexOf('id="gd-tab-history"') && html.indexOf('id="gd-tab-history"') < html.indexOf('id="gd-tab-checks"'));
 	assert.match(html, /<div id="gd-history" class="gd-history" hidden><\/div>/);
 	assert.match(html, /<section id="gd-versions" class="gd-versions" aria-labelledby="gd-versions-title" hidden>/);
-	assert.match(html, /<div class="gd-devices gd-versions-mode" role="group" aria-label="Comparison mode">/);
-	assert.match(html, /id="gd-versions-mode-slider"[^>]*aria-pressed="true">Slider</);
-	assert.match(html, /id="gd-versions-mode-side"[^>]*aria-pressed="false">Side by side</);
+	assert.match(html, /<div class="gd-devices gd-versions-mode" role="group" aria-label="Comparison mode" data-i18n-aria-label="versions.group">/);
+	assert.match(html, /id="gd-versions-mode-slider"[^>]*aria-pressed="true"[^>]*>Slider</);
+	assert.match(html, /id="gd-versions-mode-side"[^>]*aria-pressed="false"[^>]*>Side by side</);
 	assert.match(html, /id="gd-versions-close"[^>]*>[^]*?Close comparison</);
 	assert.ok(html.indexOf('id="gd-versions"') < html.indexOf('id="gd-back"'), "the Back to canvas button stays above the comparison");
 	for (const id of ["i-eye", "i-restore"]) assert.match(html, new RegExp(`<symbol id="${id}"`));
@@ -4249,11 +4278,11 @@ test("T1/S4: the canvas never reads either Compare frame's pixels or document", 
 test("T1/S1-S3: index.html has the mode control and the opacity field in the Compare bar, with no Difference mode", () => {
 	const html = read("index.html");
 	const bar = html.slice(html.indexOf('<section id="gd-compare"'), html.indexOf('<p id="gd-compare-message"'));
-	assert.match(bar, /<div id="gd-compare-mode" class="gd-devices gd-compare-mode" role="group" aria-label="Compare mode">/);
-	assert.match(bar, /<button type="button" id="gd-compare-mode-side" class="gd-size-button" aria-pressed="true">Side by side<\/button>/);
-	assert.match(bar, /<button type="button" id="gd-compare-mode-overlay" class="gd-size-button" aria-pressed="false">Overlay<\/button>/);
-	assert.match(bar, /<button type="button" id="gd-compare-mode-slider" class="gd-size-button" aria-pressed="false">Slider<\/button>/);
-	assert.match(bar, /<label id="gd-compare-opacity-field" class="gd-compare-opacity" hidden><span>App opacity<\/span><input type="range" id="gd-compare-opacity" min="0" max="100" step="1" value="50" aria-valuetext="50%"><output id="gd-compare-opacity-value" for="gd-compare-opacity">50%<\/output><\/label>/);
+	assert.match(bar, /<div id="gd-compare-mode" class="gd-devices gd-compare-mode" role="group" aria-label="Compare mode" data-i18n-aria-label="compare.modeGroup">/);
+	assert.match(bar, /<button type="button" id="gd-compare-mode-side" class="gd-size-button" aria-pressed="true" data-i18n="compare.side">Side by side<\/button>/);
+	assert.match(bar, /<button type="button" id="gd-compare-mode-overlay" class="gd-size-button" aria-pressed="false" data-i18n="compare.overlay">Overlay<\/button>/);
+	assert.match(bar, /<button type="button" id="gd-compare-mode-slider" class="gd-size-button" aria-pressed="false" data-i18n="compare.slider">Slider<\/button>/);
+	assert.match(bar, /<label id="gd-compare-opacity-field" class="gd-compare-opacity" hidden><span data-i18n="compare.opacity">App opacity<\/span><input type="range" id="gd-compare-opacity" min="0" max="100" step="1" value="50" aria-valuetext="50%"><output id="gd-compare-opacity-value" for="gd-compare-opacity">50%<\/output><\/label>/);
 	assert.ok(bar.indexOf("gd-compare-mode") < bar.indexOf("gd-compare-opacity-field") && bar.indexOf("gd-compare-opacity-field") < bar.indexOf("gd-compare-fit-field"));
 	assert.ok(!/difference/i.test(bar), "no Difference mode (L2)");
 	assert.ok(!/areas differ/i.test(html));
@@ -4587,11 +4616,11 @@ test("T1/S1: a ResizeObserver on the viewport redraws the minimap too", async ()
 
 test("T1/S1: the shortcuts dialog lists M, and the markup carries the minimap", () => {
 	const html = read("index.html");
-	assert.match(html, /<dt><kbd>M<\/kbd><\/dt><dd>Show or hide the minimap<\/dd>/);
+	assert.match(html, /<dt><kbd>M<\/kbd><\/dt><dd data-i18n="keys.minimap">Show or hide the minimap<\/dd>/);
 	const section = html.match(/<section id="gd-minimap"[^>]*>[^]*?<\/section>/)![0];
 	assert.match(section, /^<section id="gd-minimap" class="gd-minimap" aria-labelledby="gd-minimap-title">/);
-	assert.match(section, /<h2 id="gd-minimap-title" class="gd-minimap-title"><span>Minimap<\/span><kbd[^>]*>M<\/kbd><\/h2>/);
-	assert.match(section, /<div id="gd-minimap-map" class="gd-minimap-map" role="img" aria-label="[^"]+">/);
+	assert.match(section, /<h2 id="gd-minimap-title" class="gd-minimap-title"><span data-i18n="minimap.title">Minimap<\/span><kbd[^>]*>M<\/kbd><\/h2>/);
+	assert.match(section, /<div id="gd-minimap-map" class="gd-minimap-map" role="img" aria-label="[^"]+"[^>]*>/);
 	assert.match(section, /<b id="gd-minimap-view" class="gd-minimap-view"><\/b>/);
 	assert.ok(!/tabindex|<button/.test(section), "nothing in the minimap takes the keyboard");
 	const viewport = html.slice(html.indexOf('<main id="gd-viewport"'), html.indexOf("</main>"));
@@ -5243,15 +5272,15 @@ test("T2/S3: the minimap draws the placeholder as the dashed block and drops it 
 test("T2/S2/S3: index.html carries the menu and the dialog with their names, field and actions", () => {
 	const html = read("index.html");
 	assert.match(html, /<div id="gd-menu" class="gd-menu" role="menu" hidden><\/div>/);
-	assert.match(html, /<div id="gd-variant-chips" class="gd-suggestions" role="group" aria-label="Suggestions"><\/div>/);
+	assert.match(html, /<div id="gd-variant-chips" class="gd-suggestions" role="group" aria-label="Suggestions" data-i18n-aria-label="variant.suggestions"><\/div>/);
 	const dialog = html.match(/<dialog id="gd-variant"[^>]*>[^]*?<\/dialog>/)![0];
 	assert.match(dialog, /^<dialog id="gd-variant" class="gd-dialog gd-variant" aria-labelledby="gd-variant-title">/);
-	assert.match(dialog, /<h2 id="gd-variant-title"[^>]*>[^]*Another direction from <strong id="gd-variant-source"><\/strong><\/h2>/);
+	assert.match(dialog, /<h2 id="gd-variant-title"[^>]*>[^]*Another direction from<\/span> <strong id="gd-variant-source"><\/strong><\/h2>/);
 	assert.match(dialog, /<label[^>]*for="gd-variant-text"[^>]*>What should change\?<\/label>/);
 	assert.match(dialog, /<textarea id="gd-variant-text"[^>]*maxlength="2000"[^>]*aria-describedby="[^"]*gd-variant-message[^"]*"/);
 	assert.match(dialog, /id="gd-variant-message"[^>]*role="status"/);
 	assert.match(dialog, /<button type="button" id="gd-variant-cancel"[^>]*>Cancel<\/button>/);
-	assert.match(dialog, /<button type="submit" id="gd-variant-send" class="gd-primary"[^>]*>[^]*Send to the session<\/button>/);
+	assert.match(dialog, /<button type="submit" id="gd-variant-send" class="gd-primary"[^>]*>[^]*Send to the session<\/span><\/button>/);
 	assert.ok(html.indexOf('id="gd-variant"') > html.indexOf('id="gd-shortcuts"') || html.indexOf('id="gd-variant"') > 0);
 	for (const icon of ["i-more", "i-sparkles"]) assert.match(html, new RegExp(`<symbol id="${icon}"`));
 });
@@ -5276,4 +5305,932 @@ test("T2/S2/S3: canvas.css styles the menu, the dialog and the placeholder with 
 	assert.match(css, /\.gd-menu-button:focus-visible[^{]*{[^}]*outline:\s*2px solid var\(--accent\)/);
 	assert.match(css, /\.gd-suggestion:focus-visible[^{]*{[^}]*outline:\s*2px solid var\(--accent\)/);
 	assert.match(block(".gd-placeholder-frame"), /dashed var\(--accent\)|1px solid var\(--accent-line\)/);
+});
+
+// ---- Language (canvas-language T1): one catalog, English and Spanish, a switch in the top bar ----
+
+const LANG_KEY = "gentle-design:language";
+
+type LangOptions = { browser?: string | string[]; stored?: string | null; replies?: Record<string, unknown>; config?: Record<string, unknown>; extra?: Record<string, unknown>; script?: string };
+
+/** The canvas with index.html's static text hydrated, a browser language and a stored choice; `saved()` lists what it wrote. */
+async function loadLang(options: LangOptions = {}) {
+	const writes: Array<[string, string]> = [];
+	const { browser } = options;
+	const navigator = browser === undefined ? undefined : Array.isArray(browser) ? { language: browser[0], languages: browser } : { language: browser, languages: [browser] };
+	const context = {
+		...(navigator ? { navigator } : {}),
+		localStorage: { getItem: (key: string) => (key === LANG_KEY ? options.stored ?? null : null), setItem: (key: string, value: string) => { writes.push([key, value]); } },
+		...options.extra,
+	};
+	const canvas = await loadCanvas(300, options.replies ?? {}, options.config ?? {}, context, { hydrate: true, script: options.script });
+	canvas.document.getElementById("gd-popover").hidden = true;
+	return { ...canvas, saved: () => writes.filter(([key]) => key === LANG_KEY) };
+}
+type LangCanvas = Awaited<ReturnType<typeof loadLang>>;
+
+const langButton = (canvas: LangCanvas) => canvas.document.getElementById("gd-lang");
+const langMenu = (canvas: LangCanvas) => canvas.document.getElementById("gd-lang-menu");
+const langItems = (canvas: LangCanvas) => findAll(langMenu(canvas), (element) => element.getAttribute("role") === "menuitemradio");
+const langItem = (canvas: LangCanvas, code: string) => langItems(canvas).find((item) => item.dataset.lang === code)!;
+const chooseLang = (canvas: LangCanvas, code: string) => {
+	langButton(canvas).dispatch("click");
+	langItem(canvas, code).dispatch("click");
+};
+const htmlLang = (canvas: LangCanvas) => (canvas.document.documentElement as unknown as { lang: string }).lang;
+const staticText = (canvas: LangCanvas) => canvas.document.querySelectorAll("[data-i18n]").map((element) => element.textContent);
+const modeChip = (canvas: LangCanvas) => canvas.document.getElementById("gd-nav-mode").textContent;
+
+test("S1: the language starts from the browser: es* is Spanish, anything else (or nothing) is English, and <html lang> follows", async () => {
+	const cases: Array<[string | string[] | undefined, string, string]> = [
+		["es", "es", "Navegando"], ["es-MX", "es", "Navegando"], ["ES-ar", "es", "Navegando"], [["es-ES", "en"], "es", "Navegando"],
+		["en-US", "en", "Navigating"], ["fr-FR", "en", "Navigating"], ["", "en", "Navigating"], [["en-US", "es"], "en", "Navigating"], [undefined, "en", "Navigating"],
+	];
+	for (const [browser, lang, chip] of cases) {
+		const canvas = await loadLang({ browser });
+		assert.equal(htmlLang(canvas), lang, JSON.stringify(browser));
+		assert.equal(modeChip(canvas), chip, JSON.stringify(browser));
+		assert.equal(canvas.document.getElementById("gd-lang-code").textContent, lang.toUpperCase());
+		assert.deepEqual(canvas.saved(), [], "reading the default never writes the choice");
+	}
+});
+
+test("S1: a stored choice beats the browser; auto, an unknown value and unreadable storage follow the browser", async () => {
+	assert.equal(htmlLang(await loadLang({ browser: "en-US", stored: "es" })), "es");
+	assert.equal(htmlLang(await loadLang({ browser: "es-ES", stored: "en" })), "en");
+	assert.equal(htmlLang(await loadLang({ browser: "es-ES", stored: "auto" })), "es");
+	assert.equal(htmlLang(await loadLang({ browser: "en-US", stored: "auto" })), "en");
+	assert.equal(htmlLang(await loadLang({ browser: "es-ES", stored: "klingon" })), "es");
+	const broken = await loadLang({ browser: "es-ES", extra: { localStorage: { getItem() { throw new Error("denied"); }, setItem() { throw new Error("denied"); } } } });
+	assert.equal(htmlLang(broken), "es", "storage that throws is ignored");
+	chooseLang(broken, "en");
+	assert.equal(htmlLang(broken), "en", "and the choice still applies for this page");
+});
+
+test("S1: the top bar has a globe button with the code that opens a menu of three radio items, the current choice checked", async () => {
+	const english = await loadLang({ browser: "en-US" });
+	const button = langButton(english);
+	assert.equal(button.getAttribute("aria-haspopup"), "menu");
+	assert.equal(button.getAttribute("aria-expanded"), "false");
+	assert.equal(button.getAttribute("aria-controls"), "gd-lang-menu");
+	assert.equal(button.title, "Language / Idioma");
+	assert.match(button.getAttribute("aria-label")!, /EN/);
+	assert.equal(langMenu(english).hidden, true);
+	assert.equal(langMenu(english).getAttribute("role"), "menu");
+	button.dispatch("click");
+	assert.equal(langMenu(english).hidden, false);
+	assert.equal(button.getAttribute("aria-expanded"), "true");
+	assert.deepEqual(langItems(english).map((item) => [item.dataset.lang, texts(item, "gd-menu-label")[0], item.getAttribute("aria-checked")]), [["es", "Español", "false"], ["en", "English", "false"], ["auto", "Match the browser", "true"]]);
+	assert.match(allText(langMenu(english)), /messages to the agent stay in English/);
+
+	const spanish = await loadLang({ browser: "es-ES", stored: "es" });
+	langButton(spanish).dispatch("click");
+	assert.deepEqual(langItems(spanish).map((item) => [texts(item, "gd-menu-label")[0], item.getAttribute("aria-checked")]), [["Español", "true"], ["English", "false"], ["Igual que el navegador", "false"]]);
+	assert.match(allText(langMenu(spanish)), /mensajes al agente siguen en inglés/);
+	assert.match(langButton(spanish).getAttribute("aria-label")!, /ES/);
+});
+
+test("S1/S2: choosing a language applies at once, saves the choice and leaves the artboards loaded as they were", async () => {
+	const canvas = await loadLang({ browser: "en-US" });
+	const frames = canvas.frames();
+	const sources = frames.map((frame) => frame.src);
+	assert.equal(canvas.document.getElementById("gd-back").textContent, "Back to canvas");
+	chooseLang(canvas, "es");
+	assert.equal(htmlLang(canvas), "es");
+	assert.equal(modeChip(canvas), "Navegando");
+	assert.equal(canvas.document.getElementById("gd-lang-code").textContent, "ES");
+	assert.equal(canvas.document.getElementById("gd-back").textContent, "Volver al canvas");
+	assert.equal(canvas.document.getElementById("gd-back").title, "Volver al canvas (Shift+Esc)");
+	assert.equal(canvas.document.getElementById("gd-panel-toggle").title, "Panel de revisión (])");
+	assert.equal(canvas.document.getElementById("gd-zoom-out").getAttribute("aria-label"), "Alejar");
+	assert.equal(canvas.document.getElementById("gd-send-all").textContent, "Enviar todo (0)");
+	assert.equal(canvas.document.getElementById("gd-nav-title").textContent, "Artboards · 2");
+	assert.ok(staticText(canvas).includes("Mostrar u ocultar el minimapa"), "the shortcuts dialog follows");
+	assert.deepEqual(canvas.saved(), [[LANG_KEY, "es"]]);
+	assert.deepEqual(canvas.frames(), frames, "the same iframes");
+	assert.deepEqual(canvas.frames().map((frame) => frame.src), sources, "none of them reloaded");
+	assert.equal(langMenu(canvas).hidden, true, "choosing closes the menu");
+	assert.ok(canvas.document.activeElement === langButton(canvas), "and returns focus to the button");
+
+	chooseLang(canvas, "en");
+	assert.equal(htmlLang(canvas), "en");
+	assert.equal(modeChip(canvas), "Navigating");
+	assert.equal(canvas.document.getElementById("gd-back").textContent, "Back to canvas");
+	assert.equal(canvas.document.getElementById("gd-lang-code").textContent, "EN");
+	assert.deepEqual(canvas.saved(), [[LANG_KEY, "es"], [LANG_KEY, "en"]]);
+});
+
+test("S1: Match the browser saves auto and resolves the browser's language again", async () => {
+	const canvas = await loadLang({ browser: "es-ES", stored: "en" });
+	assert.equal(htmlLang(canvas), "en");
+	langButton(canvas).dispatch("click");
+	assert.equal(langItem(canvas, "en").getAttribute("aria-checked"), "true");
+	langItem(canvas, "auto").dispatch("click");
+	assert.equal(htmlLang(canvas), "es");
+	assert.deepEqual(canvas.saved(), [[LANG_KEY, "auto"]]);
+	langButton(canvas).dispatch("click");
+	assert.equal(langItem(canvas, "auto").getAttribute("aria-checked"), "true");
+	assert.equal(langItem(canvas, "es").getAttribute("aria-checked"), "false", "the choice is auto, not the language it resolved to");
+});
+
+test("S1: the language menu opens with the arrows, moves with the arrows, Home and End, and closes with Escape, Tab or a click outside", async () => {
+	const canvas = await loadLang({ browser: "en-US" });
+	const button = langButton(canvas);
+	const down = keyOn(button, "ArrowDown");
+	assert.equal(down.defaultPrevented, true);
+	assert.equal(langMenu(canvas).hidden, false);
+	const items = langItems(canvas);
+	assert.ok(canvas.document.activeElement === items[0], "ArrowDown opens on the first item");
+	assert.equal(keyOn(button, "Escape").defaultPrevented, true);
+	assert.equal(langMenu(canvas).hidden, true);
+	assert.equal(button.getAttribute("aria-expanded"), "false");
+	keyOn(button, "ArrowUp");
+	const last = langItems(canvas);
+	assert.ok(canvas.document.activeElement === last[last.length - 1], "ArrowUp opens on the last item");
+
+	const at = () => last.findIndex((item) => item === canvas.document.activeElement);
+	keyOn(last[at()], "ArrowDown");
+	assert.equal(at(), 0, "ArrowDown wraps to the first");
+	keyOn(last[at()], "ArrowUp");
+	assert.equal(at(), 2, "ArrowUp wraps to the last");
+	keyOn(last[at()], "Home");
+	assert.equal(at(), 0);
+	keyOn(last[at()], "End");
+	assert.equal(at(), 2);
+	assert.equal(langMenu(canvas).hidden, false, "moving never closes it");
+
+	const escape = keyOn(last[1], "Escape");
+	assert.equal(escape.defaultPrevented, true);
+	assert.equal(langMenu(canvas).hidden, true);
+	assert.ok(canvas.document.activeElement === button, "Esc returns focus to the button");
+
+	button.dispatch("click");
+	const tab = keyOn(langItems(canvas)[0], "Tab");
+	assert.equal(tab.defaultPrevented, false, "Tab keeps its move");
+	assert.equal(langMenu(canvas).hidden, true);
+
+	button.dispatch("click");
+	const pointerdown = (target: FakeElement) => (canvas.document.listeners.get("pointerdown") ?? []).forEach((listener) => listener({ target, button: 0 }));
+	pointerdown(langMenu(canvas));
+	pointerdown(langItems(canvas)[0]);
+	assert.equal(langMenu(canvas).hidden, false, "a press inside does not close it");
+	pointerdown(button);
+	assert.equal(langMenu(canvas).hidden, false, "the button toggles on its own click");
+	pointerdown(canvas.viewport);
+	assert.equal(langMenu(canvas).hidden, true, "a press outside closes it");
+	button.dispatch("click");
+	button.dispatch("click");
+	assert.equal(langMenu(canvas).hidden, true, "the button closes it again");
+});
+
+test("S1: Enter and Space choose the focused item; single-key shortcuts stay off while the menu is open", async () => {
+	for (const key of ["Enter", " "]) {
+		const canvas = await loadLang({ browser: "en-US" });
+		langButton(canvas).dispatch("click");
+		const chosen = keyOn(langItem(canvas, "es"), key);
+		assert.equal(chosen.defaultPrevented, true, key);
+		assert.equal(htmlLang(canvas), "es", key);
+		assert.equal(langMenu(canvas).hidden, true, key);
+		assert.deepEqual(canvas.saved(), [[LANG_KEY, "es"]], key);
+	}
+	const canvas = await loadLang({ browser: "en-US" });
+	langButton(canvas).dispatch("click");
+	const before = pressed(canvas as unknown as Canvas, "gd-comment");
+	press(canvas as unknown as Canvas, "c", {}, langItems(canvas)[0]);
+	assert.equal(pressed(canvas as unknown as Canvas, "gd-comment"), before, "C did nothing");
+	keyOn(langItems(canvas)[0], "Escape");
+	press(canvas as unknown as Canvas, "c");
+	assert.equal(pressed(canvas as unknown as Canvas, "gd-comment"), "true", "back to normal after it closes");
+});
+
+test("S1: opening the artboard menu closes the language menu, and the other way around", async () => {
+	const canvas = await loadLang({ browser: "en-US" });
+	langButton(canvas).dispatch("click");
+	menuButtonOf(boardsOf(canvas)[0]).dispatch("click");
+	assert.equal(langMenu(canvas).hidden, true);
+	assert.equal(langButton(canvas).getAttribute("aria-expanded"), "false");
+	assert.equal(menuEl(canvas as unknown as Canvas).hidden, false);
+	langButton(canvas).dispatch("click");
+	assert.equal(menuEl(canvas as unknown as Canvas).hidden, true);
+	assert.equal(langMenu(canvas).hidden, false);
+});
+
+const withOpen = (id: string, extra: Record<string, unknown> = {}) => comment(id, "01-a.html", "open", extra);
+
+test("S2: the navigator, tabs, cards and Send all speak Spanish with plural counts, and English by default", async () => {
+	const replies = {
+		...commentsDoc(withOpen("c1"), withOpen("c2", { sentAt: "2026-10-26T10:00:00.000Z" }), comment("c3", "01-a.html", "resolved"), comment("c4", "02-b.html")),
+		"/t/api/designs/alpha/handoffs": handoffDoc("01-a.html", { "01-a.html": { status: "in_progress", startedAt: stamp(9, 5), sentAt: stamp(9, 1) } }),
+	};
+	const spanish = await loadLang({ browser: "es", replies });
+	const summaries = withClass(spanish.document.getElementById("gd-nav-list"), "gd-nav-summary").map((element) => element.textContent);
+	assert.deepEqual(summaries, ["2 comentarios abiertos · 1 resuelto", "1 comentario abierto"]);
+	assert.deepEqual(withClass(spanish.document.getElementById("gd-nav-list"), "gd-nav-tag").map((element) => element.textContent), ["Elegido", "Alternativa"]);
+	assert.equal(spanish.document.getElementById("gd-send-all").textContent, "Enviar todo (2)", "c1 and c4 are open and unsent");
+	const badges = withClass(spanish.document.getElementById("gd-comment-list"), "gd-badge").map((element) => element.textContent);
+	assert.deepEqual(badges.slice(0, 2), ["Esperando", "Enviado"]);
+	assert.deepEqual(withClass(spanish.document.getElementById("gd-comment-list"), "gd-comment-toggle").map((element) => [element.textContent, element.getAttribute("aria-label")]).slice(0, 1), [["Resolver", "Resolver comentario 1"]]);
+	assert.deepEqual(withClass(boardsOf(spanish)[0], "gd-handoff-badge").map((element) => element.textContent), ["En curso"]);
+	assert.deepEqual(texts(spanish.document.getElementById("gd-timeline"), "gd-step-label"), ["Elegido", "Enviado a la sesión", "En curso", "Implementado"]);
+	assert.equal(spanish.document.getElementById("gd-handoff-title").textContent, "Handoff · First");
+	spanish.document.getElementById("gd-filter-resolved").dispatch("click");
+	assert.equal(withClass(spanish.document.getElementById("gd-comment-list"), "gd-comment-toggle")[0].textContent, "Reabrir");
+
+	const english = await loadLang({ browser: "en", replies });
+	assert.deepEqual(withClass(english.document.getElementById("gd-nav-list"), "gd-nav-summary").map((element) => element.textContent), ["2 open comments · 1 resolved", "1 open comment"]);
+	assert.equal(english.document.getElementById("gd-send-all").textContent, "Send all (2)");
+
+	// A comment-less artboard reads "Sin comentarios", and Resolved empty says so.
+	const empty = await loadLang({ browser: "es" });
+	assert.deepEqual(withClass(empty.document.getElementById("gd-nav-list"), "gd-nav-summary").map((element) => element.textContent), ["Sin comentarios", "Sin comentarios"]);
+	assert.equal(empty.document.getElementById("gd-panel-empty").textContent, "Aún no hay comentarios. Activa el modo Comentar y haz clic en un elemento.");
+});
+
+test("S2: switching language re-renders what is already on screen: lists, badges, the timeline and the chip, without a reload", async () => {
+	const replies = {
+		...commentsDoc(withOpen("c1"), comment("c3", "01-a.html", "resolved")),
+		"/t/api/designs/alpha/handoffs": handoffDoc("01-a.html", { "01-a.html": { status: "implemented", implementedAt: stamp(9, 9), startedAt: stamp(9, 5), sentAt: stamp(9, 1), previewUrl: "http://localhost:3000/" } }),
+	};
+	const canvas = await loadLang({ browser: "en", replies });
+	const summary = () => withClass(canvas.document.getElementById("gd-nav-list"), "gd-nav-summary")[0].textContent;
+	assert.equal(summary(), "1 open comment · 1 resolved");
+	assert.deepEqual(withClass(boardsOf(canvas)[0], "gd-handoff-badge").map((element) => element.textContent), ["Implemented ✓"]);
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	assert.equal(modeChip(canvas), COMMENT_CHIP);
+	chooseLang(canvas, "es");
+	assert.equal(summary(), "1 comentario abierto · 1 resuelto");
+	assert.deepEqual(withClass(boardsOf(canvas)[0], "gd-handoff-badge").map((element) => element.textContent), ["Implementado ✓"]);
+	assert.equal(withClass(boardsOf(canvas)[0], "gd-compare-start")[0].textContent, "Comparar");
+	assert.equal(modeChip(canvas), "Haz clic en un elemento para comentar · Esc");
+	assert.equal(canvas.document.getElementById("gd-comment-list").children[0].children[0].children[0].children[2]?.textContent ?? "Esperando", "Esperando");
+	canvas.document.getElementById("gd-tool-navigate").dispatch("click");
+	click(canvas.boards[0].shield!, 200, 200);
+	assert.equal(modeChip(canvas), "Usando: First · Shift+Esc para salir");
+	chooseLang(canvas, "en");
+	assert.equal(modeChip(canvas), "Using: First · Shift+Esc to exit");
+});
+
+test("S2: dates use Today/Hoy and the month names of the language, with the year only when it differs", async () => {
+	const now = new Date();
+	const sentAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 5).toISOString();
+	const replies = {
+		"/t/api/designs/alpha/handoffs": handoffDoc("01-a.html", { "01-a.html": { status: "in_progress", sentAt, startedAt: stamp(9, 6) } }),
+		[HISTORY_URL]: HISTORY,
+	};
+	const spanish = await loadLang({ browser: "es", replies });
+	const details = () => texts(spanish.document.getElementById("gd-timeline"), "gd-step-detail");
+	assert.deepEqual(details().slice(0, 2), ["Hoy 09:05", "4 mar 2020, 09:06"]);
+	chooseLang(spanish, "en");
+	assert.deepEqual(details().slice(0, 2), ["Today 09:05", "Mar 4 2020, 09:06"]);
+	chooseLang(spanish, "es");
+	spanish.document.getElementById("gd-tab-history").dispatch("click");
+	const meta = texts(spanish.document.getElementById("gd-history"), "gd-version-meta");
+	assert.deepEqual(meta, ["Tú · 4 mar 2020, 09:04", "Restauración · 4 mar 2020, 09:03", "Agente · 4 mar 2020, 09:02", "Tú · 4 mar 2020, 09:01"]);
+});
+
+test("S2: history cards, tags and buttons are Spanish, and restoring asks in Spanish", async () => {
+	const canvas = await loadLang({ browser: "es", replies: { [HISTORY_URL]: HISTORY, ...commentsDoc(comment("a1", "01-a.html", "resolved")) } });
+	canvas.document.getElementById("gd-tab-history").dispatch("click");
+	const panel = canvas.document.getElementById("gd-history");
+	assert.deepEqual(texts(panel, "gd-version-tag"), ["Actual", "Original"]);
+	assert.deepEqual(texts(panel, "gd-version-applied"), ["Aplicado #1"]);
+	assert.deepEqual(texts(panel, "gd-version-reply-label"), ["Agente:"]);
+	const labels = withClass(panel, "gd-version-actions")[1].children.map((button) => [allText(button), button.getAttribute("aria-label")]);
+	assert.deepEqual(labels, [["Comparar con la actual", "Comparar v3 con la versión actual"], ["Restaurar", "Restaurar v3"]]);
+	assert.match(allText(panel), /Las versiones se guardan en design\/alpha\/\.history\/; Restaurar guarda antes la actual, así que no se pierde nada\./);
+	withClass(panel, "gd-version-restore")[0].dispatch("click");
+	assert.match(texts(panel, "gd-version-confirm-text")[0], /^¿Restaurar v3\? La versión actual se guarda antes, así que no se pierde nada\.$/);
+});
+
+test("S2: failures speak Spanish with their cause and way out, keep the raw code, and follow the language while shown", async () => {
+	const replies = {
+		...commentsDoc(withOpen("c1")),
+		"/t/api/designs/alpha/comments/send-all": { __http: 500, error: "delivery-failed" },
+	};
+	const canvas = await loadLang({ browser: "es", replies });
+	canvas.document.getElementById("gd-send-all").dispatch("click");
+	for (let i = 0; i < 6; i++) await flush();
+	const alert = canvas.document.getElementById("gd-send-alert");
+	assert.equal(alert.hidden, false);
+	assert.equal(canvas.document.getElementById("gd-send-alert-text").textContent, "La sesión no aceptó el mensaje. Tus comentarios quedan guardados y sin enviar; comprueba que la sesión esté en marcha y vuelve a intentarlo.");
+	assert.equal(canvas.document.getElementById("gd-send-alert-detail").textContent, "delivery-failed", "the code is never translated");
+	chooseLang(canvas, "en");
+	assert.match(canvas.document.getElementById("gd-send-alert-text").textContent, /^The session did not accept the message\./);
+	assert.equal(canvas.document.getElementById("gd-send-alert-detail").textContent, "delivery-failed");
+
+	// A success is a Spanish toast with its plural.
+	canvas.replies["/t/api/designs/alpha/comments/send-all"] = { sent: 2 };
+	chooseLang(canvas, "es");
+	canvas.document.getElementById("gd-send-all").dispatch("click");
+	for (let i = 0; i < 6; i++) await flush();
+	assert.equal(canvas.document.getElementById("gd-toast").textContent, "Se enviaron 2 comentarios a la sesión");
+	// A network failure and an unknown code have sentences too.
+	canvas.replies["/t/api/designs/alpha/comments/send-all"] = { __throw: "offline" };
+	canvas.document.getElementById("gd-send-all").dispatch("click");
+	for (let i = 0; i < 6; i++) await flush();
+	assert.match(canvas.document.getElementById("gd-send-alert-text").textContent, /^El canvas no pudo conectar con su servidor/);
+	assert.equal(canvas.document.getElementById("gd-send-alert-detail").textContent, "network: offline");
+});
+
+test("S2: empty states and status lines are Spanish, and the status follows a switch", async () => {
+	const none = await loadLang({ browser: "es", config: { slug: null }, replies: { "/t/api/designs": { designs: [] } } });
+	assert.equal(none.document.getElementById("gd-empty").textContent, "Aún no hay diseños. Ejecuta /gentle:design con un encargo para crear uno.");
+	chooseLang(none, "en");
+	assert.equal(none.document.getElementById("gd-empty").textContent, "No designs yet. Run /gentle:design with a brief to create one.");
+
+	const broken = await loadLang({ browser: "es", replies: { "/t/api/designs/alpha": { __http: 500, reason: "boom" } } });
+	assert.equal(broken.document.getElementById("gd-empty").textContent, "No se puede mostrar el diseño «alpha»: boom");
+	assert.equal(broken.document.getElementById("gd-status").textContent, "design.json de alpha no es válido");
+	chooseLang(broken, "en");
+	assert.equal(broken.document.getElementById("gd-status").textContent, "design.json for alpha is invalid");
+	assert.equal(broken.document.getElementById("gd-empty").textContent, 'Design "alpha" cannot be shown: boom');
+
+	const brief = await loadLang({ browser: "es", replies: { "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "", artboards: [] } } });
+	assert.equal(brief.document.getElementById("gd-brief-text").textContent, "Aún no hay encargo escrito.");
+});
+
+test("S2: the focused artboard's size control, the artboard header and the mode chip are Spanish", async () => {
+	const canvas = await loadLang({ browser: "es" });
+	const [first] = canvas.boards;
+	assert.equal(withClass(first.wrapper, "gd-implement-start")[0].textContent, "Implementar esto");
+	assert.equal(withClass(first.wrapper, "gd-implement-start")[0].getAttribute("aria-label"), "Implementar First en el proyecto");
+	assert.equal(first.shield!.getAttribute("aria-label"), "Usar First");
+	assert.equal(withClass(first.wrapper, "gd-shield-hint")[0].textContent, "Haz clic para usar este diseño");
+	assert.equal(menuButtonOf(first.wrapper).getAttribute("aria-label"), "Más acciones de First");
+	assert.equal(first.frame.title, "Artboard First");
+	click(first.shield!, 200, 200);
+	assert.deepEqual(texts(first.wrapper, "gd-size-label"), ["Móvil", "Tablet", "Escritorio", "Todos los tamaños"]);
+	assert.equal(texts(first.wrapper, "gd-size-custom-label")[0], "Personalizado");
+	assert.equal(withClass(first.wrapper, "gd-size-readout")[0].textContent, "400 × 300");
+	const buttons = withClass(first.wrapper, "gd-size-button");
+	assert.equal(buttons[0].title, "Móvil 390 × 844");
+	buttons[3].dispatch("click");
+	assert.equal(withClass(first.wrapper, "gd-size-readout")[0].textContent, "Todos los tamaños");
+	assert.equal(canvas.document.getElementById("gd-nav-mode").textContent, "Usando: First · Shift+Esc para salir");
+	chooseLang(canvas, "en");
+	assert.equal(withClass(first.wrapper, "gd-size-readout")[0].textContent, "All sizes");
+	assert.equal(first.frame.title, "First artboard");
+	assert.deepEqual(texts(first.wrapper, "gd-size-label"), ["Phone", "Tablet", "Desktop", "All sizes"]);
+	assert.equal(first.shield!.getAttribute("aria-label"), "Use First");
+});
+
+test("S2: the artboard menu, the variant dialog and its suggestions are Spanish", async () => {
+	const canvas = await loadLang({ browser: "es" });
+	const button = menuButtonOf(boardsOf(canvas)[0]);
+	button.dispatch("click");
+	assert.deepEqual(itemLabels(canvas as unknown as Canvas), ["Probar otra dirección a partir de esta…", "Exportar como PNG", "Exportar como PNG a 2×", "Implementar esto"]);
+	assert.equal(menuEl(canvas as unknown as Canvas).getAttribute("aria-label"), "Acciones de First");
+	itemNamed(canvas as unknown as Canvas, "Probar otra dirección a partir de esta…").dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-variant-note").textContent, "La sesión escribe un nuevo artboard, 03, y conserva los demás.");
+	const chips = withClass(canvas.document.getElementById("gd-variant-chips"), "gd-suggestion");
+	assert.deepEqual(chips.map((chip) => chip.textContent), ["Más compacto", "Más atrevido", "Primero móvil", "Colores más calmados"]);
+	chips[0].dispatch("click");
+	assert.equal(variantField(canvas as unknown as Canvas).value, "Más compacto", "a chip fills the field with its own label");
+	variantField(canvas as unknown as Canvas).value = "";
+	await submitVariant(canvas as unknown as Canvas);
+	assert.equal(variantMessage(canvas as unknown as Canvas).textContent, "Escribe de 1 a 2000 caracteres sobre lo que debería cambiar.");
+	// The raw dialog-level message of an unavailable session is explained in Spanish too.
+	const offline = await loadLang({ browser: "es", config: { delivery: { variant: false, implement: false, batch: false } } });
+	menuButtonOf(boardsOf(offline)[0]).dispatch("click");
+	const item = menuItems(offline as unknown as Canvas)[0];
+	assert.equal(texts(item, "gd-menu-note")[0], "El canvas no está conectado a una sesión de Pi.");
+	assert.match(item.getAttribute("aria-describedby") ? allText(withClass(item, "gd-menu-note")[0]) : "", /Este canvas no está conectado a una sesión de Pi, así que no puede pedir otra dirección\./);
+	assert.match(offline.document.getElementById("gd-send-note").textContent, /^Este canvas no está conectado a una sesión de Pi, así que no se pueden enviar los comentarios\./);
+	chooseLang(offline, "en");
+	assert.match(offline.document.getElementById("gd-send-note").textContent, /^This canvas is not connected to a Pi session, so comments cannot be sent\./);
+});
+
+test("S2: the minimap, the checks and the inspector are Spanish; what is sent to the session stays English", async () => {
+	const canvas = await loadLang({ browser: "es", replies: { [TOKENS_URL]: TOKEN_SET } });
+	const [first] = canvas.boards;
+	layoutWorld(canvas as unknown as Canvas, [[0, 0, 400, 300], [480, 0, 400, 300]]);
+	canvas.windowEvent("resize");
+	assert.equal(miniMap(canvas as unknown as Canvas).getAttribute("aria-label"), "Posición del área visible entre 2 artboards. Haz clic o arrastra para mover la vista; usa la lista de artboards con el teclado.");
+	assert.equal(miniBlocks(canvas as unknown as Canvas)[0].title, "01 · First");
+
+	report_(canvas as unknown as Canvas, first.frame, [finding(), finding({ check: "label", title: "Form field without a label", detail: 'The text field "Search" has no label. Add a <label for>, aria-label or aria-labelledby; a placeholder is not a label.', selector: "main > input", label: "input" })]);
+	openChecks(canvas as unknown as Canvas);
+	const panel = checksPanel(canvas as unknown as Canvas);
+	assert.deepEqual(texts(panel, "gd-check-title"), ["Contraste bajo", "Campo de formulario sin etiqueta"]);
+	assert.deepEqual(texts(panel, "gd-check-detail"), [
+		'"or pay with card" tiene 3.1 : 1 (#999999 sobre #ffffff); WCAG AA exige 4.5 : 1.',
+		'Falta etiqueta en campo de texto "Search". Añade un <label for>, aria-label o aria-labelledby; un placeholder no es una etiqueta.',
+	]);
+	assert.deepEqual(texts(panel, "gd-check-kind"), ["Problema", "Problema"]);
+	assert.deepEqual(texts(panel, "gd-check-summary"), ["2 comprobaciones"]);
+	assert.match(texts(panel, "gd-check-passed")[0], /^Superadas: Tamaño de los objetivos táctiles · Imágenes con texto alternativo · Encabezados en orden$/);
+	assert.equal(withClass(panel, "gd-check-show")[0].getAttribute("aria-label"), "Mostrar Contraste bajo en p.or de 01 First");
+	assert.equal(withClass(panel, "gd-check-fix")[0].getAttribute("aria-label"), "Pedir al agente que corrija Contraste bajo en p.or");
+	withClass(panel, "gd-check-fix")[0].dispatch("click");
+	assert.match(canvas.document.getElementById("gd-popover-text").value, /^Accessibility check on main > p\.or: Low contrast\.\n/, "the comment sent to the session stays English");
+	canvas.document.getElementById("gd-popover-cancel").dispatch("click");
+	chooseLang(canvas, "en");
+	assert.deepEqual(texts(panel, "gd-check-title"), ["Low contrast", "Form field without a label"]);
+	assert.deepEqual(texts(panel, "gd-check-summary"), ["2 checks"]);
+
+	// The inspector panel compares in Spanish, but its Ask the agent to fix text is for the agent: English.
+	chooseLang(canvas, "es");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	tallViewport(canvas as unknown as Canvas);
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	inspect(canvas as unknown as Canvas, first.frame, { ...MEASURE, color: { r: 10, g: 20, b: 30, a: 1 } });
+	assert.deepEqual(rowLabels(canvas as unknown as Canvas), ["Color", "Fondo", "Contraste", "Fuente", "Tamaño", "Interlineado", "Espaciado", "Radio"]);
+	assert.match(rowText(canvas as unknown as Canvas, "Color")!, /sin token/);
+	assert.match(rowText(canvas as unknown as Canvas, "Color")!, /Más cercano: --/);
+	assert.match(rowText(canvas as unknown as Canvas, "Tamaño")!, /peso 400/);
+	assert.equal(canvas.document.getElementById("gd-inspector-fix").title, "");
+	canvas.document.getElementById("gd-inspector-fix").dispatch("click");
+	assert.match(canvas.document.getElementById("gd-popover-text").value, /^Fix the values on main > p\.or that are off the design system/);
+});
+
+test("S2: Compare is Spanish and follows a switch while it is open", async () => {
+	const canvas = await loadLang({ browser: "es", replies: { "/t/api/designs/alpha/handoffs": implementedDoc("01-a.html") } });
+	withClass(boardsOf(canvas)[0], "gd-compare-start")[0].dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-compare-title").textContent, "Comparar: First");
+	const captions = () => texts(canvas.document.getElementById("gd-compare-panes"), "gd-compare-caption");
+	assert.deepEqual(captions(), ["Diseño: 01-a.html", "Implementación: http://localhost:3000/"]);
+	assert.equal(canvas.document.getElementById("gd-compare-message").textContent, "Si la app no permite mostrarse en un marco, usa Abrir en una pestaña nueva.");
+	canvas.document.getElementById("gd-compare-mode-slider").dispatch("click");
+	assert.deepEqual(captions(), ["Diseño", "App"]);
+	assert.equal(canvas.document.getElementById("gd-compare-panes").getAttribute("aria-label"), "Diseño y app en ejecución, divididos al 50%");
+	chooseLang(canvas, "en");
+	assert.equal(canvas.document.getElementById("gd-compare-title").textContent, "Compare: First");
+	assert.deepEqual(captions(), ["Design", "App"]);
+	assert.equal(canvas.document.getElementById("gd-compare-panes").getAttribute("aria-label"), "Design and running app, split at 50%");
+	assert.equal(canvas.document.getElementById("gd-compare-message").textContent, "If the app refuses to be framed, use Open in new tab.");
+});
+
+test("S2: popover messages, screenshot errors and the Send/Save label are Spanish", async () => {
+	const canvas = await loadLang({ browser: "es" });
+	const [first] = canvas.boards;
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	canvas.message(first.frame.contentWindow, { type: "gd:pick", selector: "main > h1", excerpt: "Hi", rect: { x: 10, y: 10, width: 50, height: 20 } });
+	assert.equal(canvas.document.getElementById("gd-popover-send").textContent, "Enviar");
+	canvas.document.getElementById("gd-mode-collect").dispatch("change");
+	assert.equal(canvas.document.getElementById("gd-popover-send").textContent, "Guardar");
+	canvas.document.getElementById("gd-popover-form").dispatch("submit");
+	assert.equal(canvas.document.getElementById("gd-popover-message").textContent, "Escribe un comentario de 1 a 2000 caracteres.");
+	chooseLang(canvas, "en");
+	assert.equal(canvas.document.getElementById("gd-popover-send").textContent, "Save", "the label keeps the send mode");
+});
+
+test("S3: the messages the canvas sends and what the user wrote are never translated", async () => {
+	const replies = commentsDoc(withOpen("c1", { comment: "Hazlo más grande" }));
+	const canvas = await loadLang({ browser: "es", replies });
+	assert.equal(withClass(canvas.document.getElementById("gd-comment-list"), "gd-comment-text")[0].textContent, "Hazlo más grande");
+	assert.equal(texts(boardsOf(canvas)[0], "gd-artboard-title")[0], "First");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	canvas.message(canvas.boards[0].frame.contentWindow, { type: "gd:pick", selector: "main > h1", excerpt: "Hi", rect: { x: 10, y: 10, width: 50, height: 20 } });
+	canvas.document.getElementById("gd-popover-text").value = "Texto del usuario";
+	canvas.document.getElementById("gd-popover-form").dispatch("submit");
+	for (let i = 0; i < 6; i++) await flush();
+	assert.deepEqual(canvas.posts.map((post) => post.body), [{ slug: "alpha", file: "01-a.html", selector: "main > h1", excerpt: "Hi", comment: "Texto del usuario", mode: "send" }]);
+});
+
+test("S4: a Spanish key that is missing falls back to the English text", async () => {
+	const source = read("canvas.js");
+	const line = '"nav.note": "El tablero del design system siempre va primero en Ver todo.",';
+	assert.ok(source.includes(line), "the Spanish entry is on its own line");
+	const canvas = await loadLang({ browser: "es", script: source.replace(line, ""), replies: SYSTEM_REPLY });
+	assert.equal(canvas.document.getElementById("gd-nav-note").textContent, "Design system board is always first in Overview.");
+	assert.equal(canvas.document.getElementById("gd-back").textContent, "Volver al canvas", "the other keys stay Spanish");
+});
+
+// ---- The catalog: one dictionary per language, complete, and the only source of canvas text (S4) ----
+
+function loadCatalog(): { en: Record<string, string>; es: Record<string, string> } {
+	const source = read("canvas.js");
+	const start = source.indexOf("/* catalog:start */");
+	const end = source.indexOf("/* catalog:end */");
+	assert.ok(start >= 0 && end > start, "canvas.js marks its catalog with /* catalog:start */ and /* catalog:end */");
+	return structuredCopy(vm.runInNewContext(`${source.slice(start, end)}\nCATALOG`));
+}
+
+const placeholdersOf = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort();
+
+/** canvas.js without its catalog, with comments blanked: what is left is code. */
+function codeOutsideCatalog(): string {
+	const source = read("canvas.js");
+	const start = source.indexOf("/* catalog:start */");
+	const end = source.indexOf("/* catalog:end */") + "/* catalog:end */".length;
+	return blankComments(source.slice(0, start) + source.slice(end));
+}
+
+/** Blanks // and /* *​/ comments (and leaves strings alone) so a scan sees code only. */
+function blankComments(source: string): string {
+	let out = "";
+	for (let i = 0; i < source.length; i++) {
+		const char = source[i];
+		if (char === '"' || char === "'" || char === "`") {
+			const end = skipLiteral(source, i);
+			out += source.slice(i, end + 1);
+			i = end;
+		} else if (char === "/" && source[i + 1] === "/") {
+			const end = source.indexOf("\n", i);
+			i = end < 0 ? source.length : end - 1;
+		} else if (char === "/" && source[i + 1] === "*") {
+			const end = source.indexOf("*/", i + 2);
+			out += " ".repeat(end + 2 - i);
+			i = end + 1;
+		} else out += char;
+	}
+	return out;
+}
+
+/** The index of the closing quote of the literal that opens at `open`; template `${}` may nest literals. */
+function skipLiteral(source: string, open: number): number {
+	const quote = source[open];
+	for (let i = open + 1; i < source.length; i++) {
+		if (source[i] === "\\") i++;
+		else if (source[i] === quote) return i;
+		else if (quote === "`" && source[i] === "$" && source[i + 1] === "{") {
+			let depth = 0;
+			for (i = i + 1; i < source.length; i++) {
+				if (source[i] === '"' || source[i] === "'" || source[i] === "`") i = skipLiteral(source, i);
+				else if (source[i] === "{") depth++;
+				else if (source[i] === "}" && --depth === 0) break;
+			}
+		}
+	}
+	throw new Error(`unterminated literal at ${open}`);
+}
+
+/** The text of every literal in `code`, with `${}` of templates cut out. `code` is scanned as code, never as text. */
+function literalsIn(code: string): string[] {
+	const found: string[] = [];
+	for (let i = 0; i < code.length; i++) {
+		const char = code[i];
+		if (char !== '"' && char !== "'" && char !== "`") continue;
+		const end = skipLiteral(code, i);
+		let text = code.slice(i + 1, end);
+		if (char === "`") {
+			let cut = "";
+			for (let j = 0; j < text.length; j++) {
+				if (text[j] === "$" && text[j + 1] === "{") {
+					const from = j + 2;
+					let depth = 0;
+					for (j = j + 1; j < text.length; j++) {
+						if (text[j] === '"' || text[j] === "'" || text[j] === "`") j = skipLiteral(text, j);
+						else if (text[j] === "{") depth++;
+						else if (text[j] === "}" && --depth === 0) break;
+					}
+					found.push(...literalsIn(text.slice(from, j)));
+					cut += "\u0000";
+				} else cut += text[j];
+			}
+			text = cut;
+		}
+		found.push(text);
+		i = end;
+	}
+	return found;
+}
+
+/** The argument texts of the call whose "(" is at `open`. */
+function callArguments(code: string, open: number): string[] {
+	const args: string[] = [];
+	let depth = 0;
+	let start = open + 1;
+	for (let i = open; i < code.length; i++) {
+		const char = code[i];
+		if (char === '"' || char === "'" || char === "`") i = skipLiteral(code, i);
+		else if ("([{".includes(char)) depth++;
+		else if (")]}".includes(char)) {
+			if (--depth === 0) {
+				args.push(code.slice(start, i));
+				return args;
+			}
+		} else if (char === "," && depth === 1) {
+			args.push(code.slice(start, i));
+			start = i + 1;
+		}
+	}
+	throw new Error(`unterminated call at ${open}`);
+}
+
+/** `code` with the calls of the named functions blanked out: what they hold is not text the canvas shows (keys, or text for the agent). */
+function withoutCalls(code: string, names: string[]): string {
+	let rest = code;
+	for (;;) {
+		const call = new RegExp(`(?<![\\w.])(?:${names.join("|")})\\(`).exec(rest);
+		if (!call) return rest;
+		const open = call.index + call[0].length - 1;
+		const length = callArguments(rest, open).join(",").length;
+		rest = `${rest.slice(0, call.index)} ${rest.slice(open + length + 2)}`;
+	}
+}
+
+/** The expression after `=` up to the end of its statement. */
+function assignedExpression(code: string, from: number): string {
+	let depth = 0;
+	for (let i = from; i < code.length; i++) {
+		const char = code[i];
+		if (char === '"' || char === "'" || char === "`") i = skipLiteral(code, i);
+		else if ("([{".includes(char)) depth++;
+		else if (")]}".includes(char)) depth--;
+		else if ((char === ";" || char === "\n") && depth === 0) return code.slice(from, i);
+	}
+	return code.slice(from);
+}
+
+/** Literal text that is words a person reads (not a class, a selector, a URL, a key name or a unit). */
+const isHumanText = (text: string) => /[A-Za-z]{2,}/.test(text.replace(/\u0000/g, " "));
+
+test("S4: the English and Spanish dictionaries have the same keys, the same placeholders and no empty text", () => {
+	const { en, es } = loadCatalog();
+	assert.deepEqual(Object.keys(es).sort(), Object.keys(en).sort(), "a key in one language and not the other");
+	assert.ok(Object.keys(en).length > 250, "the whole canvas is in the catalog");
+	for (const [key, text] of Object.entries(en)) {
+		assert.equal(typeof text, "string", key);
+		assert.ok(text.length > 0 && es[key].length > 0, `${key} is empty`);
+		assert.deepEqual(placeholdersOf(es[key]), placeholdersOf(text), `${key}: the placeholders differ`);
+	}
+	const same = Object.keys(en).filter((key) => en[key] === es[key] && /[a-z]{4,}/i.test(en[key]));
+	assert.ok(same.length < Object.keys(en).length * 0.15, `too many keys left in English in the Spanish dictionary: ${same.join(", ")}`);
+	assert.notEqual(es["nav.note"], en["nav.note"]);
+});
+
+test("S4: plural keys come in pairs, one and other, in both languages", () => {
+	const { en, es } = loadCatalog();
+	for (const dictionary of [en, es]) {
+		for (const key of Object.keys(dictionary)) {
+			if (key.endsWith(".one")) assert.ok(`${key.slice(0, -4)}.other` in dictionary, `${key} has no .other`);
+			if (key.endsWith(".other")) assert.ok(`${key.slice(0, -6)}.one` in dictionary, `${key} has no .one`);
+		}
+	}
+});
+
+test("S2: the Spanish is neutral and professional: tú forms, no voseo", () => {
+	const { es } = loadCatalog();
+	const voseo = /\b(vos|tenés|podés|querés|sabés|hacé|hacés|mirá|elegí|enviá|tocá|aprobá|fijate|andá|vení|decí|escribí|usá|abrí|cerrá|guardá|volvé|probá|revisá)\b/i;
+	for (const [key, text] of Object.entries(es)) assert.ok(!voseo.test(text), `${key}: voseo in "${text}"`);
+	const all = Object.values(es).join("\n");
+	for (const term of ["Comentar", "Ver todo", "Elegido", "Alternativa", "En curso", "Implementado", "Enviar todo", "Acumular", "Encargo"]) assert.ok(all.includes(term), `the Spanish uses ${term}`);
+	assert.ok(/\bHaz clic\b/.test(all) && /\bEscribe\b/.test(all), "imperatives are tú forms");
+});
+
+test("S4: every key the code or index.html names exists in both dictionaries, and every key is used", () => {
+	const { en, es } = loadCatalog();
+	const code = codeOutsideCatalog();
+	const html = read("index.html");
+	const named = new Set<string>();
+	// A literal in code that has the shape of a key (area.name) is a key, except file names.
+	for (const text of literalsIn(code)) if (/^[a-z][A-Za-z0-9]*(\.[A-Za-z0-9_-]+)+$/.test(text) && !/\.(json|md|html|css|js|png)$/.test(text)) named.add(text);
+	for (const match of html.matchAll(/data-i18n(?:-[a-z-]+)?="([^"]+)"/g)) if (!match[1].startsWith("{")) named.add(match[1]);
+	// A plural base (nav.summary.open) stands for its .one and .other.
+	const known = (dictionary: Record<string, string>, key: string) => key in dictionary || `${key}.one` in dictionary;
+	for (const key of named) {
+		assert.ok(known(en, key), `${key} is not in the English dictionary`);
+		assert.ok(known(es, key), `${key} is not in the Spanish dictionary`);
+	}
+	// Keys built from a prefix (`reason.${code}`) count as used by that prefix.
+	const prefixes = [...code.matchAll(/`([A-Za-z][\w.-]*\.)\$\{/g)].map((match) => match[1]);
+	const unused = Object.keys(en).filter((key) => !named.has(key) && !named.has(key.replace(/\.(one|other)$/, "")) && !prefixes.some((prefix) => key.startsWith(prefix)));
+	assert.deepEqual(unused, [], "keys nothing uses");
+});
+
+test("S4: canvas.js shows no text of its own: every visible string comes from the catalog", () => {
+	const code = codeOutsideCatalog();
+	const problems: string[] = [];
+	const check = (where: string, expression: string) => {
+		// Keys are literals too: take out the calls that fetch from the catalog, then nothing human may remain.
+		const rest = withoutCalls(expression, ["t", "tn", "ref", "toSession"]);
+		for (const text of literalsIn(rest)) {
+			if (/^[a-z][A-Za-z0-9]*(\.[A-Za-z0-9_-]+)+$/.test(text)) continue; // a catalog key: the test above checks it exists
+			const plain = text.replace(/\u0000/g, " ").replace(/[·\s]+/g, " ").trim();
+			if (isHumanText(text) && !ALLOWED_LITERALS.has(plain)) problems.push(`${where}: "${text}"`);
+		}
+	};
+	// Assignments and calls that put text in front of the user (the second argument for the two-argument helpers).
+	for (const match of code.matchAll(/\.(textContent|title|placeholder|alt)\s*=(?!=)/g)) check(`.${match[1]} =`, assignedExpression(code, match.index! + match[0].length));
+	const calls: Array<[string, number[]]> = [
+		["chip", [1]], ["span", [1]], ["okChip", [0]], ["badChip", [0]], ["showToast", [0]], ["shotError", [0]], ["variantProblem", [0, 1]],
+		["setCompareMessage", [0]], ["setStatus", [0]], ["showEmpty", [0]], ["row", [0]], ["comparePane", [0]], ["compareFrame", [2]], ["versionFrame", [2]],
+		["versionPane", [3]], ["splitHandle", [0]], ["Error", [0]], ["confirm", [0]], ["loc", [2]], ["badge", [0]], ["addButton", [1, 3]], ["button", [1, 3]],
+	];
+	for (const [name, positions] of calls) {
+		for (const match of code.matchAll(new RegExp(`(?<![\\w.])${name === "confirm" ? "(?:window\\.)?" : name === "Error" ? "new " : ""}${name}\\(`, "g"))) {
+			const open = match.index! + match[0].length - 1;
+			const args = callArguments(code, open);
+			for (const position of positions) if (args[position] !== undefined) check(`${name}() #${position}`, args[position]);
+		}
+	}
+	for (const match of code.matchAll(/\.setAttribute\(\s*"(aria-label|title|placeholder|alt|aria-valuetext)"\s*,/g)) {
+		const open = code.indexOf("(", match.index!);
+		check(`setAttribute(${match[1]})`, callArguments(code, open)[1]);
+	}
+	assert.deepEqual(problems, [], "text that bypasses the catalog");
+	// Beyond those sinks, no multi-word sentence hides in a literal either.
+	const sentences = literalsIn(withoutCalls(code, ["t", "tn", "ref", "toSession"])).filter((text) => {
+		const plain = text.replace(/\u0000/g, " ").replace(/[·\s]+/g, " ").trim();
+		return /(^|\s)[A-Za-z]{2,}[.,;:!?]?\s+[A-Za-z]{2,}(\s|[.,;:!?]|$)/.test(plain) && !ALLOWED_LITERALS.has(plain);
+	});
+	assert.deepEqual(sentences, [], "sentences in code");
+});
+
+/** Literals that read like words but are not canvas text: browser values, protocol names and the agent-bound messages. */
+const ALLOWED_LITERALS = new Set([
+	"px", "HTTP", "Gentle Design", "use strict", "noopener noreferrer", "The image", "text area", "Escape", "Enter", "Tab", "Home", "End", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Shift", "send", "collect", "open", "resolved", "readonly", "browser", "monitor",
+	"normal", "none", "desktop", "tablet", "phone", "custom", "all", "side", "overlay", "slider", "Files", "image", "allow-scripts", "no-referrer", "lazy", "button", "menu", "group", "status", "alert", "tab",
+	"slider", "step", "img", "text", "numeric", "horizontal", "true", "false", "iframe", "textarea", "input", "select", "section", "div", "span", "article", "figure", "figcaption", "label", "code", "small",
+	"video", "canvas", "a", "p", "li", "h2", "h3", "h4", "b", "i", "dt", "dd", "dl", "svg", "use", "output", "http", "https",
+]);
+
+test("index.html: every visible text and accessible name carries a catalog key", () => {
+	const { en, es } = loadCatalog();
+	const html = read("index.html").replace(/<!--[^]*?-->/g, "");
+	const body = html.slice(html.indexOf("<body"));
+	const stack: Array<{ tag: string; translated: boolean }> = [];
+	const problems: string[] = [];
+	const VOID = new Set(["meta", "link", "input", "img", "br", "use", "path", "circle", "rect", "hr"]);
+	const token = /<(\/?)([a-z0-9]+)\b((?:"[^"]*"|[^>"])*?)(\/?)>|([^<]+)/gi;
+	for (const match of body.matchAll(token)) {
+		if (match[5] !== undefined) {
+			const text = match[5].replace(/&[a-z]+;/g, "").trim();
+			const top = stack[stack.length - 1];
+			if (!/[A-Za-z]{2,}/.test(text) || !top || ["GD", "EN"].includes(text)) continue; // the brand mark and the code of the language
+			if (stack.some((entry) => entry.translated || entry.tag === "kbd" || entry.tag === "script" || entry.tag === "style")) continue;
+			problems.push(`text "${text}" in <${top.tag}>`);
+			continue;
+		}
+		const [, closing, tag, attributes, selfClosing] = match;
+		if (closing) {
+			stack.pop();
+			continue;
+		}
+		const attrs = new Map([...attributes.matchAll(/([\w:-]+)(?:="([^"]*)")?/g)].map((entry) => [entry[1], entry[2] ?? ""] as const));
+		for (const attribute of ["title", "aria-label", "placeholder", "alt"]) {
+			if (attrs.has(attribute) && !attrs.has(`data-i18n-${attribute}`) && attrs.get(attribute) !== "Gentle Design") problems.push(`<${tag}> ${attribute}="${attrs.get(attribute)}" has no data-i18n-${attribute}`);
+		}
+		for (const [name, value] of attrs) {
+			if (!name.startsWith("data-i18n") || name.endsWith("-args")) continue;
+			assert.ok(value in en && value in es, `${name}="${value}" is not in both dictionaries`);
+		}
+		if (!VOID.has(tag.toLowerCase()) && !selfClosing) stack.push({ tag: tag.toLowerCase(), translated: attrs.has("data-i18n") || (tag === "h1" && attrs.get("id") === "gd-title") });
+	}
+	assert.deepEqual(problems, []);
+});
+
+test("S4/S5: every language-bearing element keeps the English text in index.html as its first paint and its key beside it", () => {
+	const { en } = loadCatalog();
+	const html = read("index.html");
+	for (const match of html.matchAll(/<([a-z0-9]+)\b[^>]*\bdata-i18n="([^"]+)"[^>]*>([^<]*)</g)) {
+		const [, , key, text] = match;
+		if (!text.trim() || placeholdersOf(en[key]).length > 0) continue;
+		assert.equal(text.trim(), en[key], `${key}: the markup shows the English dictionary text`);
+	}
+});
+
+test("S5: the markup and styles of the language switch use tokens, a visible focus ring and no motion", () => {
+	const html = read("index.html");
+	assert.match(html, /<button type="button" id="gd-lang" class="gd-lang-button"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"[^>]*aria-controls="gd-lang-menu"/);
+	assert.match(html, /<span id="gd-lang-code"/);
+	assert.match(html, /<div id="gd-lang-menu" class="gd-menu gd-lang-menu" role="menu"[^>]*hidden><\/div>/);
+	for (const icon of ["i-globe", "i-check"]) assert.match(html, new RegExp(`<symbol id="${icon}"`));
+	assert.ok(html.indexOf('id="gd-lang"') > html.indexOf('class="gd-spacer"') && html.indexOf('id="gd-lang"') < html.indexOf('id="gd-zoom-out"'), "between the spacer and the zoom, as in the artboard");
+	const css = read("canvas.css");
+	const block = (selector: string) => {
+		const start = css.indexOf(`${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	for (const selector of [".gd-lang-menu", ".gd-lang-item", ".gd-lang-check", ".gd-lang-note"]) {
+		const text = block(selector);
+		assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(text), `${selector}: tokens only`);
+		assert.ok(!/transition|animation/.test(text), `${selector}: no motion`);
+	}
+	assert.match(block(".gd-lang-menu"), /width:\s*300px/);
+	assert.match(css, /\.gd-lang-item\[aria-checked="true"\][^{]*{[^}]*background:\s*var\(--surface-2\)/);
+	assert.match(css, /\.gd-lang-item\[aria-checked="true"\] \.gd-lang-check[^{]*{[^}]*visibility:\s*visible/);
+	assert.match(css, /\.gd-lang-button:focus-visible[^{]*{[^}]*outline:\s*2px solid var\(--accent\)|:focus-visible\s*{[^}]*outline:\s*2px solid var\(--accent\)/);
+});
+
+test("S5: the docs describe the language switch and what is not translated", () => {
+	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
+	const section = docs.slice(docs.indexOf("### Gentle Design"));
+	assert.match(section, /Match the browser/);
+	assert.match(section, /localStorage|saved in the browser|this browser/i);
+	assert.match(section, /Spanish/);
+	assert.match(section, /not translated|stay (as written|in English)/i);
+	assert.match(section, /messages (the canvas sends )?to the (agent|session)/i);
+});
+
+// ---- A switch leaves nothing behind in the old language ----
+
+/** The words each language shows for each key, as patterns (a {name} matches anything), for the keys whose two texts differ. */
+function languagePatterns() {
+	const { en, es } = loadCatalog();
+	const pattern = (text: string) => new RegExp(`^\\s*${text.split(/\{\w+\}/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^]*")}\\s*$`);
+	const entries = (dictionary: Record<string, string>, other: Record<string, string>) => Object.keys(dictionary)
+		.filter((key) => dictionary[key] !== other[key] && dictionary[key].replace(/\{\w+\}/g, "").trim().length > 2)
+		.map((key) => ({ key, text: dictionary[key], regex: pattern(dictionary[key]) }));
+	return { en: entries(en, es), es: entries(es, en) };
+}
+
+/** Every text, title and accessible name the canvas shows now: elements still in the page and not hidden, never ones a render replaced. */
+function shownWords(canvas: LangCanvas): Array<{ words: string; where: string }> {
+	// A toast is a few seconds of news, not state: it keeps the language it was written in.
+	const live = (element: FakeElement) => {
+		let root = element;
+		for (let node: FakeElement | null = element; node; node = node.parentElement) {
+			if (node.hidden || node.id === "gd-toast") return false;
+			root = node;
+		}
+		return Boolean(root.id) || (root as unknown as { hydrated?: boolean }).hydrated === true || root.localName === "html";
+	};
+	const found: Array<{ words: string; where: string }> = [];
+	for (const element of canvas.document.all) {
+		if (!live(element)) continue;
+		const where = `<${element.localName}${element.id ? ` #${element.id}` : element.className ? ` .${element.className.split(" ")[0]}` : ""}>`;
+		const values = [element.textContent, element.title, element.getAttribute("aria-label"), element.getAttribute("aria-valuetext"), element.getAttribute("placeholder"), element.getAttribute("alt")];
+		for (const words of values) if (words && /[A-Za-zÁ-ú]{3,}/.test(words)) found.push({ words, where });
+	}
+	return found;
+}
+
+/** What still reads in `old` after the page switched to the other language. */
+function leftovers(canvas: LangCanvas, old: "en" | "es") {
+	const all = languagePatterns();
+	const now = all[old === "en" ? "es" : "en"];
+	// Words that the current language's own entries also match (Artboard {title}, next to Artboard list) are not leftovers.
+	return shownWords(canvas)
+		.filter(({ words }) => all[old].some((entry) => entry.regex.test(words)) && !now.some((entry) => entry.regex.test(words)))
+		.map(({ words, where }) => `${where}: ${words.slice(0, 80)}`);
+}
+
+test("S2: after a switch no text, title or accessible name of the old language is left in the panel, the artboards or the navigator", async () => {
+	const replies = {
+		...commentsDoc(withOpen("c1"), withOpen("c2", { sentAt: "2026-10-26T10:00:00.000Z", viewport: { width: 390, height: 844 } }), comment("c3", "01-a.html", "resolved", { resolution: "Done" }), comment("c4", "02-b.html")),
+		"/t/api/designs/alpha/handoffs": handoffDoc("01-a.html", { "01-a.html": { status: "implemented", implementedAt: stamp(9, 9), startedAt: stamp(9, 5), sentAt: stamp(9, 1), previewUrl: "http://localhost:3000/" } }),
+		[HISTORY_URL]: HISTORY,
+		...SYSTEM_REPLY,
+	};
+	for (const [from, to] of [["en", "es"], ["es", "en"]] as const) {
+		const canvas = await loadLang({ browser: from, replies });
+		const [system, first] = canvas.boards;
+		assert.ok(shownWords(canvas).length > 40, "the walker sees the page");
+		assert.ok(shownWords(canvas).some(({ words }) => words === (from === "en" ? "Comments" : "Comentarios")), "including the static text of index.html");
+		report_(canvas as unknown as Canvas, first.frame, [finding(), finding({ check: "target", title: "Small touch target", detail: '"Go" is 20 × 20 px; WCAG 2.2 needs at least 24 × 24 px.', selector: "button", label: "button" })]);
+		canvas.message(first.frame.contentWindow, { type: "gd:overflow", overflow: true, width: 400, scrollWidth: 900 });
+		layoutWorld(canvas as unknown as Canvas, [[0, 0, 800, 600], [880, 0, 400, 300], [1360, 0, 400, 300]]);
+		canvas.windowEvent("resize");
+		void system;
+		for (const tab of ["gd-filter-open", "gd-filter-resolved", "gd-tab-history", "gd-tab-checks", "gd-tab-brief"]) {
+			canvas.document.getElementById(tab).dispatch("click");
+			chooseLang(canvas, to);
+			assert.deepEqual(leftovers(canvas, from), [], `${from} -> ${to} on ${tab}`);
+			chooseLang(canvas, from);
+			assert.deepEqual(leftovers(canvas, to), [], `${to} -> ${from} on ${tab}`);
+		}
+	}
+});
+
+test("S2: after a switch nothing of the old language is left in focus mode with All sizes, the inspector, the comment box and the variant dialog", async () => {
+	for (const [from, to] of [["en", "es"], ["es", "en"]] as const) {
+		const canvas = await loadLang({ browser: from, replies: { [TOKENS_URL]: TOKEN_SET, ...commentsDoc(withOpen("c1")) }, config: { delivery: { implement: false, variant: false } } });
+		const [first] = canvas.boards;
+		tallViewport(canvas as unknown as Canvas);
+		click(first.shield!, 200, 200);
+		withClass(first.wrapper, "gd-size-button")[3].dispatch("click");
+		canvas.message(first.frame.contentWindow, { type: "gd:overflow", overflow: true, width: 400, scrollWidth: 900 });
+		for (const surface of sizeSections(canvas as unknown as Canvas)) {
+			const frame = iframeOf(surface);
+			canvas.message(frame.contentWindow, { type: "gd:overflow", overflow: true, width: Number(frame.style.width.replace("px", "")), scrollWidth: 2000 });
+		}
+		canvas.document.getElementById("gd-comment").dispatch("click");
+		first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+		inspect(canvas as unknown as Canvas, sizeSections(canvas as unknown as Canvas).length ? { contentWindow: iframeOf(sizeSections(canvas as unknown as Canvas)[2]).contentWindow } : first.frame, { ...MEASURE, color: { r: 10, g: 20, b: 30, a: 1 } });
+		chooseLang(canvas, to);
+		assert.deepEqual(leftovers(canvas, from), [], `${from} -> ${to} in focus mode`);
+		chooseLang(canvas, from);
+		assert.deepEqual(leftovers(canvas, to), [], `${to} -> ${from} in focus mode`);
+	}
+});
+
+test("S2: after a switch nothing of the old language is left in Compare, a version comparison or a placeholder board", async () => {
+	for (const [from, to] of [["en", "es"], ["es", "en"]] as const) {
+		const compare = await loadLang({ browser: from, replies: { "/t/api/designs/alpha/handoffs": implementedDoc("01-a.html") } });
+		withClass(boardsOf(compare)[0], "gd-compare-start")[0].dispatch("click");
+		compare.document.getElementById("gd-compare-mode-overlay").dispatch("click");
+		chooseLang(compare, to);
+		assert.deepEqual(leftovers(compare, from), [], `${from} -> ${to} in Compare`);
+		chooseLang(compare, from);
+		assert.deepEqual(leftovers(compare, to), [], `${to} -> ${from} in Compare`);
+
+		const versions = await loadLang({ browser: from, replies: { [HISTORY_URL]: HISTORY, ...commentsDoc(comment("a1", "01-a.html", "resolved")) } });
+		versions.document.getElementById("gd-tab-history").dispatch("click");
+		withClass(versions.document.getElementById("gd-history"), "gd-version-compare")[0].dispatch("click");
+		chooseLang(versions, to);
+		assert.deepEqual(leftovers(versions, from), [], `${from} -> ${to} in a version comparison`);
+		chooseLang(versions, from);
+		assert.deepEqual(leftovers(versions, to), [], `${to} -> ${from} in a version comparison`);
+
+		const variant = await loadLang({ browser: from, replies: { "/t/api/designs/alpha/variant": { queued: false } } });
+		menuButtonOf(boardsOf(variant)[0]).dispatch("click");
+		menuItems(variant as unknown as Canvas)[0].dispatch("click");
+		variantField(variant as unknown as Canvas).value = "Calmer";
+		await submitVariant(variant as unknown as Canvas);
+		chooseLang(variant, to);
+		assert.deepEqual(leftovers(variant, from), [], `${from} -> ${to} with a placeholder board`);
+	}
 });
