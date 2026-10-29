@@ -13,8 +13,8 @@ Branch: `feat/canvas-language`, last in the canvas queue, so every label the oth
 
 ## Tasks
 
-- [x] T1 S1-S5 — catalog, switch, translate every surface, docs, tests. Route: gentle-ai-worker. Commit: see L6
-- [ ] T2 S1-S5 — full suite, visual check in both languages, handoff implemented with a preview canvas URL. Route: inline. Commit: —
+- [x] T1 S1-S5 — catalog, switch, translate every surface, docs, tests. Route: gentle-ai-worker. Commit: ba7deb821
+- [x] T2 S1-S5 — full suite, visual check in both languages, handoff implemented with a preview canvas URL. Route: inline. Commit: see L7
 
 ## Log
 
@@ -24,4 +24,5 @@ Branch: `feat/canvas-language`, last in the canvas queue, so every label the oth
 - L4: Branched feat/canvas-language from feat/canvas-minimap-variants-export (75bcc3a5e). Context backstop fired in the parent; T1 goes to one gentle-ai-worker (single writer). Catalog preferably inside canvas.js (no new served asset); inspector.js runs inside artboards.
 - L5: Point 3 (agent-home isolation) done inline on this branch: c627ffce8 (RED 4 fail in the session env, GREEN 6/6 with and without it).
 - L6: T1 by gentle-ai-worker (mvt71nvo-2-0mb6): catalog of 368 keys EN/ES inside canvas.js (t/tn/loc, live refresh), globe switch with menuitemradio menu, localStorage "gentle-design:language", <html lang>, data-i18n in index.html, docs. RED 29 new tests failed against the unchanged canvas; GREEN assets 278/278. 9 existing markup regexes followed the new wrapper spans/data-i18n. Parent re-run: assets 278, server 86, gentle-design 86, check-types no regressions, diff --check clean. Decisions accepted: inspector.js untouched (Checks findings translated by matching the known English templates, else shown as reported); agent-bound text stays English via toSession(); suggestion chips insert their translated label; persistence per origin (random port per server, so a restarted server starts from the browser language; documented); toasts keep the language they were written in. Worker smoke-tested in headless Firefox in both languages (0 iframe reloads on switch).
+- L7: T2: full suite in the session env: unit 8087 pass / 0 fail (agent-home now isolated), provider-contract and runtime-harness pass, runtime modules match. Visual check in headless Chrome on design/canvas-features: Spanish (bar, list, handoff timeline with "Hoy", minimap, footer, globe menu with Español checked and the English-messages note), switch to English live, <html lang> en, stored "en"; artboard titles unchanged. Handoff marked implemented with the preview canvas URL.
 
