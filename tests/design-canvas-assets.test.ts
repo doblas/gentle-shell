@@ -5749,7 +5749,7 @@ test("S2: Compare is Spanish and follows a switch while it is open", async () =>
 	assert.equal(canvas.document.getElementById("gd-compare-title").textContent, "Comparar: First");
 	const captions = () => texts(canvas.document.getElementById("gd-compare-panes"), "gd-compare-caption");
 	assert.deepEqual(captions(), ["Diseño: 01-a.html", "Implementación: http://localhost:3000/"]);
-	assert.equal(canvas.document.getElementById("gd-compare-message").textContent, "Si la app no permite mostrarse en un marco, usa Abrir en una pestaña nueva.");
+	assert.equal(canvas.document.getElementById("gd-compare-message").textContent, "Si el panel de la app se queda vacío, puede que la app no esté en marcha en http://localhost:3000 o que no permita mostrarse en un marco: arráncala o usa Abrir en una pestaña nueva.");
 	canvas.document.getElementById("gd-compare-mode-slider").dispatch("click");
 	assert.deepEqual(captions(), ["Diseño", "App"]);
 	assert.equal(canvas.document.getElementById("gd-compare-panes").getAttribute("aria-label"), "Diseño y app en ejecución, divididos al 50%");
@@ -5757,7 +5757,7 @@ test("S2: Compare is Spanish and follows a switch while it is open", async () =>
 	assert.equal(canvas.document.getElementById("gd-compare-title").textContent, "Compare: First");
 	assert.deepEqual(captions(), ["Design", "App"]);
 	assert.equal(canvas.document.getElementById("gd-compare-panes").getAttribute("aria-label"), "Design and running app, split at 50%");
-	assert.equal(canvas.document.getElementById("gd-compare-message").textContent, "If the app refuses to be framed, use Open in new tab.");
+	assert.equal(canvas.document.getElementById("gd-compare-message").textContent, "If the app pane stays empty, the app may not be running at http://localhost:3000 or may refuse to be framed: start it, or use Open in new tab.");
 });
 
 test("S2: popover messages, screenshot errors and the Send/Save label are Spanish", async () => {

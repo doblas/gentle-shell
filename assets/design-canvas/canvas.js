@@ -296,7 +296,7 @@
 			"compare.overlayAria": "Design and running app overlaid, app at {opacity}% opacity",
 			"compare.sliderAria": "Design and running app, split at {pos}%",
 			"compare.valueText": "{pos}%: Design on the left, App on the right",
-			"compare.hint": "If the app refuses to be framed, use Open in new tab.",
+			"compare.hint": "If the app pane stays empty, the app may not be running at {url} or may refuse to be framed: start it, or use Open in new tab.",
 			"compare.hintIpv6": "Browsers do not frame [::1] under the canvas policy (CSP has no IPv6 sources): use Open in new tab, or report the preview on localhost.",
 			"compare.errorFrame": "The app at {url} could not be loaded in the frame. Use Open in new tab.",
 			"compare.errorTimeout": "The app at {url} has not loaded; it may be down or refuse to be framed. Use Open in new tab.",
@@ -666,7 +666,7 @@
 			"compare.overlayAria": "Diseño y app en ejecución superpuestos, app al {opacity}% de opacidad",
 			"compare.sliderAria": "Diseño y app en ejecución, divididos al {pos}%",
 			"compare.valueText": "{pos}%: Diseño a la izquierda, App a la derecha",
-			"compare.hint": "Si la app no permite mostrarse en un marco, usa Abrir en una pestaña nueva.",
+			"compare.hint": "Si el panel de la app se queda vacío, puede que la app no esté en marcha en {url} o que no permita mostrarse en un marco: arráncala o usa Abrir en una pestaña nueva.",
 			"compare.hintIpv6": "Los navegadores no muestran [::1] en un marco con la política del canvas (CSP no admite fuentes IPv6): usa Abrir en una pestaña nueva, o indica la vista previa en localhost.",
 			"compare.errorFrame": "No se pudo cargar la app de {url} en el marco. Usa Abrir en una pestaña nueva.",
 			"compare.errorTimeout": "La app de {url} no se ha cargado; puede estar caída o no permitir mostrarse en un marco. Usa Abrir en una pestaña nueva.",
@@ -3155,7 +3155,7 @@
 		els.compareOpen.setAttribute("target", "_blank");
 		els.compareOpen.setAttribute("rel", "noopener noreferrer");
 		els.compareOpen.href = preview;
-		setCompareMessage(new URL(preview).hostname === "[::1]" ? "compare.hintIpv6" : "compare.hint", undefined, false);
+		setCompareMessage(new URL(preview).hostname === "[::1]" ? "compare.hintIpv6" : "compare.hint", { url: new URL(preview).origin }, false);
 		els.comparePanes.replaceChildren(design.figure, running.figure, handle, shield);
 		els.compareFit.checked = false;
 		els.compare.hidden = false;
