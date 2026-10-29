@@ -124,7 +124,8 @@ class FakeElement {
 	focus() { this.doc.activeElement = this; }
 	getBoundingClientRect() { return this.rect; }
 	setPointerCapture() {}
-	scrollIntoView() {}
+	scrollLeft = 0;
+	scrollIntoView(_options?: unknown): unknown { return undefined; }
 }
 
 class FakeDocument {

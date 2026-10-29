@@ -15,8 +15,8 @@ Branch: `feat/canvas-minimap-variants-export`, after the queued canvas features 
 
 - [x] T1 S1 — minimap. Route: gentle-ai-worker. Commit: 3ee74e483
 - [x] T2 S2, S3 — artboard menu, variant dialog, server route, extension wiring, capability flag. Risk: item 2 (new write route) → independent verify. Route: gentle-ai-worker. Commit: aff188735
-- [x] T3 S4 — tab-capture export. Route: inline. Commit: see L10
-- [ ] T4 S5 — docs, skill, full suite, visual check, handoff implemented with a preview canvas URL. Route: inline. Commit: —
+- [x] T3 S4 — tab-capture export. Route: inline. Commit: 9f81c708f
+- [x] T4 S5 — docs, skill, full suite, visual check, handoff implemented with a preview canvas URL. Route: inline. Commit: see L11
 
 ## Log
 
@@ -30,4 +30,5 @@ Branch: `feat/canvas-minimap-variants-export`, after the queued canvas features 
 - L8: Independent verify (gentle-ai-verify, mvt67wf3-1-ym2f) of T2 at aff188735: S2 pass, S3 pass, no blockers. Server/gentle-design 172/172, assets 235/235; probes: every refused variant request (Origin, content type, token, Host/rebinding, method, size, JSON, text bounds, file traversal/manifest) sends nothing and leaves design/ byte-identical. Advisories: 3 pre-existing type errors in tests/design-canvas-assets.test.ts (from f189295f8); extra JSON fields ignored like Implement; title line breaks and control characters pass into the message like Implement/comments; showSystemOnly does not clear the variant placeholder.
 - L9: T3 in a real browser (Zen, Firefox-based, Linux Wayland): the system picker offers only windows/screens, so the frame is not the tab. Added: a reported displaySurface other than "browser" stops the export with an explanation. User's later report: "se sigue viendo toda la pantalla" (the browser does not report the surface). User (verbatim): "lo dejamos para mas adelante no me preocupa esto. adelante con T4". Real-capture proof in Chromium is deferred, not done.
 - L10: T3 tests RED first for chrome hiding/100% placement, window-size error, next video frame, menu measured at a neutral position, window/monitor refusal. Assets 245/245, server 86/86, gentle-design 86/86. Menu fix also checked in headless Chrome (right edge 12 px from the window edge).
+- L11: T4: docs/gentle-shell.md (minimap, artboard menu, another direction, export and its browser limits, variant-unavailable) and skills/design/SKILL.md (the canvas "Add another direction" message uses the "Save and try a different approach" gate). Fixed the 3 pre-existing type errors in the asset test fake (scrollLeft, scrollIntoView options); check-types: no regressions. Full suite: 8050 pass, 4 fail, all in tests/agent-home.test.ts because the session inherits GENTLE_SHELL_CONFIG_HOME (6/6 pass with it unset; not touched by this feature; follow-up: that test's isolation should clear it). provider-contract and runtime-harness pass; runtime modules match. Visual check in headless Chrome on the demo canvas: minimap bottom right, menu inside a 939 px window, variant and Implement disabled with the explanation without a session. The variant dialog with a live session and a real Chromium tab export were not seen (export deferred, L9).
 

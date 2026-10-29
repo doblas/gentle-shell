@@ -28,7 +28,7 @@ The `/gentle:design` commands are optional shortcuts: every action also works fr
 | --- | --- |
 | New brief | Write N clearly different directions (3 by default, or the number asked) to a new `design/<slug>/` |
 | Feedback on one artboard | Edit that file only; keep its manifest entry, update `tradeoff` if it changed |
-| "Save and try a different approach" | Add a new artboard with the next `NN`; keep previous ones; append it to the manifest |
+| "Save and try a different approach", or a canvas message "Add another direction to the design …" | Add a new artboard with the next `NN`, starting from the named source artboard when there is one and applying "What should change"; keep previous ones; append it to the manifest |
 | User wants to tune values (spacing, color, type scale) | Add sliders or controls in the artboard plus a "Copy as prompt" button that copies the chosen values as a prompt |
 | `design/<slug>/` already exists for a new brief | Pick a new slug; never overwrite another design |
 | A message carries design comments, or the user asks to apply them | Follow "Canvas comments" below |
