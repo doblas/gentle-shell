@@ -110,16 +110,14 @@ body {
 .gd-mark {
 	display: grid;
 	place-items: center;
-	width: 36px;
-	height: 36px;
+	width: 40px;
+	height: 40px;
 	margin-bottom: 10px;
-	border-radius: 10px;
-	background: var(--accent);
-	color: var(--bg);
-	font-weight: 800;
-	font-size: 13px;
-	box-shadow: var(--glow);
+	color: var(--accent);
 }
+
+/* The Gentle rose of the startup banner, one square per braille dot (i-rose): filled, not stroked like the icons. */
+.gd-mark .gd-rose { width: 40px; height: 37px; fill: currentColor; stroke: none; }
 
 .gd-rail .gd-tool {
 	position: relative;
@@ -1153,18 +1151,44 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .gd-panel[hidden] { display: none; }
 
-/* Tabs: Comments N / Resolved N / Brief */
-/* Five tabs are wider than the panel: the row scrolls rather than squeezing labels and counts into each other.
-   The bottom line is an inset shadow because a scrolling row clips anything drawn below it. */
+/* Tabs: Comments N / Resolved N / History N / Checks N / Brief */
+/* Five tabs can be wider than the panel (longer in Spanish): the row stays one line and scrolls rather than
+   squeezing labels and counts into each other; an arrow on each edge with tabs behind it scrolls toward that side.
+   The bottom line is an inset shadow on the bar because a scrolling row clips anything drawn below it. */
+.gd-tabs-bar {
+	display: flex;
+	align-items: stretch;
+	box-shadow: inset 0 -1px 0 var(--border);
+}
+
 .gd-tabs {
 	display: flex;
-	gap: 4px;
-	padding: 10px 12px 0;
+	flex: 1;
+	min-width: 0;
+	gap: 2px;
+	padding: 8px 10px 0;
 	overflow-x: auto;
 	overflow-y: hidden;
 	scrollbar-width: none;
-	box-shadow: inset 0 -1px 0 var(--border);
 }
+
+.gd-tabs-arrow {
+	display: grid;
+	place-items: center;
+	flex: none;
+	width: 24px;
+	margin-top: 8px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--text-muted);
+	cursor: pointer;
+}
+
+.gd-tabs-arrow:hover { background: var(--surface-2); color: var(--text); }
+.gd-tabs-arrow[hidden] { display: none; }
+.gd-tabs-arrow .gd-i { width: 16px; height: 16px; }
 
 .gd-tabs::-webkit-scrollbar { display: none; }
 /* The fades only show which side has more tabs; the mask uses alpha, so any opaque token works. */
@@ -1174,7 +1198,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .gd-tab {
 	flex: none;
-	padding: 6px 10px;
+	padding: 6px 8px;
 	border-radius: var(--radius-sm) var(--radius-sm) 0 0;
 	border: 0;
 	border-bottom: 2px solid transparent;
@@ -2026,4 +2050,16 @@ kbd {
 	margin: 6px 10px 4px;
 	color: var(--text-muted);
 	font-size: 12px;
+}
+
+/* Export as PDF: only the artboard prints, at its own size (exportPdf sets the page size). */
+.gd-print { position: fixed; left: 0; top: 0; visibility: hidden; pointer-events: none; }
+.gd-print iframe { display: block; border: 0; }
+
+@page { margin: 0; }
+
+@media print {
+	body.gd-printing { display: block; }
+	body.gd-printing > :not(.gd-print) { display: none; }
+	body.gd-printing .gd-print { position: static; visibility: visible; }
 }

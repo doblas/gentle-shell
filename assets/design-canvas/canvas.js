@@ -142,6 +142,8 @@
 			"tab.history": "History",
 			"tab.checks": "Checks",
 			"tab.brief": "Brief",
+			"tabs.prev": "Earlier tabs",
+			"tabs.next": "More tabs",
 			"panel.comments": "Comments",
 			"panel.empty.none": "No comments yet. Turn on Comment mode and click an element.",
 			"panel.empty.open": "No open comments.",
@@ -231,6 +233,9 @@
 			"menu.compare": "Compare with app",
 			"menu.exportPng": "Export as PNG",
 			"menu.exportPng2x": "Export as PNG at 2×",
+			"menu.exportPdf": "Export as PDF",
+			"menu.downloadHtml": "Download HTML",
+			"download.failed": "Could not download the artboard. Open it from design/ in your project instead.",
 			"menu.implement": "Implement this",
 			"export.failed": "Could not export the artboard. Use your browser's screenshot tool instead.",
 			"export.unavailable": "Tab capture is not available in this browser.",
@@ -512,6 +517,8 @@
 			"tab.history": "Historial",
 			"tab.checks": "Comprobaciones",
 			"tab.brief": "Encargo",
+			"tabs.prev": "Pestañas anteriores",
+			"tabs.next": "Más pestañas",
 			"panel.comments": "Comentarios",
 			"panel.empty.none": "Aún no hay comentarios. Activa el modo Comentar y haz clic en un elemento.",
 			"panel.empty.open": "No hay comentarios abiertos.",
@@ -601,6 +608,9 @@
 			"menu.compare": "Comparar con la app",
 			"menu.exportPng": "Exportar como PNG",
 			"menu.exportPng2x": "Exportar como PNG a 2×",
+			"menu.exportPdf": "Exportar como PDF",
+			"menu.downloadHtml": "Descargar HTML",
+			"download.failed": "No se pudo descargar el artboard. Ábrelo desde design/ en tu proyecto.",
 			"menu.implement": "Implementar esto",
 			"export.failed": "No se pudo exportar el artboard. Usa en su lugar la herramienta de capturas de tu navegador.",
 			"export.unavailable": "La captura de pestañas no está disponible en este navegador.",
@@ -946,6 +956,8 @@
 		featureSep: $("gd-feature-sep"),
 		compareApp: $("gd-compare-app"),
 		tabs: $("gd-tabs"),
+		tabsPrev: $("gd-tabs-prev"),
+		tabsNext: $("gd-tabs-next"),
 		tabHistory: $("gd-tab-history"),
 		countHistory: $("gd-count-history"),
 		history: $("gd-history"),
@@ -2198,6 +2210,8 @@
 		actions.push(
 			{ label: "menu.exportPng", icon: "i-image", separator: true, run: () => exportArtboard(board, 1) },
 			{ label: "menu.exportPng2x", icon: "i-image", run: () => exportArtboard(board, 2) },
+			{ label: "menu.exportPdf", icon: "i-image", run: () => exportPdf(board) },
+			{ label: "menu.downloadHtml", icon: "i-download", run: () => downloadHtml(board) },
 			{ label: "menu.implement", separator: true, off: off(DELIVERY.implement, "implement-unavailable"), run: () => board.implement.open() },
 		);
 		return actions;
@@ -2295,6 +2309,75 @@
 			if (previous.focus && state.focus === previous.focus) setSize(previous.size);
 			Object.assign(state, { zoom: previous.zoom, x: previous.x, y: previous.y });
 			applyView();
+		}
+	}
+
+	/**
+	 * Prints the artboard alone, at its own size, from this page (artboards are sandboxed without modals, so
+	 * they cannot print themselves): the browser's print dialog saves it as PDF. Nothing goes to the server.
+	 */
+	function exportPdf(board) {
+		document.querySelector?.(".gd-print")?.remove();
+		const { width, height, title, file } = board.artboard;
+		const holder = document.createElement("div");
+		holder.className = "gd-print";
+		const frame = document.createElement("iframe");
+		frame.setAttribute("sandbox", "allow-scripts");
+		frame.setAttribute("referrerpolicy", "no-referrer");
+		loc(frame, "title", "board.frameTitle", { title });
+		frame.style.width = `${width}px`;
+		frame.style.height = `${height}px`;
+		holder.append(frame);
+		document.body.append(holder);
+		document.body.classList.add("gd-printing");
+		const page = setPrintPage(width, height);
+		const done = () => {
+			page?.();
+			holder.remove();
+			document.body.classList.remove("gd-printing");
+		};
+		window.addEventListener("afterprint", done, { once: true });
+		frame.addEventListener("load", () => window.print(), { once: true });
+		frame.setAttribute("src", fileUrl(board.slug, file));
+	}
+
+	/** One page the artboard's size (canvas.css sets no margin); returns how to remove it, or null where the browser gives no CSSOM. */
+	function setPrintPage(width, height) {
+		const sheet = [...(document.styleSheets ?? [])].find((candidate) => /canvas\.css(\?|$)/.test(candidate.href ?? ""));
+		if (!sheet?.insertRule) return null;
+		try {
+			const size = [width, height].map((value) => `${value}px`).join(" ");
+			const index = sheet.insertRule(`@page { size: ${size}; }`, sheet.cssRules.length);
+			return () => { if (sheet.cssRules[index]) sheet.deleteRule(index); };
+		} catch {
+			return null;
+		}
+	}
+
+	/** Saves the artboard file as written: the server injects the inspector into every artboard, so remove that tag again. */
+	async function downloadHtml(board) {
+		const alert = board.exportAlert || (board.exportAlert = createAlert());
+		if (!alert.root.parentElement) board.implement.root.append(alert.root);
+		hideAlert(alert);
+		const url = fileUrl(board.slug, board.artboard.file);
+		try {
+			const response = await fetch(url, { cache: "no-store" });
+			if (!response.ok) throw new Error(`HTTP ${response.status}`);
+			const served = await response.text();
+			const tag = `<script src="${base}assets/inspector.js"></script>`;
+			const at = served.lastIndexOf(tag);
+			const html = at === -1 ? served : served.slice(0, at) + served.slice(at + tag.length);
+			const link = document.createElement("a");
+			const blobUrl = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+			try {
+				link.href = blobUrl;
+				link.download = board.artboard.file.split("/").pop();
+				link.click();
+			} finally { URL.revokeObjectURL(blobUrl); }
+		} catch (error) {
+			loc(alert.text, "text", "download.failed");
+			setRaw(alert.detail, error?.message || "");
+			alert.root.hidden = false;
 		}
 	}
 
@@ -4797,16 +4880,37 @@
 		updateTabFades();
 	}
 
-	/** The tab row scrolls when it is wider than the panel; each edge with tabs behind it fades (L10, A2). */
+	/** The tab row scrolls when it is wider than the panel; each edge with tabs behind it fades and shows its arrow (L10, A2). */
 	function updateTabFades() {
 		const tabs = els.tabs;
 		const left = Number(tabs.scrollLeft) || 0;
 		const hidden = (Number(tabs.scrollWidth) || 0) - (Number(tabs.clientWidth) || 0);
-		tabs.classList.toggle("gd-tabs-more-start", left > 1);
-		tabs.classList.toggle("gd-tabs-more-end", left < hidden - 1);
+		const start = left > 1;
+		const end = left < hidden - 1;
+		tabs.classList.toggle("gd-tabs-more-start", start);
+		tabs.classList.toggle("gd-tabs-more-end", end);
+		els.tabsPrev.hidden = !start;
+		els.tabsNext.hidden = !end;
+	}
+
+	/** An arrow scrolls the row by most of its width toward its side; the keyboard path is still the tabs' own arrow keys. */
+	function scrollTabs(direction) {
+		const tabs = els.tabs;
+		const step = Math.max(80, (Number(tabs.clientWidth) || 0) * 0.7);
+		const max = Math.max(0, (Number(tabs.scrollWidth) || 0) - (Number(tabs.clientWidth) || 0));
+		let left = Math.min(max, Math.max(0, (Number(tabs.scrollLeft) || 0) + direction * step));
+		// A sliver left over would show the arrow again for a few pixels: go to the edge instead.
+		if (left < 40) left = 0;
+		else if (max - left < 40) left = max;
+		const smooth = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+		if (typeof tabs.scrollTo === "function") tabs.scrollTo({ left, behavior: smooth ? "smooth" : "auto" });
+		else tabs.scrollLeft = left;
+		updateTabFades();
 	}
 
 	els.tabs.addEventListener("scroll", updateTabFades);
+	els.tabsPrev.addEventListener("click", () => scrollTabs(-1));
+	els.tabsNext.addEventListener("click", () => scrollTabs(1));
 	tabButtons().forEach((tab, index) => tab.addEventListener("click", () => setTab(TAB_NAMES[index])));
 	// Arrow keys, Home and End move between the tabs, wrapping around.
 	els.tabs.addEventListener("keydown", (event) => {

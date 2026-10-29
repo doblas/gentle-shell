@@ -255,7 +255,7 @@ async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknow
 			const reply = replies[url] as Record<string, unknown> | undefined;
 			if (reply && "__throw" in reply) throw new TypeError(String(reply.__throw));
 			const status = reply && typeof reply.__http === "number" ? reply.__http : url in replies ? 200 : 404;
-			return { ok: status < 400, status, json: async () => reply ?? {} };
+			return { ok: status < 400, status, json: async () => reply ?? {}, text: async () => String(reply?.__text ?? "") };
 		},
 		EventSource: class {
 			addEventListener(type: string, listener: Listener) {
@@ -3920,10 +3920,48 @@ test("S2-S4: the History tab and the comparison are in index.html and canvas.css
 	assert.match(css, /\.gd-version-reply\s*{[^}]*border-left:[^}]*var\(--success\)/);
 });
 
-test("S2: five tabs never squeeze their labels into each other: the tab row scrolls instead", () => {
+test("S2: five tabs never squeeze their labels into each other and stay on one row: the tab row scrolls", () => {
 	const css = read("canvas.css");
 	assert.match(css, /\.gd-tabs\s*{[^}]*overflow-x:\s*auto/);
+	assert.ok(!/\.gd-tabs\s*{[^}]*flex-wrap:\s*wrap/.test(css), "never stacked on two rows");
 	assert.match(css, /\.gd-tab\s*{[^}]*flex:\s*none/);
+});
+
+test("Tabs: arrows show only on an edge with tabs behind it, and each scrolls the row toward its side", async () => {
+	const canvas = await loadCanvas();
+	const tabs = canvas.document.getElementById("gd-tabs");
+	const prev = canvas.document.getElementById("gd-tabs-prev");
+	const next = canvas.document.getElementById("gd-tabs-next");
+	const shown = () => [prev.hidden ? "" : "prev", next.hidden ? "" : "next"].filter(Boolean).join(" ");
+	Object.assign(tabs, { scrollWidth: 359, clientWidth: 359, scrollLeft: 0 });
+	tabs.dispatch("scroll");
+	assert.equal(shown(), "", "a row that fits has no arrows");
+	Object.assign(tabs, { scrollWidth: 503, clientWidth: 359, scrollLeft: 0 });
+	tabs.dispatch("scroll");
+	assert.equal(shown(), "next", "at the start only the right arrow");
+	next.dispatch("click");
+	assert.ok(tabs.scrollLeft > 0, "the right arrow scrolls toward the end");
+	tabs.scrollLeft = 144;
+	tabs.dispatch("scroll");
+	assert.equal(shown(), "prev", "at the end only the left arrow");
+	prev.dispatch("click");
+	assert.ok(tabs.scrollLeft < 144, "the left arrow scrolls toward the start");
+	tabs.scrollLeft = 60;
+	tabs.dispatch("scroll");
+	assert.equal(shown(), "prev next", "in the middle both arrows");
+});
+
+test("Tabs: the arrows are outside the tablist, pointer helpers named from the catalog, and the keyboard path stays the tabs", () => {
+	const html = read("index.html");
+	const tablist = html.slice(html.indexOf('<div id="gd-tabs"'), html.indexOf("</div>", html.indexOf('<div id="gd-tabs"')));
+	assert.ok(!tablist.includes("gd-tabs-prev") && !tablist.includes("gd-tabs-next"), "only tabs inside the tablist");
+	for (const [id, key] of [["gd-tabs-prev", "tabs.prev"], ["gd-tabs-next", "tabs.next"]]) {
+		const tag = html.match(new RegExp(`<button[^>]*id="${id}"[^>]*>`))?.[0] ?? "";
+		assert.match(tag, /tabindex="-1"/, `${id} is not a tab stop`);
+		assert.match(tag, /aria-hidden="true"/, `${id} is hidden from assistive technology, which moves with the arrow keys`);
+		assert.ok(tag.includes(`data-i18n-title="${key}"`), `${id} title from the catalog`);
+		assert.match(tag, / hidden[ >]/, `${id} starts hidden`);
+	}
 });
 
 test("L10 (A2): the tab row hides its scrollbar and fades only the edges that have more tabs behind them", async () => {
@@ -4709,7 +4747,7 @@ test("T2/S2: opening the menu lists the actions, marks the button expanded and f
 	assert.equal(button.getAttribute("aria-expanded"), "true");
 	assert.equal(menuEl(canvas).getAttribute("aria-label"), "Second actions");
 	// Compare with app is offered only when the app can be compared.
-	assert.deepEqual(itemLabels(canvas), ["Try another direction from this…", "Export as PNG", "Export as PNG at 2×", "Implement this"]);
+	assert.deepEqual(itemLabels(canvas), ["Try another direction from this…", "Export as PNG", "Export as PNG at 2×", "Export as PDF", "Download HTML", "Implement this"]);
 	assert.ok(menuItems(canvas).every((item) => item.localName === "button" && item.getAttribute("tabindex") === "-1"));
 	assert.ok(canvas.document.activeElement === menuItems(canvas)[0]);
 	assert.equal(menuEl(canvas).style.left, "0px", "placed at the button");
@@ -4723,7 +4761,7 @@ test("T2/S2: opening the menu lists the actions, marks the button expanded and f
 test("T2/S2: Compare with app is in the menu only for an implemented artboard with a preview, and opens Compare", async () => {
 	const canvas = await loadRail(300, { "/t/api/designs/alpha/handoffs": implementedDoc("01-a.html") });
 	openMenu(canvas, 0);
-	assert.deepEqual(itemLabels(canvas), ["Try another direction from this…", "Compare with app", "Export as PNG", "Export as PNG at 2×", "Implement this"]);
+	assert.deepEqual(itemLabels(canvas), ["Try another direction from this…", "Compare with app", "Export as PNG", "Export as PNG at 2×", "Export as PDF", "Download HTML", "Implement this"]);
 	itemNamed(canvas, "Compare with app").dispatch("click");
 	assert.equal(menuEl(canvas).hidden, true, "choosing closes the menu");
 	assert.equal(canvas.document.getElementById("gd-compare").hidden, false, "Compare is open");
@@ -4974,6 +5012,86 @@ for (const surface of ["window", "monitor"]) test(`T3/S4: sharing a ${surface} i
 	assert.equal(canvas.document.body.classList.contains("gd-exporting"), false);
 	assert.equal(canvas.world.style.transform, before);
 	assert.equal(canvas.posts.length, 0);
+});
+
+test("PDF: Export as PDF prints the artboard alone at its size once its frame has loaded, then cleans up", async () => {
+	let printed = 0;
+	const canvas = await loadRail(300, {}, {}, { print: () => printed++ });
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Export as PDF").dispatch("click");
+	const body = canvas.document.body;
+	const holder = withClass(body, "gd-print")[0];
+	assert.ok(holder, "a print container is added to the page");
+	assert.equal(body.classList.contains("gd-printing"), true);
+	const frame = holder.children[0];
+	assert.equal(frame.localName, "iframe");
+	assert.equal(frame.getAttribute("src"), "/t/files/alpha/01-a.html");
+	assert.equal(frame.getAttribute("sandbox"), "allow-scripts", "sandboxed like the canvas frames");
+	assert.equal(frame.style.width, canvas.boards[0].frame.style.width);
+	assert.match(frame.style.height, /^\d+px$/);
+	assert.equal(printed, 0, "printing waits for the artboard");
+	frame.dispatch("load");
+	assert.equal(printed, 1);
+	canvas.windowEvent("afterprint");
+	assert.equal(withClass(body, "gd-print").length, 0, "the container is removed after printing");
+	assert.equal(body.classList.contains("gd-printing"), false);
+	assert.equal(canvas.posts.length, 0, "nothing is sent to the server");
+});
+
+test("HTML: Download HTML saves the artboard file without the injected inspector", async () => {
+	const names: string[] = [];
+	const blobs: unknown[][] = [];
+	const original = "<!doctype html><title>A</title><p>Hello</p></body></html>";
+	const served = original.replace("</body>", '<script src="/t/assets/inspector.js"></script></body>');
+	const canvas = await loadRail(300, { "/t/files/alpha/01-a.html": { __text: served } }, {}, {
+		Blob: class { constructor(parts: unknown[]) { blobs.push(parts); } },
+		URL: { createObjectURL: () => "blob:test", revokeObjectURL: () => {} },
+	});
+	const create = canvas.document.createElement.bind(canvas.document);
+	canvas.document.createElement = ((tag: string) => tag === "a" ? { click() { names.push(this.download); }, href: "", download: "" } : create(tag)) as typeof canvas.document.createElement;
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Download HTML").dispatch("click");
+	for (let i = 0; i < 4; i++) await flush();
+	assert.deepEqual(names, ["01-a.html"]);
+	assert.deepEqual(JSON.parse(JSON.stringify(blobs)), [[original]]);
+	assert.equal(canvas.posts.length, 0);
+});
+
+test("HTML: a failed Download HTML shows an inline alert and downloads nothing", async () => {
+	const names: string[] = [];
+	const canvas = await loadRail(300);
+	const create = canvas.document.createElement.bind(canvas.document);
+	canvas.document.createElement = ((tag: string) => tag === "a" ? { click() { names.push(this.download); }, href: "", download: "" } : create(tag)) as typeof canvas.document.createElement;
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Download HTML").dispatch("click");
+	for (let i = 0; i < 4; i++) await flush();
+	assert.deepEqual(names, []);
+	const shown = withClass(canvas.world, "gd-alert").filter((alert) => !alert.hidden);
+	assert.equal(shown.length, 1);
+	assert.match(texts(shown[0], "gd-alert-text").join(" "), /Could not download the artboard/);
+});
+
+test("brand: the rail mark is the Gentle rose of the startup banner, dot for dot, decorative", () => {
+	const html = read("index.html");
+	// The same rose as the terminal banner: every raised braille dot becomes one 1x1 square of a 2x4 grid per character.
+	const banner = readFileSync(join(import.meta.dirname, "..", "extensions", "startup-banner.ts"), "utf8");
+	const rows = [...banner.match(/const ROSE_LARGE_RAW = \[([^]*?)\];/)![1].matchAll(/"([^"]*)"/g)].map((match) => match[1]);
+	const bits: Array<[number, number, number]> = [[0x01, 0, 0], [0x02, 0, 1], [0x04, 0, 2], [0x40, 0, 3], [0x08, 1, 0], [0x10, 1, 1], [0x20, 1, 2], [0x80, 1, 3]];
+	let path = "";
+	rows.forEach((line, row) => [...line].forEach((char, column) => {
+		const code = char.codePointAt(0)! - 0x2800;
+		if (code > 0 && code <= 0xff) for (const [bit, dx, dy] of bits) if (code & bit) path += `M${column * 2 + dx} ${row * 4 + dy}h1v1h-1z`;
+	}));
+	const width = Math.max(...rows.map((line) => [...line].length)) * 2;
+	assert.ok(html.includes(`<symbol id="i-rose" viewBox="0 0 ${width} ${rows.length * 4}"><path d="${path}"/></symbol>`));
+	assert.match(html, /<span class="gd-mark" aria-hidden="true"><svg class="gd-i gd-rose"><use href="#i-rose"\/><\/svg><\/span>/);
+	assert.ok(!/<span class="gd-mark"[^>]*>GD<\/span>/.test(html), "no GD letters");
+});
+
+test("PDF: canvas.css prints only the print container, with no page margin", () => {
+	const css = read("canvas.css");
+	assert.match(css, /@media print\s*\{[^]*body\.gd-printing > :not\(\.gd-print\)\s*\{\s*display:\s*none/);
+	assert.match(css, /@page\s*\{\s*margin:\s*0/);
 });
 
 test("T3/S4: cancelling the tab-selection warning does not start a capture", async () => {
@@ -5678,7 +5796,7 @@ test("S2: the artboard menu, the variant dialog and its suggestions are Spanish"
 	const canvas = await loadLang({ browser: "es" });
 	const button = menuButtonOf(boardsOf(canvas)[0]);
 	button.dispatch("click");
-	assert.deepEqual(itemLabels(canvas as unknown as Canvas), ["Probar otra dirección a partir de esta…", "Exportar como PNG", "Exportar como PNG a 2×", "Implementar esto"]);
+	assert.deepEqual(itemLabels(canvas as unknown as Canvas), ["Probar otra dirección a partir de esta…", "Exportar como PNG", "Exportar como PNG a 2×", "Exportar como PDF", "Descargar HTML", "Implementar esto"]);
 	assert.equal(menuEl(canvas as unknown as Canvas).getAttribute("aria-label"), "Acciones de First");
 	itemNamed(canvas as unknown as Canvas, "Probar otra dirección a partir de esta…").dispatch("click");
 	assert.equal(canvas.document.getElementById("gd-variant-note").textContent, "La sesión escribe un nuevo artboard, 03, y conserva los demás.");
