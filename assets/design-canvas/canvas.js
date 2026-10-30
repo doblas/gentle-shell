@@ -226,6 +226,9 @@
 			"implement.startAria": "Implement {title} in the project",
 			"implement.confirmAria": "Confirm implementing {title}",
 			"implement.question": "Send it to the session to implement?",
+			"implement.switch": "Switch to this…",
+			"implement.switchAria": "Switch the implementation to {title}",
+			"implement.switchQuestion": "Move the implementation to this direction? The session gets it as a new handoff.",
 			"implement.queued": "Queued: the session will implement {title} after its current task.",
 			"implement.sent": "Sent: the session is implementing {title} now.",
 			"menu.aria": "{title} actions",
@@ -237,6 +240,7 @@
 			"menu.downloadHtml": "Download HTML",
 			"download.failed": "Could not download the artboard. Open it from design/ in your project instead.",
 			"menu.implement": "Implement this",
+			"menu.switch": "Switch to this…",
 			"export.failed": "Could not export the artboard. Use your browser's screenshot tool instead.",
 			"export.unavailable": "Tab capture is not available in this browser.",
 			"export.confirm": "Choose this canvas tab in the browser's capture selector. Choosing another tab or screen may export the wrong content.",
@@ -269,7 +273,14 @@
 			"handoff.in_progress": "In progress",
 			"handoff.implemented": "Implemented ✓",
 			"choice.chosen": "Chosen",
-			"choice.alternative": "Alternative",
+			"choice.discarded": "Discarded",
+			"work.implementing": "Implementing",
+			"work.title": "“{title}”",
+			"work.since": "{state} since {time}",
+			"work.at": "at {time}",
+			"work.notSent": "Not sent yet",
+			"work.show": "Show",
+			"work.showAria": "Show {title} on the canvas",
 			"handoff.featureTitle": "Tracked in this ODD feature document",
 			"handoff.compare": "Compare",
 			"handoff.compareAria": "Compare {title} with the running app",
@@ -601,6 +612,9 @@
 			"implement.startAria": "Implementar {title} en el proyecto",
 			"implement.confirmAria": "Confirmar la implementación de {title}",
 			"implement.question": "¿Enviarlo a la sesión para implementarlo?",
+			"implement.switch": "Cambiar a esta…",
+			"implement.switchAria": "Cambiar la implementación a {title}",
+			"implement.switchQuestion": "¿Mover la implementación a esta dirección? La sesión la recibirá como un handoff nuevo.",
 			"implement.queued": "En cola: la sesión implementará {title} cuando termine su tarea actual.",
 			"implement.sent": "Enviado: la sesión está implementando {title} ahora.",
 			"menu.aria": "Acciones de {title}",
@@ -612,6 +626,7 @@
 			"menu.downloadHtml": "Descargar HTML",
 			"download.failed": "No se pudo descargar el artboard. Ábrelo desde design/ en tu proyecto.",
 			"menu.implement": "Implementar esto",
+			"menu.switch": "Cambiar a esta…",
 			"export.failed": "No se pudo exportar el artboard. Usa en su lugar la herramienta de capturas de tu navegador.",
 			"export.unavailable": "La captura de pestañas no está disponible en este navegador.",
 			"export.confirm": "Elige esta pestaña del canvas en el selector de captura del navegador. Si eliges otra pestaña o pantalla, puede exportarse un contenido equivocado.",
@@ -644,7 +659,14 @@
 			"handoff.in_progress": "En curso",
 			"handoff.implemented": "Implementado ✓",
 			"choice.chosen": "Elegido",
-			"choice.alternative": "Alternativa",
+			"choice.discarded": "Descartada",
+			"work.implementing": "Implementando",
+			"work.title": "«{title}»",
+			"work.since": "{state} desde {time}",
+			"work.at": "a las {time}",
+			"work.notSent": "Aún sin enviar",
+			"work.show": "Ver",
+			"work.showAria": "Ver {title} en el canvas",
 			"handoff.featureTitle": "Seguimiento en este documento de funcionalidad ODD",
 			"handoff.compare": "Comparar",
 			"handoff.compareAria": "Comparar {title} con la app en ejecución",
@@ -979,6 +1001,7 @@
 		briefText: $("gd-brief-text"),
 		briefFeature: $("gd-brief-feature"),
 		handoffPanel: $("gd-handoff-panel"),
+		work: $("gd-work"),
 		handoffTitle: $("gd-handoff-title"),
 		timeline: $("gd-timeline"),
 		back: $("gd-back"),
@@ -1351,6 +1374,7 @@
 			const block = blocks[index];
 			block.classList.toggle("gd-minimap-system", Boolean(entry.board && entry.board.system));
 			block.classList.toggle("gd-minimap-chosen", Boolean(entry.board && entry.board === chosen));
+			block.classList.toggle("gd-minimap-discarded", Boolean(chosen && entry.board && !entry.board.system && entry.board !== chosen));
 			block.classList.toggle("gd-minimap-placeholder", !entry.board);
 			block.title = minimapTitle(entry);
 			block.style.left = rounded(map.x + entry.rect.x * map.scale);
@@ -2107,6 +2131,7 @@
 		loc(confirm, "aria-label", "implement.confirmAria", { title: artboard.title });
 		confirm.hidden = true;
 		const question = document.createElement("span");
+		question.className = "gd-implement-question";
 		loc(question, "text", "implement.question");
 		const yes = document.createElement("button");
 		yes.type = "button";
@@ -2179,7 +2204,17 @@
 			close(true);
 		});
 		box.append(start, confirm, ...(note ? [note] : []), alert.root);
-		return { root: box, open, refresh: refreshNote };
+		// Once another artboard is chosen this one is discarded: the button switches the handoff to it instead.
+		let discarded = false;
+		const setDiscarded = (value) => {
+			if (value === discarded) return;
+			discarded = value;
+			start.classList.toggle("gd-implement-switch", value);
+			loc(start, "text", value ? "implement.switch" : "implement.start");
+			loc(start, "aria-label", value ? "implement.switchAria" : "implement.startAria", { title: artboard.title });
+			loc(question, "text", value ? "implement.switchQuestion" : "implement.question");
+		};
+		return { root: box, open, refresh: refreshNote, setDiscarded, isDiscarded: () => discarded };
 	}
 
 	// ---- artboard menu ---------------------------------------------------------
@@ -2212,7 +2247,7 @@
 			{ label: "menu.exportPng2x", icon: "i-image", run: () => exportArtboard(board, 2) },
 			{ label: "menu.exportPdf", icon: "i-image", run: () => exportPdf(board) },
 			{ label: "menu.downloadHtml", icon: "i-download", run: () => downloadHtml(board) },
-			{ label: "menu.implement", separator: true, off: off(DELIVERY.implement, "implement-unavailable"), run: () => board.implement.open() },
+			{ label: board.implement.isDiscarded() ? "menu.switch" : "menu.implement", separator: true, off: off(DELIVERY.implement, "implement-unavailable"), run: () => board.implement.open() },
 		);
 		return actions;
 	}
@@ -2833,9 +2868,12 @@
 		if (board.system || !board.handoff) return;
 		const { chosen, entry } = handoffOf(board);
 		const isChosen = typeof chosen === "string" && chosen === board.artboard.file;
+		const isDiscarded = typeof chosen === "string" && !isChosen;
 		board.wrapper.classList.toggle("gd-chosen", isChosen);
+		board.wrapper.classList.toggle("gd-discarded", isDiscarded);
+		board.implement.setDiscarded(isDiscarded);
 		const parts = [];
-		if (typeof chosen === "string") parts.push(chip(`gd-choice ${isChosen ? "gd-choice-chosen" : "gd-choice-alternative"}`, t(isChosen ? "choice.chosen" : "choice.alternative")));
+		if (typeof chosen === "string") parts.push(chip(`gd-choice ${isChosen ? "gd-choice-chosen" : "gd-choice-discarded"}`, t(isChosen ? "choice.chosen" : "choice.discarded")));
 		const kind = entry ? handoffKind(entry) : null;
 		board.stateChip.hidden = !kind;
 		board.stateChip.textContent = kind ? t(`handoff.${kind}`) : "";
@@ -2888,6 +2926,7 @@
 	/** Everything outside the artboards that follows handoffs, boards and comments: navigator, Compare with app, timeline. */
 	function renderHandoffViews() {
 		renderMinimap();
+		renderWork();
 		renderCompareApp();
 		renderTimeline();
 		renderNav();
@@ -2918,6 +2957,61 @@
 		if (date.toDateString() === now.toDateString()) return t("time.today", { clock });
 		const day = new Intl.DateTimeFormat(dateLocale(), { month: "short", day: "numeric" }).format(date);
 		return `${date.getFullYear() === now.getFullYear() ? day : `${day} ${date.getFullYear()}`}, ${clock}`;
+	}
+
+	/** A time in the top bar: just HH:MM today, otherwise the short date as the timeline writes it. */
+	function clockOrDate(value) {
+		const date = typeof value === "string" ? new Date(value) : null;
+		if (!date || Number.isNaN(date.getTime())) return "";
+		if (date.toDateString() !== new Date().toDateString()) return shortTime(value);
+		return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+	}
+
+	/**
+	 * The top-bar status of the chosen direction: what is being built, its state since when, the agent's last note,
+	 * and Show to open it in focus mode. Implemented leaves comparing to the bar's Compare with app.
+	 */
+	function renderWork() {
+		const board = chosenBoard();
+		const hadFocus = els.work.contains(document.activeElement);
+		els.work.hidden = !board;
+		if (!board) {
+			els.work.replaceChildren();
+			return;
+		}
+		const entry = handoffOf(board).entry;
+		const kind = entry ? handoffKind(entry) : null;
+		const dot = chip("gd-work-dot", "");
+		dot.setAttribute("aria-hidden", "true");
+		dot.dataset.status = kind ?? "chosen";
+		const leadKey = !kind ? "choice.chosen" : kind === "implemented" ? "handoff.implemented" : "work.implementing";
+		const lead = chip("gd-work-lead", t(leadKey));
+		const title = chip("gd-work-title", t("work.title", { title: board.artboard.title }));
+		let stateText;
+		if (!kind) stateText = t("work.notSent");
+		else if (kind === "implemented") {
+			const time = clockOrDate(entry.implementedAt);
+			stateText = time ? t("work.at", { time }) : "";
+		} else {
+			const time = clockOrDate(kind === "in_progress" ? entry.startedAt ?? entry.sentAt : entry.sentAt);
+			stateText = time ? t("work.since", { state: t(`handoff.${kind}`), time }) : t(`handoff.${kind}`);
+		}
+		const parts = [dot, lead, title];
+		if (stateText) parts.push(chip("gd-work-state", stateText));
+		if (kind && typeof entry.note === "string" && entry.note) {
+			const note = chip("gd-work-note", entry.note);
+			note.title = entry.note;
+			parts.push(note);
+		}
+		const show = document.createElement("button");
+		show.type = "button";
+		show.className = "gd-work-show";
+		show.textContent = t("work.show");
+		show.setAttribute("aria-label", t("work.showAria", { title: board.artboard.title }));
+		show.addEventListener("click", () => enterFocus(board));
+		parts.push(show);
+		els.work.replaceChildren(...parts);
+		if (hadFocus) show.focus();
 	}
 
 	/** Chosen, Sent to the session, In progress, Implemented: done, current or pending, with timestamps. */
@@ -3047,7 +3141,7 @@
 			if (typeof chosen === "string") {
 				const isChosen = chosen === board.artboard.file;
 				nav.tag.className = `gd-nav-tag${isChosen ? " gd-nav-tag-chosen" : ""}`;
-				nav.tag.textContent = t(isChosen ? "choice.chosen" : "choice.alternative");
+				nav.tag.textContent = t(isChosen ? "choice.chosen" : "choice.discarded");
 				tags.push(nav.tag);
 			}
 			const failures = checkFailures(board);

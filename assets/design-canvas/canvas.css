@@ -171,6 +171,30 @@ body {
 
 .gd-spacer { flex: 1; }
 
+/* The chosen direction's status, after the breadcrumb (canvas-chosen-direction S1). */
+.gd-work {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	padding: 2px 4px 2px 10px;
+	border: 1px solid var(--accent-line);
+	border-radius: var(--radius-pill);
+	font-size: 12px;
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+.gd-work[hidden] { display: none; }
+.gd-work-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.gd-work-dot[data-status="queued"] { background: var(--warning); }
+.gd-work-dot[data-status="sent"], .gd-work-dot[data-status="in_progress"] { background: var(--info); }
+.gd-work-dot[data-status="implemented"] { background: var(--success); }
+.gd-work-lead { color: var(--text); font-weight: 600; }
+.gd-work-title { color: var(--accent); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.gd-work-state::before, .gd-work-note::before { content: "·"; margin-right: 8px; color: var(--text-faint); }
+.gd-work-note { min-width: 0; max-width: 40ch; overflow: hidden; text-overflow: ellipsis; }
+.gd-work-show { flex: none; min-height: 24px; padding: 0 10px; font-size: 12px; }
+
 /* Breadcrumb: Gentle Design / design / feature document */
 .gd-crumbs {
 	display: flex;
@@ -546,6 +570,7 @@ select {
 
 .gd-minimap-system { background: var(--text-faint); }
 .gd-minimap-chosen { background: var(--accent); opacity: 1; }
+.gd-minimap-discarded { opacity: .25; }
 .gd-minimap-placeholder { background: transparent; border: 1px dashed var(--accent); opacity: 1; }
 
 .gd-minimap-view {
@@ -694,6 +719,15 @@ select {
 
 /* The chosen artboard keeps an accent frame at every zoom level. */
 .gd-chosen .gd-artboard-frame { box-shadow: 0 0 0 calc(3px * var(--gd-inv-zoom, 1)) var(--accent), var(--shadow-frame); }
+
+/* Once one is chosen, the others are discarded: dimmed until hovered or reached by keyboard. */
+.gd-choice-discarded { color: var(--text-muted); }
+.gd-discarded .gd-frame-box {
+	opacity: .45;
+	filter: grayscale(.6);
+}
+.gd-discarded:hover .gd-frame-box, .gd-discarded:focus-within .gd-frame-box { opacity: 1; filter: none; }
+.gd-implement-switch { color: var(--text-muted); border-color: var(--border); background: transparent; }
 
 .gd-artboard-frame {
 	display: block;
@@ -2009,6 +2043,7 @@ kbd {
 	button { transition: border-color .2s var(--ease), color .2s var(--ease), background-color .2s var(--ease); }
 	.gd-shield-hint { transition: opacity 120ms ease; }
 	.gd-artboard { transition: opacity 160ms ease; }
+	.gd-discarded .gd-frame-box { transition: opacity 160ms ease, filter 160ms ease; }
 }
 
 /* ---- language switch (canvas-language T1) ---- */

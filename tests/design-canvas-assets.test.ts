@@ -641,7 +641,7 @@ test("the handoff badge follows the state live, and shows the linked feature doc
 	assert.equal(boardsOf(canvas)[0], first, "a handoffs.json change does not reload the artboards");
 });
 
-test("the chosen artboard gets a Chosen badge and an accent frame; the others are labeled Alternative", async () => {
+test("the chosen artboard gets a Chosen badge and an accent frame; the others are labeled Discarded", async () => {
 	const canvas = await loadCanvas(300, { "/t/api/designs/alpha/handoffs": handoffDoc(null, {}) });
 	for (const board of boardsOf(canvas)) {
 		assert.deepEqual(texts(board, "gd-choice"), [], "nothing is chosen yet");
@@ -651,10 +651,10 @@ test("the chosen artboard gets a Chosen badge and an accent frame; the others ar
 	const [first, second] = boardsOf(canvas);
 	assert.deepEqual(texts(second, "gd-choice"), ["Chosen"]);
 	assert.equal(second.classes.has("gd-chosen"), true);
-	assert.deepEqual(texts(first, "gd-choice"), ["Alternative"]);
+	assert.deepEqual(texts(first, "gd-choice"), ["Discarded"]);
 	assert.equal(first.classes.has("gd-chosen"), false);
 	await setHandoffs(canvas, handoffDoc("01-a.html", { "02-b.html": {}, "01-a.html": {} }));
-	assert.deepEqual(boardsOf(canvas).map((board) => texts(board, "gd-choice")[0]), ["Chosen", "Alternative"], "a new handoff moves Chosen");
+	assert.deepEqual(boardsOf(canvas).map((board) => texts(board, "gd-choice")[0]), ["Chosen", "Discarded"], "a new handoff moves Chosen");
 });
 
 test("Compare appears only on an implemented artboard with a loopback previewUrl other than the canvas", async () => {
@@ -758,7 +758,7 @@ test("Implement this shows a toast and the badge at once: Queued when busy, Impl
 	assert.equal(toast.textContent, "Queued: the session will implement First after its current task.");
 	assert.deepEqual(texts(boardsOf(canvas)[0], "gd-handoff-badge"), ["Queued"]);
 	assert.deepEqual(texts(boardsOf(canvas)[0], "gd-choice"), ["Chosen"]);
-	assert.deepEqual(texts(boardsOf(canvas)[1], "gd-choice"), ["Alternative"]);
+	assert.deepEqual(texts(boardsOf(canvas)[1], "gd-choice"), ["Discarded"]);
 
 	canvas.replies["/t/api/designs/alpha/implement"] = { ok: true, slug: "alpha", file: "01-a.html", queued: false };
 	await send();
@@ -1027,11 +1027,11 @@ test("the navigator lists the artboards with a number, a comment summary and a t
 	assert.deepEqual(navTexts(canvas, "gd-nav-summary"), ["No comments", "No comments"]);
 });
 
-test("the navigator tags Chosen and Alternative only once an artboard is chosen, live", async () => {
+test("the navigator tags Chosen and Discarded only once an artboard is chosen, live", async () => {
 	const canvas = await loadRail();
 	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), [], "no tags without a chosen artboard");
 	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": {} }));
-	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Alternative", "Chosen"]);
+	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Discarded", "Chosen"]);
 	const [first, second] = withClass(canvas.document.getElementById("gd-nav-list"), "gd-nav-tag");
 	assert.ok(second.classes.has("gd-nav-tag-chosen") && !first.classes.has("gd-nav-tag-chosen"));
 	await setHandoffs(canvas, handoffDoc(null, {}));
@@ -1113,7 +1113,7 @@ test("S6: thumbnails keep their iframes when the list re-renders, so comment and
 	assert.deepEqual([thumbFrame(canvas, 0), thumbFrame(canvas, 1)], frames, "with the same iframes");
 	assert.deepEqual(frames.map((frame) => frame.src), srcs, "that were not reloaded");
 	assert.deepEqual(navTexts(canvas, "gd-nav-summary"), ["1 open comment", "No comments"], "while the text still follows the state");
-	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Alternative", "Chosen"]);
+	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Discarded", "Chosen"]);
 	assert.equal(canvas.document.getElementById("gd-nav-list").children.length, 2);
 });
 
@@ -3222,7 +3222,7 @@ test("S4: each artboard's list item carries A11y ✓ or N checks; none before th
 	assert.equal(navA11y(canvas)[1].textContent, "1 check", "singular");
 	// A chosen tag and the checks tag live side by side.
 	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": {} }));
-	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Alternative", "Chosen"]);
+	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Discarded", "Chosen"]);
 	assert.equal(navA11y(canvas).length, 2);
 });
 
@@ -5643,7 +5643,7 @@ test("S2: the navigator, tabs, cards and Send all speak Spanish with plural coun
 	const spanish = await loadLang({ browser: "es", replies });
 	const summaries = withClass(spanish.document.getElementById("gd-nav-list"), "gd-nav-summary").map((element) => element.textContent);
 	assert.deepEqual(summaries, ["2 comentarios abiertos · 1 resuelto", "1 comentario abierto"]);
-	assert.deepEqual(withClass(spanish.document.getElementById("gd-nav-list"), "gd-nav-tag").map((element) => element.textContent), ["Elegido", "Alternativa"]);
+	assert.deepEqual(withClass(spanish.document.getElementById("gd-nav-list"), "gd-nav-tag").map((element) => element.textContent), ["Elegido", "Descartada"]);
 	assert.equal(spanish.document.getElementById("gd-send-all").textContent, "Enviar todo (2)", "c1 and c4 are open and unsent");
 	const badges = withClass(spanish.document.getElementById("gd-comment-list"), "gd-badge").map((element) => element.textContent);
 	assert.deepEqual(badges.slice(0, 2), ["Esperando", "Enviado"]);
@@ -6083,7 +6083,7 @@ test("S2: the Spanish is neutral and professional: tú forms, no voseo", () => {
 	const voseo = /\b(vos|tenés|podés|querés|sabés|hacé|hacés|mirá|elegí|enviá|tocá|aprobá|fijate|andá|vení|decí|escribí|usá|abrí|cerrá|guardá|volvé|probá|revisá)\b/i;
 	for (const [key, text] of Object.entries(es)) assert.ok(!voseo.test(text), `${key}: voseo in "${text}"`);
 	const all = Object.values(es).join("\n");
-	for (const term of ["Comentar", "Ver todo", "Elegido", "Alternativa", "En curso", "Implementado", "Enviar todo", "Acumular", "Encargo"]) assert.ok(all.includes(term), `the Spanish uses ${term}`);
+	for (const term of ["Comentar", "Ver todo", "Elegido", "Descartada", "En curso", "Implementado", "Enviar todo", "Acumular", "Encargo"]) assert.ok(all.includes(term), `the Spanish uses ${term}`);
 	assert.ok(/\bHaz clic\b/.test(all) && /\bEscribe\b/.test(all), "imperatives are tú forms");
 });
 
@@ -6351,4 +6351,146 @@ test("S2: after a switch nothing of the old language is left in Compare, a versi
 		chooseLang(variant, to);
 		assert.deepEqual(leftovers(variant, from), [], `${from} -> ${to} with a placeholder board`);
 	}
+});
+
+// ---- Chosen direction: top-bar status and discarded alternatives (canvas-chosen-direction T1/S1-S2)
+
+const workBar = (canvas: Canvas) => canvas.document.getElementById("gd-work");
+const workTexts = (canvas: Canvas) => ({
+	lead: texts(workBar(canvas), "gd-work-lead"),
+	title: texts(workBar(canvas), "gd-work-title"),
+	state: texts(workBar(canvas), "gd-work-state"),
+	note: texts(workBar(canvas), "gd-work-note"),
+});
+/** Today at hh:mm, local time, as the ISO string handoffs.json stores. */
+const todayAt = (hours: number, minutes: number) => { const date = new Date(); date.setHours(hours, minutes, 0, 0); return date.toISOString(); };
+
+test("chosen-direction S1: the top bar names the chosen direction with its state, time and note, live", async () => {
+	const canvas = await loadRail();
+	assert.equal(workBar(canvas).hidden, true, "hidden while nothing is chosen");
+
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "sent", queued: true, sentAt: todayAt(9, 47) } }));
+	assert.equal(workBar(canvas).hidden, false);
+	assert.deepEqual(workTexts(canvas), { lead: ["Implementing"], title: ["“Second”"], state: ["Queued since 09:47"], note: [] });
+
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", sentAt: todayAt(9, 47), startedAt: todayAt(9, 48), note: "Exploring the current code (navigation and the Usage screen) before planning." } }));
+	assert.deepEqual(workTexts(canvas), { lead: ["Implementing"], title: ["“Second”"], state: ["In progress since 09:48"], note: ["Exploring the current code (navigation and the Usage screen) before planning."] });
+	const [note] = withClass(workBar(canvas), "gd-work-note");
+	assert.equal(note.title, "Exploring the current code (navigation and the Usage screen) before planning.", "the full note is in the tooltip");
+	assert.equal(withClass(workBar(canvas), "gd-work-dot")[0].dataset.status, "in_progress");
+
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented", implementedAt: "2020-03-04T09:05:00.000Z", previewUrl: "http://localhost:3000/" } }));
+	assert.deepEqual(workTexts(canvas).lead, ["Implemented ✓"]);
+	assert.match(workTexts(canvas).state[0], /^at Mar 4 2020, \d\d:\d\d$/, "another day keeps its date");
+	assert.equal(canvas.document.getElementById("gd-compare-app").hidden, false, "Compare with app stays the way to compare");
+
+	await setHandoffs(canvas, handoffDoc("01-a.html", {}));
+	assert.deepEqual(workTexts(canvas), { lead: ["Chosen"], title: ["“First”"], state: ["Not sent yet"], note: [] });
+
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.equal(workBar(canvas).hidden, true, "hidden again when nothing is chosen");
+});
+
+test("chosen-direction S1: Show opens the chosen artboard in focus mode and keeps keyboard focus on the bar across updates", async () => {
+	const canvas = await loadRail();
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }));
+	const [show] = withClass(workBar(canvas), "gd-work-show");
+	assert.equal(show.textContent, "Show");
+	assert.equal(show.getAttribute("aria-label"), "Show Second on the canvas");
+	show.dispatch("click");
+	assert.equal(navItems(canvas)[1].getAttribute("aria-current"), "true", "the chosen artboard is focused");
+	assert.equal(navItems(canvas)[0].getAttribute("aria-current"), null);
+	canvas.document.getElementById("gd-back").dispatch("click");
+
+	const [again] = withClass(workBar(canvas), "gd-work-show");
+	again.focus();
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", note: "Next step" } }));
+	assert.equal(canvas.document.activeElement, withClass(workBar(canvas), "gd-work-show")[0], "an update does not drop keyboard focus");
+});
+
+test("chosen-direction S1: index.html puts the status in the bar after the breadcrumb, as a polite live region", () => {
+	const html = read("index.html");
+	assert.match(html, /<div id="gd-work" class="gd-work" role="status" aria-live="polite" hidden><\/div>/);
+	assert.ok(html.indexOf('class="gd-crumbs"') < html.indexOf('id="gd-work"') && html.indexOf('id="gd-work"') < html.indexOf('class="gd-spacer"'));
+});
+
+test("chosen-direction S1/S2: the status and the discarded labels are in Spanish too", async () => {
+	const canvas = await loadLang({ browser: "es", replies: { "/t/api/designs/alpha/handoffs": handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", startedAt: todayAt(9, 48) } }) } });
+	const c = canvas as unknown as Canvas;
+	assert.deepEqual(workTexts(c), { lead: ["Implementando"], title: ["«Second»"], state: ["En curso desde 09:48"], note: [] });
+	assert.equal(withClass(workBar(c), "gd-work-show")[0].textContent, "Ver");
+	assert.deepEqual(texts(boardsOf(c)[0], "gd-choice"), ["Descartada"]);
+	assert.equal(withClass(boardsOf(c)[0], "gd-implement-start")[0].textContent, "Cambiar a esta…");
+	assert.deepEqual(navTexts(c, "gd-nav-tag"), ["Descartada", "Elegido"]);
+});
+
+test("chosen-direction S2: once one is chosen the others are Discarded and dimmed, and offer Switch to this… instead of Implement this", async () => {
+	const canvas = await loadRail(300, { [IMPLEMENT]: { ok: true, slug: "alpha", file: "01-a.html", queued: false } });
+	const start = (index: number) => withClass(boardsOf(canvas)[index], "gd-implement-start")[0];
+	for (const index of [0, 1]) {
+		assert.equal(boardsOf(canvas)[index].classes.has("gd-discarded"), false, "nothing is discarded before a choice");
+		assert.equal(start(index).textContent, "Implement this");
+	}
+
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }));
+	const [first, second] = boardsOf(canvas);
+	assert.deepEqual(texts(first, "gd-choice"), ["Discarded"]);
+	assert.equal(first.classes.has("gd-discarded"), true);
+	assert.equal(second.classes.has("gd-discarded"), false);
+	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Discarded", "Chosen"]);
+	assert.equal(start(1).textContent, "Implement this", "the chosen artboard keeps Implement this");
+	assert.equal(start(0).textContent, "Switch to this…");
+	assert.equal(start(0).getAttribute("aria-label"), "Switch the implementation to First");
+	assert.equal(start(0).classes.has("gd-implement-switch"), true);
+
+	start(0).dispatch("click");
+	const [control] = withClass(first, "gd-implement");
+	const question = withClass(control, "gd-implement-question")[0];
+	assert.equal(question.textContent, "Move the implementation to this direction? The session gets it as a new handoff.");
+	withClass(control, "gd-primary")[0].dispatch("click");
+	for (let i = 0; i < 10; i++) await flush();
+	assert.deepEqual(canvas.posts.at(-1), { url: IMPLEMENT, body: { file: "01-a.html" } }, "switching is a handoff of this artboard");
+	assert.deepEqual(boardsOf(canvas).map((board) => texts(board, "gd-choice")[0]), ["Chosen", "Discarded"], "the choice moves at once");
+	assert.equal(start(0).textContent, "Implement this");
+	assert.equal(start(1).textContent, "Switch to this…");
+
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.deepEqual(boardsOf(canvas).map((board) => board.classes.has("gd-discarded")), [false, false]);
+	assert.deepEqual([start(0).textContent, start(1).textContent], ["Implement this", "Implement this"]);
+	start(1).dispatch("click");
+	assert.equal(withClass(withClass(boardsOf(canvas)[1], "gd-implement")[0], "gd-implement-question")[0].textContent, "Send it to the session to implement?", "an undecided design asks the usual question");
+});
+
+test("chosen-direction S2: a discarded artboard's menu says Switch to this…, the chosen one's Implement this", async () => {
+	const canvas = await loadRail();
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": {} }));
+	openMenu(canvas, 0);
+	assert.ok(itemLabels(canvas).includes("Switch to this…"));
+	assert.ok(!itemLabels(canvas).includes("Implement this"));
+	keyOn(menuEl(canvas), "Escape");
+	openMenu(canvas, 1);
+	assert.ok(itemLabels(canvas).includes("Implement this"));
+});
+
+test("chosen-direction S2: the minimap dims discarded blocks, never the system board", async () => {
+	const canvas = await minimapCanvas();
+	assert.deepEqual(miniBlocks(canvas).map((block) => block.classes.has("gd-minimap-discarded")), [false, false, false]);
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": {} }));
+	assert.deepEqual(miniBlocks(canvas).map((block) => block.classes.has("gd-minimap-discarded")), [false, true, false]);
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.deepEqual(miniBlocks(canvas).map((block) => block.classes.has("gd-minimap-discarded")), [false, false, false]);
+});
+
+test("chosen-direction S2: canvas.css dims a discarded artboard and restores it on hover or keyboard focus, with tokens only", () => {
+	const css = read("canvas.css");
+	const rule = (selector: string) => {
+		const start = css.indexOf(`${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	assert.match(rule(".gd-discarded .gd-frame-box"), /opacity:\s*\.45/);
+	assert.match(rule(".gd-discarded .gd-frame-box"), /filter:\s*grayscale\(\.6\)/);
+	assert.match(css, /\.gd-discarded:hover \.gd-frame-box,\s*\.gd-discarded:focus-within \.gd-frame-box \{[^}]*opacity:\s*1[^}]*filter:\s*none/);
+	for (const selector of [".gd-discarded .gd-frame-box", ".gd-choice-discarded", ".gd-minimap-discarded", ".gd-work"]) assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule(selector)), `${selector}: tokens only`);
+	assert.match(css, /@media \(prefers-reduced-motion: no-preference\) \{[^]*\.gd-discarded \.gd-frame-box \{ transition:/, "the fade only animates without reduced motion");
 });
