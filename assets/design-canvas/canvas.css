@@ -2485,3 +2485,97 @@ kbd {
 	body.gd-printing > :not(.gd-print) { display: none; }
 	body.gd-printing .gd-print { position: static; visibility: visible; }
 }
+
+/* ---- first-run guide (canvas-progressive S6) ---- */
+
+/* The spotlight: an accent ring around the step's target, the rest of the page under the scrim; clicks pass through. */
+.gd-guide-spot {
+	position: fixed;
+	z-index: 20;
+	border-radius: var(--radius-md);
+	box-shadow: 0 0 0 2px var(--accent), 0 0 0 100vmax var(--scrim);
+	pointer-events: none;
+}
+
+/* One short card next to the target, its arrow pointing at it (--gd-guide-arrow, set by the canvas). */
+.gd-guide {
+	position: fixed;
+	z-index: 21;
+	width: min(452px, calc(100vw - 24px));
+	padding: 20px 22px 18px;
+	background: var(--surface-1);
+	border: 1px solid var(--accent-line);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-panel);
+}
+
+.gd-guide::before {
+	content: "";
+	position: absolute;
+	left: var(--gd-guide-arrow, 50%);
+	width: 14px;
+	height: 14px;
+	margin-left: -7px;
+	background: var(--surface-1);
+	border: 1px solid var(--accent-line);
+	transform: rotate(45deg);
+}
+
+.gd-guide[data-side="below"]::before { top: -8px; border-right: 0; border-bottom: 0; }
+.gd-guide[data-side="above"]::before { bottom: -8px; border-left: 0; border-top: 0; }
+.gd-guide[data-side="inside"]::before { display: none; }
+
+.gd-guide-eyebrow {
+	margin: 0 0 6px;
+	color: var(--accent);
+	font: 600 12px/1.4 var(--font-mono);
+	letter-spacing: .12em;
+	text-transform: uppercase;
+}
+
+.gd-guide-title { margin: 0 0 6px; font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+.gd-guide-text { margin: 0 0 14px; color: var(--text-muted); }
+
+.gd-guide-steps {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin: 0 0 16px;
+	padding: 0;
+	list-style: none;
+	counter-reset: gd-guide;
+}
+
+.gd-guide-steps li {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	color: var(--text-muted);
+	font-size: 13px;
+	counter-increment: gd-guide;
+}
+
+.gd-guide-steps li::before {
+	content: counter(gd-guide);
+	display: inline-grid;
+	place-items: center;
+	flex: none;
+	width: 22px;
+	height: 22px;
+	border: 1px solid var(--border);
+	border-radius: 50%;
+	background: var(--surface);
+	font: 600 11px/1 var(--font-mono);
+}
+
+.gd-guide-steps li[aria-current="step"] { color: var(--text); font-weight: 600; }
+.gd-guide-steps li[aria-current="step"]::before { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+
+.gd-guide-actions { display: flex; align-items: center; gap: 8px; }
+.gd-guide-skip { border-color: transparent; color: var(--text-muted); }
+.gd-guide-skip:focus-visible, .gd-guide .gd-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: no-preference) {
+	.gd-guide { animation: gd-guide-rise .3s var(--ease) both; }
+	@keyframes gd-guide-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+}

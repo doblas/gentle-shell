@@ -37,6 +37,8 @@
 	const MODE_KEY = "gentle-design:send-mode";
 	// "on" shows the CSS selectors on cards and the token inspector; anything else (or nothing) is off.
 	const TECHNICAL_KEY = "gentle-design:technical";
+	// "done" once the first-run guide was skipped or finished in this browser; it then opens only from the rail's More.
+	const GUIDE_KEY = "gentle-design:guide";
 	// The picks of the mix, per design: `${MIX_KEY_PREFIX}<slug>`. A pick's pin id is `${MIX_PIN}<pick id>`, never a comment id.
 	const MIX_KEY_PREFIX = "gentle-design:mix:";
 	const MIX_PIN = "mix:";
@@ -106,9 +108,21 @@
 			"rail.list": "List",
 			"rail.list.title": "Direction list ([)",
 			"rail.more": "More",
-			"rail.more.title": "More: design system and keyboard shortcuts",
+			"rail.more.title": "More: design system, keyboard shortcuts and the guide",
 			"rail.system": "Design system board",
 			"rail.keys": "Keyboard shortcuts",
+			"rail.guide": "See the guide",
+			"guide.eyebrow": "First time · {n} of {total}",
+			"guide.steps": "Guide steps",
+			"guide.compare.title": "These are your directions",
+			"guide.compare.text": "The agent answered your request in several ways. Under each title you see what each one does better and what it gives up.",
+			"guide.open.title": "Open them to review them",
+			"guide.open.text": "Press “Open” on a direction to see it at full size, comment on it or mix it.",
+			"guide.implement.title": "Choose one and press Implement",
+			"guide.implement.text": "Inside the direction you prefer, press “Implement this” and the agent builds it in your project. Step 4 at the top tells you how it is going.",
+			"guide.skip": "Skip the guide",
+			"guide.next": "Next",
+			"guide.done": "Got it",
 			"steps.label": "Steps",
 			"steps.compare": "Compare",
 			"steps.review": "Review",
@@ -545,9 +559,21 @@
 			"rail.list": "Lista",
 			"rail.list.title": "Lista de propuestas ([)",
 			"rail.more": "Más",
-			"rail.more.title": "Más: sistema de diseño y atajos de teclado",
+			"rail.more.title": "Más: sistema de diseño, atajos de teclado y la guía",
 			"rail.system": "Sistema de diseño",
 			"rail.keys": "Atajos de teclado",
+			"rail.guide": "Ver la guía",
+			"guide.eyebrow": "Primera vez · {n} de {total}",
+			"guide.steps": "Pasos de la guía",
+			"guide.compare.title": "Estas son tus propuestas",
+			"guide.compare.text": "El agente ha resuelto tu petición de varias formas. Debajo de cada título verás en qué gana y en qué cede.",
+			"guide.open.title": "Ábrelas para revisarlas",
+			"guide.open.text": "Pulsa «Abrir» en una propuesta para verla a tamaño real, comentarla o mezclarla.",
+			"guide.implement.title": "Elige una y pulsa Implementar",
+			"guide.implement.text": "Dentro de la propuesta que prefieras, pulsa «Implementar esto» y el agente la construirá en tu proyecto. El paso 4 de arriba te dirá cómo va.",
+			"guide.skip": "Saltar la guía",
+			"guide.next": "Siguiente",
+			"guide.done": "Entendido",
 			"steps.label": "Pasos",
 			"steps.compare": "Comparar",
 			"steps.review": "Revisar",
@@ -1085,6 +1111,15 @@
 		steps: $("gd-steps"),
 		stepsList: $("gd-steps-list"),
 		connection: $("gd-connection"),
+		guide: $("gd-guide"),
+		guideSpot: $("gd-guide-spot"),
+		guideEyebrow: $("gd-guide-eyebrow"),
+		guideTitle: $("gd-guide-title"),
+		guideText: $("gd-guide-text"),
+		guideSteps: $("gd-guide-steps"),
+		guideSkip: $("gd-guide-skip"),
+		guideNext: $("gd-guide-next"),
+		guideNextLabel: $("gd-guide-next-label"),
 		shortcuts: $("gd-shortcuts"),
 		shortcutsClose: $("gd-shortcuts-close"),
 		nav: $("gd-nav"),
@@ -1244,6 +1279,9 @@
 		mode: storedMode(),
 		// Technical details: selectors on the cards and the token inspector, off unless switched on (TECHNICAL_KEY).
 		technical: storedTechnical(),
+		// The open first-run guide: { step, returnFocus }, or null; and whether it already opened on its own in this page.
+		guide: null,
+		guideStarted: false,
 		activeId: null,
 		designCount: 0,
 		// The minimap's switch (M); it also hides in focus mode, Compare and a version comparison.
@@ -1426,6 +1464,7 @@
 		for (const board of allBoards()) board.wrapper.classList.toggle("gd-compact", board.artboard.width * state.zoom < COMPACT_BOARD_WIDTH);
 		closeMenu(false);
 		renderMinimap();
+		placeGuide();
 	}
 
 	/** Zoom so the world point under (px, py) in viewport coordinates stays put. */
@@ -1797,6 +1836,7 @@
 		renderNavMode();
 		renderSteps();
 		renderMinimap();
+		renderGuide(false);
 	}
 
 	/** The floating chip: focus mode, comment mode or plain navigation. */
@@ -2656,6 +2696,7 @@
 		state.menu = { button, items, byItem };
 		placeMenu(button, els.menu, beside);
 		(last ? items[items.length - 1] : items[0]).focus();
+		renderGuide(false);
 	}
 
 	/** Closes the menu; focus goes back to its button when it was inside the menu (or `refocus`). */
@@ -2668,6 +2709,7 @@
 		els.menu.replaceChildren();
 		open.button.setAttribute("aria-expanded", "false");
 		if (refocus || inside) open.button.focus();
+		renderGuide(false);
 	}
 
 	function chooseMenuItem(item) {
@@ -2770,6 +2812,7 @@
 		state.langMenu = { items };
 		placeMenu(els.lang, els.langMenu);
 		(last ? items[items.length - 1] : items[0]).focus();
+		renderGuide(false);
 	}
 
 	/** Closes the language menu; focus goes back to its button when it was inside the menu (or `refocus`). */
@@ -2782,6 +2825,7 @@
 		els.langMenu.replaceChildren();
 		els.lang.setAttribute("aria-expanded", "false");
 		if (refocus || inside) els.lang.focus();
+		renderGuide(false);
 	}
 
 	function chooseLangItem(item) {
@@ -2859,6 +2903,7 @@
 		renderCompareText();
 		renderVersionText();
 		renderMark();
+		renderGuide(false);
 		if (state.inspect && !els.inspector.hidden) showInspector(state.inspect.surface, state.inspect.measure);
 	}
 
@@ -2893,6 +2938,7 @@
 			if (typeof els.variantDialog.showModal === "function") els.variantDialog.showModal();
 			else els.variantDialog.setAttribute("open", "");
 		}
+		renderGuide(false);
 		els.variantText.focus();
 	}
 
@@ -2903,11 +2949,13 @@
 			if (typeof els.variantDialog.close === "function") els.variantDialog.close();
 			else els.variantDialog.removeAttribute("open");
 		}
+		renderGuide(false);
 		if (open) open.button.focus();
 	}
 
 	// The browser closes a modal dialog on Esc and reports it here.
 	els.variantDialog.addEventListener("close", () => {
+		renderGuide(false);
 		const open = state.variant;
 		if (!open) return;
 		state.variant = null;
@@ -3327,6 +3375,147 @@
 		connectionParts.hidden.textContent = online ? "" : ` ${sentence}`;
 	}
 
+	// ---- first-run guide (canvas-progressive S6) -------------------------------------------
+	// Three short steps over the canvas: the directions, an Open button, and step 4 of the breadcrumb (Implement this is only
+	// inside a direction). It opens by itself once per browser (GUIDE_KEY), never over focus mode, Compare, the comment box,
+	// a dialog or a menu: it waits while one is open and comes back at the same step. Esc or Skip the guide ends it; the
+	// rail's More shows it again. A non-modal card: focus moves into it and returns where it was.
+
+	const GUIDE_STEPS = [
+		{ name: "directions", title: "guide.compare.title", text: "guide.compare.text", target: () => els.world },
+		{ name: "open", title: "guide.open.title", text: "guide.open.text", target: () => state.boards[0]?.openButton ?? null },
+		{ name: "implement", title: "guide.implement.title", text: "guide.implement.text", target: () => (stepParts ? stepParts[3].item : null) },
+	];
+	// The room the spotlight leaves around its target, and between the target and the card (where its arrow is).
+	const GUIDE_PAD = 8;
+	const GUIDE_GAP = 16;
+
+	/** "done" (skipped or finished), "new", or "unknown" when storage cannot be read: then it never opens by itself. */
+	function storedGuide() {
+		try {
+			return localStorage.getItem(GUIDE_KEY) === "done" ? "done" : "new";
+		} catch {
+			return "unknown";
+		}
+	}
+
+	function guideBlocked() {
+		return Boolean(state.focus || state.compare || state.menu || state.langMenu || !els.popover.hidden || els.shortcuts.hasAttribute("open") || els.variantDialog.hasAttribute("open"));
+	}
+
+	/** Once the first design with directions is shown, the first visit of this browser gets the guide. */
+	function maybeStartGuide() {
+		if (state.guideStarted || state.boards.length === 0) return;
+		state.guideStarted = true;
+		if (storedGuide() === "new") openGuide(null);
+	}
+
+	function openGuide(returnFocus) {
+		state.guideStarted = true;
+		state.guide = { step: 0, returnFocus: returnFocus ?? document.activeElement };
+		renderGuide(true);
+	}
+
+	function closeGuide() {
+		const guide = state.guide;
+		if (!guide) return;
+		state.guide = null;
+		try { localStorage.setItem(GUIDE_KEY, "done"); } catch { /* storage may be unavailable */ }
+		const inside = els.guide.contains(document.activeElement) || document.activeElement === els.guideNext || document.activeElement === els.guideSkip;
+		renderGuide(false);
+		const back = guide.returnFocus && guide.returnFocus !== document.body ? guide.returnFocus : els.viewport;
+		if (inside || document.activeElement === document.body) back.focus();
+	}
+
+	/** Shows the card and the spotlight at the current step, or hides them while something else is open; `moveFocus` puts the keyboard on Next. */
+	function renderGuide(moveFocus) {
+		const guide = state.guide;
+		const shown = Boolean(guide) && !guideBlocked();
+		els.guide.hidden = !shown;
+		els.guideSpot.hidden = !shown;
+		if (!shown) return;
+		const step = GUIDE_STEPS[guide.step];
+		const last = guide.step === GUIDE_STEPS.length - 1;
+		loc(els.guideEyebrow, "text", "guide.eyebrow", { n: guide.step + 1, total: GUIDE_STEPS.length });
+		loc(els.guideTitle, "text", step.title);
+		loc(els.guideText, "text", step.text);
+		loc(els.guideNextLabel, "text", last ? "guide.done" : "guide.next");
+		els.guideSteps.replaceChildren(...GUIDE_STEPS.map((entry, index) => {
+			const item = document.createElement("li");
+			loc(item, "text", entry.title);
+			if (index === guide.step) item.setAttribute("aria-current", "step");
+			return item;
+		}));
+		els.guide.dataset.target = step.name;
+		placeGuide();
+		if (moveFocus) els.guideNext.focus();
+	}
+
+	/** The spotlight around the step's target (the directions are clipped to the viewport) and the card below it, above it, or inside the viewport. */
+	function placeGuide() {
+		const guide = state.guide;
+		if (!guide || els.guide.hidden) return;
+		const view = els.viewport.getBoundingClientRect();
+		const element = GUIDE_STEPS[guide.step].target();
+		let rect = element ? element.getBoundingClientRect() : null;
+		if (!rect || (rect.width === 0 && rect.height === 0)) rect = view;
+		if (guide.step === 0) {
+			const left = Math.max(rect.left, view.left);
+			const top = Math.max(rect.top, view.top);
+			const right = Math.min(rect.left + rect.width, view.left + view.width);
+			const bottom = Math.min(rect.top + rect.height, view.top + view.height);
+			rect = right > left && bottom > top ? { left, top, width: right - left, height: bottom - top } : view;
+		}
+		const spot = { left: rect.left - GUIDE_PAD, top: rect.top - GUIDE_PAD, width: rect.width + GUIDE_PAD * 2, height: rect.height + GUIDE_PAD * 2 };
+		els.guideSpot.style.left = `${spot.left}px`;
+		els.guideSpot.style.top = `${spot.top}px`;
+		els.guideSpot.style.width = `${spot.width}px`;
+		els.guideSpot.style.height = `${spot.height}px`;
+		const width = els.guide.offsetWidth;
+		const height = els.guide.offsetHeight;
+		let side = "below";
+		let top = spot.top + spot.height + GUIDE_GAP;
+		if (top + height > window.innerHeight - 12) {
+			side = "above";
+			top = spot.top - GUIDE_GAP - height;
+		}
+		if (top < 12) {
+			side = "inside";
+			top = Math.max(12, view.top + view.height - height - 24);
+		}
+		const center = rect.left + rect.width / 2;
+		const left = Math.max(12, Math.min(center - width / 2, window.innerWidth - width - 12));
+		els.guide.dataset.side = side;
+		els.guide.style.left = `${left}px`;
+		els.guide.style.top = `${top}px`;
+		// The card's arrow points at the target's center, kept on the card.
+		els.guide.style.setProperty("--gd-guide-arrow", `${Math.max(20, Math.min(center - left, width - 20))}px`);
+	}
+
+	els.guideNext.addEventListener("click", () => {
+		const guide = state.guide;
+		if (!guide) return;
+		if (guide.step === GUIDE_STEPS.length - 1) {
+			closeGuide();
+			return;
+		}
+		guide.step += 1;
+		renderGuide(true);
+	});
+	els.guideSkip.addEventListener("click", closeGuide);
+	els.guide.addEventListener("keydown", (event) => {
+		if (event.key !== "Escape") return;
+		event.preventDefault();
+		event.stopPropagation();
+		closeGuide();
+	});
+	// Esc anywhere on the page skips the guide first, while it shows (it never shows over what else takes Esc).
+	document.addEventListener("keydown", (event) => {
+		if (event.defaultPrevented || event.key !== "Escape" || event.shiftKey || !state.guide || els.guide.hidden) return;
+		event.preventDefault();
+		closeGuide();
+	});
+
 	/** Chosen, Sent to the session, In progress, Implemented: done, current or pending, with timestamps. */
 	function renderTimeline() {
 		const board = chosenBoard();
@@ -3672,6 +3861,7 @@
 		els.comparePanes.replaceChildren(design.figure, running.figure, handle, shield);
 		els.compareFit.checked = false;
 		els.compare.hidden = false;
+		renderGuide(false);
 		els.viewport.inert = true;
 		els.panel.inert = true;
 		els.nav.inert = true;
@@ -3785,6 +3975,7 @@
 		await loadHandoffs();
 		await loadComments();
 		loadHistory().catch(() => {});
+		if (slug === state.slug) maybeStartGuide();
 	}
 
 	function reloadBoard(board) {
@@ -5813,11 +6004,13 @@
 
 	els.navToggle.addEventListener("click", () => setNav(els.nav.hidden));
 
-	/** What the rail's More offers: the design system board (when there is one, and not over Compare) and the keyboard shortcuts. */
+	/** What the rail's More offers: the design system board (when there is one, and not over Compare), the keyboard shortcuts and the guide. */
 	function moreActions() {
 		return [
 			{ label: "rail.system", icon: "i-palette", disabled: !state.systemBoard || Boolean(state.compare), run: () => enterFocus(state.systemBoard) },
 			{ label: "rail.keys", icon: "i-keys", shortcut: "?", run: openShortcuts },
+			// The guide never shows over focus mode or Compare: leave them first.
+			{ label: "rail.guide", icon: "i-help", run: () => { exitCompare(false); exitFocus(); openGuide(els.railMore); } },
 		];
 	}
 
@@ -5826,13 +6019,18 @@
 	function openShortcuts() {
 		if (typeof els.shortcuts.showModal === "function") els.shortcuts.showModal();
 		else els.shortcuts.setAttribute("open", "");
+		renderGuide(false);
 	}
 
 	function closeShortcuts() {
 		if (typeof els.shortcuts.close === "function") els.shortcuts.close();
 		else els.shortcuts.removeAttribute("open");
+		renderGuide(false);
 		els.railMore.focus();
 	}
+
+	// The browser closes the modal list on Esc too.
+	els.shortcuts.addEventListener("close", () => renderGuide(false));
 
 	els.shortcutsClose.addEventListener("click", closeShortcuts);
 
@@ -5926,6 +6124,7 @@
 		els.mixShow.hidden = true;
 		els.send.disabled = false;
 		els.popover.hidden = false;
+		renderGuide(false);
 		// Beside the element in the frame it was picked in, which may be scaled (All sizes) or resized (a single size).
 		const frameRect = surface.frame.getBoundingClientRect();
 		const scale = frameRect.width / surface.viewWidth || 1;
@@ -6019,6 +6218,7 @@
 		state.pick = null;
 		clearShot();
 		els.popover.hidden = true;
+		renderGuide(false);
 		surface?.frame.contentWindow?.postMessage({ type: "gd:clear" }, "*");
 		if (els.popover.contains(document.activeElement) || document.activeElement === document.body) (state.focus ? state.focus.frame : els.comment).focus();
 	}
@@ -6195,15 +6395,18 @@
 	window.addEventListener("resize", layoutVersions);
 	window.addEventListener("resize", renderMinimap);
 	window.addEventListener("resize", updateTabFades);
+	window.addEventListener("resize", placeGuide);
 	// The viewport also changes size when the comments panel opens or closes.
 	if (typeof ResizeObserver === "function") new ResizeObserver(() => { centerFocus(); layoutVersions(); renderMinimap(); }).observe(els.viewport);
 	// Fires once on observe, then when fonts or the panel change the row: the fades are right from the first layout.
 	if (typeof ResizeObserver === "function") new ResizeObserver(updateTabFades).observe(els.tabs);
 	else window.addEventListener("resize", () => centerFocus());
 
-	// index.html starts both hidden; the menus are built when they open.
+	// index.html starts both hidden; the menus are built when they open. The guide too, until it opens.
 	els.menu.hidden = true;
 	els.langMenu.hidden = true;
+	els.guide.hidden = true;
+	els.guideSpot.hidden = true;
 	setMode(state.mode);
 	renderTools();
 	renderTechnical();
