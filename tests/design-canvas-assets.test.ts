@@ -8489,3 +8489,28 @@ test("canvas-progressive fix: the panel's More is an icon button that keeps its 
 	const button = spanish.document.getElementById("gd-panel-more");
 	assert.equal(button.title, "Más", "the tooltip follows the language");
 });
+
+// ---- Board spacing: a long tradeoff never widens a direction (fix/canvas-board-spacing)
+
+test("board spacing: the header text never widens a direction, and a long tradeoff shows two lines with the rest in its tooltip", async () => {
+	const css = read("canvas.css");
+	const rule = (selector: string) => {
+		const start = css.indexOf(`\n${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	assert.match(rule(".gd-artboard-label"), /contain:\s*inline-size/, "the label takes the artboard's width instead of its text's");
+	assert.match(rule(".gd-artboard-tradeoff"), /-webkit-line-clamp:\s*2/, "two lines in the overview");
+	assert.match(rule(".gd-artboard-tradeoff"), /overflow:\s*hidden/);
+	assert.match(rule(".gd-focus-board .gd-artboard-tradeoff"), /-webkit-line-clamp:\s*unset/, "the whole tradeoff inside a direction");
+	assert.match(rule(".gd-artboard-label"), /padding-right:\s*min\(calc\(88px \* var\(--gd-inv-zoom, 1\)\), 45%\)/, "room on the right for Open, at screen size, so it never covers the text");
+	assert.match(rule(".gd-focus-board .gd-artboard-label, .gd-system-board .gd-artboard-label"), /padding-right:\s*0/, "no room needed inside a direction or on the system board");
+	const long = "Shows what if: sliders per model and per agent change the forecast at once; wins on decisions and exploration, but needs interaction to see the day's real numbers.";
+	const canvas = await loadCanvas(300, { "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "", artboards: [
+		{ file: "01-a.html", title: "First", tradeoff: long, width: 1440, height: 900 },
+		{ file: "02-b.html", title: "Second", tradeoff: "Short", width: 1440, height: 900 },
+	] } });
+	const [first] = withClass(boardsOf(canvas)[0], "gd-artboard-tradeoff");
+	assert.equal(first.textContent, long);
+	assert.equal(first.title, long, "the full tradeoff is in the tooltip");
+});

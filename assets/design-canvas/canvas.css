@@ -711,7 +711,13 @@ select {
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
+	/* Its text never sets the direction's width: the frame does, so a long tradeoff wraps instead of spreading the directions apart. */
+	contain: inline-size;
+	/* Open sits at the bottom right at screen size: keep room for it so it never covers the title or the tradeoff. */
+	padding-right: min(calc(88px * var(--gd-inv-zoom, 1)), 45%);
 }
+
+.gd-focus-board .gd-artboard-label, .gd-system-board .gd-artboard-label { padding-right: 0; }
 
 /* The handoff row above Implement this: anchored to the label's bottom right, kept at screen
    size like the pins, and wrapped within the artboard's on-screen width. */
@@ -783,6 +789,18 @@ select {
 .gd-artboard-tradeoff {
 	margin: 0;
 	color: var(--text-muted);
+	/* Two lines in the overview; the whole text is in the tooltip and inside a direction. */
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	overflow: hidden;
+}
+
+.gd-focus-board .gd-artboard-tradeoff {
+	-webkit-line-clamp: unset;
+	line-clamp: none;
+	overflow: visible;
 }
 
 /* Handoff row (S15): Chosen or Alternative, the handoff state, its feature document, note and Compare. */

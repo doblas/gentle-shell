@@ -1969,7 +1969,11 @@
 			const tradeoff = document.createElement("p");
 			tradeoff.className = "gd-artboard-tradeoff";
 			if (system) loc(tradeoff, "text", "system.tradeoff");
-			else tradeoff.textContent = artboard.tradeoff;
+			else {
+				tradeoff.textContent = artboard.tradeoff;
+				// The overview shows two lines; the tooltip keeps the rest.
+				tradeoff.title = artboard.tradeoff;
+			}
 			label.append(tradeoff);
 		}
 		const sizeControl = system ? null : createSizeControl(artboard);
