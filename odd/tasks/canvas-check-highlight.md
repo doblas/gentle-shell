@@ -13,8 +13,8 @@ Branch: `feat/canvas-check-highlight` (from `feat/canvas-chosen-direction`). Wor
 
 ## Tasks
 
-- [x] T1 S1-S5 — canvas mark, zoom on Show, linked card, hidden-element note, docs, tests. Route: gentle-ai-worker (context backstop). Commit:
-- [x] T2 S1-S5 — parent re-run of the suites, browser visual check, commit. Route: inline. Commit:
+- [x] T1 S1-S5 — canvas mark, zoom on Show, linked card, hidden-element note, docs, tests. Route: gentle-ai-worker (context backstop). Commit: 50a3fd1ce
+- [x] T2 S1-S5 — parent re-run of the suites, browser visual check, commit. Route: inline. Commit: 50a3fd1ce
 
 ## Log
 
