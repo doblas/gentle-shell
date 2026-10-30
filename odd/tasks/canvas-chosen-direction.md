@@ -14,7 +14,7 @@ Branch: `feat/canvas-chosen-direction` (from local `main`). Work-unit commits on
 ## Tasks
 
 - [x] T1 S1-S2, S5 — top-bar status, discarded alternatives (canvas, navigator tag, minimap, Switch to this…), docs, tests. Route: inline. Commit: 33ef6e706
-- [x] T2 S3-S5 — chosen stepper, pulsing state, readable note, navigator accent/dim/hide toggle, docs, tests, visual check. Route: gentle-ai-worker (context backstop). Commit:
+- [x] T2 S3-S5 — chosen stepper, pulsing state, readable note, navigator accent/dim/hide toggle, docs, tests, visual check. Route: gentle-ai-worker (context backstop). Commit: 6d8c4fc47
 
 ## Log
 
