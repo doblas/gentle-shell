@@ -889,6 +889,9 @@ select {
 
 .gd-pin[data-status="resolved"] { background: var(--text-muted); opacity: 0.75; }
 .gd-pin.gd-pin-active { background: var(--warning); opacity: 1; }
+/* A pick of the mix: the same pin in the info color, dimmed once it was sent. */
+.gd-pin.gd-pin-mix { background: var(--info); }
+.gd-pin.gd-pin-mix[data-used="true"] { opacity: 0.6; }
 
 /* The ring Show draws around a check's element, by the canvas and never by the artboard's page. Like the pins it lives in the
    transformed world, centered on the element's rect (--gd-mark-w/-h, artboard px); the inverse zoom keeps its stroke, its
@@ -1362,6 +1365,60 @@ button:disabled { opacity: 0.5; cursor: default; }
 .gd-panel-empty { margin: 0; color: var(--text-muted); }
 
 .gd-brief { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+
+/* Mix: the picks by artboard, then Structure from and Create combined direction. */
+.gd-mix { display: flex; flex-direction: column; gap: 12px; }
+.gd-mix-groups { display: flex; flex-direction: column; gap: 12px; }
+.gd-mix-group-title { margin: 0 0 6px; font-size: 13px; color: var(--text-muted); }
+.gd-mix-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+
+.gd-mix-item {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 4px;
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	background: var(--surface-1);
+}
+
+.gd-mix-meta { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; color: var(--text-muted); font-size: 12px; }
+
+/* The pick's badge: the shape and color of its pin. */
+.gd-mix-number {
+	flex: none;
+	display: grid;
+	place-items: center;
+	min-width: 22px;
+	height: 22px;
+	padding: 0 4px;
+	border-radius: 11px 11px 11px 2px;
+	background: var(--info);
+	color: var(--bg);
+	font-size: 11px;
+	font-weight: 700;
+}
+
+.gd-mix-selector { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.gd-mix-excerpt { color: var(--text); overflow-wrap: anywhere; }
+.gd-mix-note { color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.gd-mix-used { border-color: var(--info-line); background: var(--surface); }
+.gd-mix-used .gd-mix-number { background: var(--text-muted); }
+.gd-badge-used { color: var(--info); }
+
+.gd-mix-foot {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding-top: 12px;
+	border-top: 1px solid var(--border);
+}
+
+.gd-mix-base { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+.gd-mix-base select { flex: 1; min-width: 0; color: var(--text); }
+.gd-mix-foot .gd-primary { width: 100%; min-height: 40px; }
+.gd-mix-clear { align-self: flex-start; }
 .gd-brief-title { margin: 0; font-size: 15px; }
 .gd-brief-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 

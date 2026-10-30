@@ -30,9 +30,12 @@
 	const CLICK_SLOP = 4;
 	// The minimap: its map box in CSS px (canvas.css gives .gd-minimap-map the same size) and the pad kept free around the blocks.
 	const MINIMAP = { width: 204, height: 96, pad: 6, minBlock: 2 };
-	const LIMITS = { selector: 500, excerpt: 300, comment: 2000, variant: 2000, pins: 500, tokens: 500, versions: 50, historyArtboards: 256, screenshotBytes: 5 * 1024 * 1024 };
+	const LIMITS = { selector: 500, excerpt: 300, comment: 2000, variant: 2000, mixPicks: 20, pins: 500, tokens: 500, versions: 50, historyArtboards: 256, screenshotBytes: 5 * 1024 * 1024 };
 	const SCREENSHOT_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 	const MODE_KEY = "gentle-design:send-mode";
+	// The picks of the mix, per design: `${MIX_KEY_PREFIX}<slug>`. A pick's pin id is `${MIX_PIN}<pick id>`, never a comment id.
+	const MIX_KEY_PREFIX = "gentle-design:mix:";
+	const MIX_PIN = "mix:";
 	const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 	const MAX_PREVIEW_URL = 2048;
 	// The running app is another loopback origin (previewTarget refuses this server's own
@@ -62,10 +65,10 @@
 	const MIN_SIZES_SCALE = 0.05;
 	const TOAST_MS = 5000;
 	// What the server can deliver; an older page config without it means everything.
-	const DELIVERY = { comment: true, batch: true, implement: true, variant: true, ...(config.delivery && typeof config.delivery === "object" ? config.delivery : {}) };
+	const DELIVERY = { comment: true, batch: true, implement: true, variant: true, mix: true, ...(config.delivery && typeof config.delivery === "object" ? config.delivery : {}) };
 	// Suggestions in the "another direction" dialog: each fills the field with its own label.
 	const VARIANT_SUGGESTIONS = ["variant.compact", "variant.bolder", "variant.mobile", "variant.calmer"];
-	const TAB_NAMES = ["open", "resolved", "history", "checks", "brief"];
+	const TAB_NAMES = ["open", "resolved", "history", "checks", "mix", "brief"];
 
 	/* catalog:start */
 	// S4: every word the canvas shows, once per language, one entry per line. A key missing from `es` shows the English text.
@@ -143,6 +146,7 @@
 			"tab.resolved": "Resolved",
 			"tab.history": "History",
 			"tab.checks": "Checks",
+			"tab.mix": "Mix",
 			"tab.brief": "Brief",
 			"tabs.prev": "Earlier tabs",
 			"tabs.next": "More tabs",
@@ -267,6 +271,22 @@
 			"variant.bolder": "Bolder",
 			"variant.mobile": "Mobile first",
 			"variant.calmer": "Calmer colors",
+			"mix.add": "Add to the mix",
+			"mix.added": "Added to the mix",
+			"mix.full": "The mix holds up to {max} picks. Remove one first.",
+			"mix.noteTooLong": "Write a note of at most {max} characters.",
+			"mix.empty": "Nothing in the mix yet. In Comment mode, click an element and choose Add to the mix: a container brings its whole section, an element only itself.",
+			"mix.pinAria": "Mix pick {number}: {selector}",
+			"mix.used": "Used",
+			"mix.remove": "Remove",
+			"mix.removeAria": "Remove pick {number} from the mix",
+			"mix.base": "Structure from",
+			"mix.create": "Create combined direction",
+			"mix.noPicks": "Add elements to the mix first.",
+			"mix.allUsed": "These picks were already sent. Add new ones, or clear the used ones.",
+			"mix.clearUsed": "Clear used",
+			"mix.queued": "Queued: the session will write a combined direction with the structure of {title} after its current task.",
+			"mix.sent": "Sent: the session is writing a combined direction with the structure of {title} now.",
 			"placeholder.title": "New direction",
 			"placeholder.aria": "{number} · New direction",
 			"placeholder.state": "Designing…",
@@ -436,6 +456,8 @@
 			"reason.batch-delivery-unavailable": "This canvas is not connected to a Pi session, so comments cannot be sent. They stay saved; open the canvas from your session with /gentle:design open, then use Send all.",
 			"reason.implement-unavailable": "This canvas is not connected to a Pi session, so it cannot hand the artboard off. Open the canvas from your session with /gentle:design open.",
 			"reason.variant-unavailable": "This canvas is not connected to a Pi session, so it cannot ask for another direction. Open the canvas from your session with /gentle:design open.",
+			"reason.mix-unavailable": "This canvas is not connected to a Pi session, so it cannot ask for a combined direction. Open the canvas from your session with /gentle:design open.",
+			"reason.invalid-base": "The base artboard is no longer in this design. Choose another one in Structure from and try again.",
 			"reason.invalid-instruction": "This request was rejected by the server. Write 1 to {max} characters and try again.",
 			"reason.delivery-failed": "The session did not accept the message. Your comments stay saved and unsent; check that the session is running, then try again.",
 			"reason.too-many-comments": "This design has too many comments. Resolve or delete some in comments.json, then try again.",
@@ -459,6 +481,7 @@
 			"reason.unknown": "Something went wrong. Try again; if it keeps failing, reopen the canvas: open the canvas from your session with /gentle:design open.",
 			"reason.implement.delivery-failed": "The session did not accept the handoff, so it was not recorded. Check that the session is running, then use Implement this again.",
 			"reason.variant.delivery-failed": "The session did not accept the request, so nothing was sent. Check that the session is running, then use Send to the session again.",
+			"reason.mix.delivery-failed": "The session did not accept the request, so nothing was sent and your picks stay in the mix. Check that the session is running, then use Create combined direction again.",
 			"reason.restore.file-too-large": "The artboard is too large to save a copy before restoring (versions are limited to 8 MB), so nothing was changed. Make it smaller, then try again.",
 			"reason.restore.not-found": "That version is no longer kept, so nothing was changed. Choose another version.",
 		},
@@ -534,6 +557,7 @@
 			"tab.resolved": "Resueltos",
 			"tab.history": "Historial",
 			"tab.checks": "Comprobaciones",
+			"tab.mix": "Mezcla",
 			"tab.brief": "Encargo",
 			"tabs.prev": "Pestañas anteriores",
 			"tabs.next": "Más pestañas",
@@ -658,6 +682,22 @@
 			"variant.bolder": "Más atrevido",
 			"variant.mobile": "Primero móvil",
 			"variant.calmer": "Colores más calmados",
+			"mix.add": "Añadir a la mezcla",
+			"mix.added": "Añadido a la mezcla",
+			"mix.full": "La mezcla admite hasta {max} selecciones. Quita una primero.",
+			"mix.noteTooLong": "Escribe una nota de {max} caracteres como máximo.",
+			"mix.empty": "Aún no hay nada en la mezcla. En el modo Comentar, haz clic en un elemento y elige Añadir a la mezcla: un contenedor aporta su sección entera; un elemento, solo a sí mismo.",
+			"mix.pinAria": "Selección {number} de la mezcla: {selector}",
+			"mix.used": "Usada",
+			"mix.remove": "Quitar",
+			"mix.removeAria": "Quitar la selección {number} de la mezcla",
+			"mix.base": "Estructura de",
+			"mix.create": "Crear propuesta combinada",
+			"mix.noPicks": "Primero añade elementos a la mezcla.",
+			"mix.allUsed": "Estas selecciones ya se enviaron. Añade otras nuevas o borra las usadas.",
+			"mix.clearUsed": "Borrar usadas",
+			"mix.queued": "En cola: la sesión escribirá una propuesta combinada con la estructura de {title} cuando termine su tarea actual.",
+			"mix.sent": "Enviado: la sesión está escribiendo una propuesta combinada con la estructura de {title} ahora.",
 			"placeholder.title": "Nueva dirección",
 			"placeholder.aria": "{number} · Nueva dirección",
 			"placeholder.state": "Diseñando…",
@@ -827,6 +867,8 @@
 			"reason.batch-delivery-unavailable": "Este canvas no está conectado a una sesión de Pi, así que no se pueden enviar los comentarios. Se quedan guardados; abre el canvas desde tu sesión con /gentle:design open y usa Enviar todo.",
 			"reason.implement-unavailable": "Este canvas no está conectado a una sesión de Pi, así que no puede entregar el artboard. Abre el canvas desde tu sesión con /gentle:design open.",
 			"reason.variant-unavailable": "Este canvas no está conectado a una sesión de Pi, así que no puede pedir otra dirección. Abre el canvas desde tu sesión con /gentle:design open.",
+			"reason.mix-unavailable": "Este canvas no está conectado a una sesión de Pi, así que no puede pedir una propuesta combinada. Abre el canvas desde tu sesión con /gentle:design open.",
+			"reason.invalid-base": "El artboard base ya no está en este diseño. Elige otro en Estructura de y vuelve a intentarlo.",
 			"reason.invalid-instruction": "El servidor rechazó esta solicitud. Escribe de 1 a {max} caracteres y vuelve a intentarlo.",
 			"reason.delivery-failed": "La sesión no aceptó el mensaje. Tus comentarios quedan guardados y sin enviar; comprueba que la sesión esté en marcha y vuelve a intentarlo.",
 			"reason.too-many-comments": "Este diseño tiene demasiados comentarios. Resuelve o elimina algunos en comments.json y vuelve a intentarlo.",
@@ -850,6 +892,7 @@
 			"reason.unknown": "Algo salió mal. Inténtalo de nuevo; si sigue fallando, vuelve a abrir el canvas: abre el canvas desde tu sesión con /gentle:design open.",
 			"reason.implement.delivery-failed": "La sesión no aceptó el handoff, así que no se registró. Comprueba que la sesión esté en marcha y usa Implementar esto de nuevo.",
 			"reason.variant.delivery-failed": "La sesión no aceptó la solicitud, así que no se envió nada. Comprueba que la sesión esté en marcha y usa Enviar a la sesión de nuevo.",
+			"reason.mix.delivery-failed": "La sesión no aceptó la solicitud, así que no se envió nada y tus selecciones siguen en la mezcla. Comprueba que la sesión esté en marcha y usa Crear propuesta combinada de nuevo.",
 			"reason.restore.file-too-large": "El artboard es demasiado grande para guardar una copia antes de restaurar (las versiones están limitadas a 8 MB), así que no se cambió nada. Redúcelo e inténtalo de nuevo.",
 			"reason.restore.not-found": "Esa versión ya no se conserva, así que no se cambió nada. Elige otra versión.",
 		},
@@ -1003,6 +1046,17 @@
 		tabChecks: $("gd-tab-checks"),
 		countChecks: $("gd-count-checks"),
 		checks: $("gd-checks"),
+		tabMix: $("gd-tab-mix"),
+		countMix: $("gd-count-mix"),
+		mix: $("gd-mix"),
+		mixEmpty: $("gd-mix-empty"),
+		mixGroups: $("gd-mix-groups"),
+		mixFoot: $("gd-mix-foot"),
+		mixBase: $("gd-mix-base"),
+		mixCreate: $("gd-mix-create"),
+		mixNote: $("gd-mix-note"),
+		mixClear: $("gd-mix-clear"),
+		mixAdd: $("gd-popover-mix"),
 		tabBrief: $("gd-tab-brief"),
 		countOpen: $("gd-count-open"),
 		countResolved: $("gd-count-resolved"),
@@ -1161,6 +1215,13 @@
 		toastTimer: 0,
 		// Failed resolve or reopen replies by comment id, shown in that comment's card.
 		cardErrors: new Map(),
+		// The mix of design `slug`: picks { id, file, selector, excerpt, note, used }, kept in localStorage (MIX_KEY_PREFIX).
+		mix: { slug: null, picks: [] },
+		// The artboard the user chose under Structure from, or null for the default (most picks).
+		mixBase: null,
+		mixSending: false,
+		// Each pick's card and Remove button by pick id, from the last render, so focus can be put back.
+		mixCards: new Map(),
 	};
 
 	/** The status line: the text of `key` (none clears it), kept in the language of the page. */
@@ -3527,6 +3588,8 @@
 		const focusFile = state.focus && !state.focus.system ? state.focus.artboard.file : null;
 		state.boards.forEach(removeSizeFrames);
 		state.boards = manifest.artboards.map((artboard, index) => createBoard(slug, artboard, false, index + 1));
+		useMix(slug);
+		pruneMix();
 		// A manifest reload keeps focus mode on the same artboard file while it still exists.
 		if (focusFile) state.focus = state.boards.find((board) => board.artboard.file === focusFile) ?? state.focus;
 		placeBoards();
@@ -3619,6 +3682,7 @@
 			state.slug = slug;
 			state.comments = [];
 			state.activeId = null;
+			useMix(slug);
 			resetHistory();
 			renderComments();
 		}
@@ -4905,9 +4969,12 @@
 		return state.comments.filter((comment) => comment.file === board.artboard.file);
 	}
 
+	/** The artboard locates the mix's picks like comments; a pick's id carries MIX_PIN, which no comment id has. */
 	function sendPins(surface) {
-		const pins = commentsForBoard(ownerOf(surface)).slice(0, LIMITS.pins).map((comment) => ({ id: comment.id, selector: comment.selector }));
-		surface.frame.contentWindow?.postMessage({ type: "gd:pins", pins }, "*");
+		const board = ownerOf(surface);
+		const picks = picksForBoard(board).map((pick) => ({ id: `${MIX_PIN}${pick.id}`, selector: pick.selector }));
+		const comments = commentsForBoard(board).slice(0, LIMITS.pins - picks.length).map((comment) => ({ id: comment.id, selector: comment.selector }));
+		surface.frame.contentWindow?.postMessage({ type: "gd:pins", pins: [...picks, ...comments] }, "*");
 	}
 
 	/** Detached: the artboard is gone, or it reported that the selector matches nothing. */
@@ -4948,6 +5015,26 @@
 			});
 			pins.push(pin);
 		}
+		// The mix's picks, in their own color, numbered as in the Mix tab.
+		for (const pick of picksForBoard(ownerOf(surface))) {
+			const rect = surface.rects?.get(`${MIX_PIN}${pick.id}`);
+			if (!rect) continue;
+			if (rect.x + rect.width < 0 || rect.y + rect.height < 0 || rect.x > surface.viewWidth || rect.y > surface.viewHeight) continue;
+			const pin = document.createElement("button");
+			pin.type = "button";
+			pin.className = "gd-pin gd-pin-mix";
+			pin.dataset.id = `${MIX_PIN}${pick.id}`;
+			pin.dataset.used = String(pick.used);
+			pin.textContent = String(mixNumber(pick));
+			pin.setAttribute("aria-label", t("mix.pinAria", { number: mixNumber(pick), selector: pick.selector }));
+			pin.style.left = `${Math.max(0, rect.x)}px`;
+			pin.style.top = `${Math.max(0, rect.y)}px`;
+			pin.addEventListener("click", (event) => {
+				event.stopPropagation();
+				showPick(pick.id);
+			});
+			pins.push(pin);
+		}
 		const focused = surface.pins.contains(document.activeElement) ? document.activeElement.dataset.id : null;
 		surface.pins.replaceChildren(...pins);
 		if (focused) pins.find((pin) => pin.dataset.id === focused)?.focus();
@@ -4972,14 +5059,17 @@
 		const brief = state.tab === "brief";
 		const checks = state.tab === "checks";
 		const history = state.tab === "history";
+		const mix = state.tab === "mix";
 		els.brief.hidden = !brief;
 		els.checks.hidden = !checks;
 		els.history.hidden = !history;
-		els.list.hidden = brief || checks || history;
+		els.mix.hidden = !mix;
+		els.list.hidden = brief || checks || history || mix;
 		renderChecks();
 		renderHistory();
+		renderMix();
 		const shown = state.tab === "resolved" ? resolved : open;
-		els.panelEmpty.hidden = brief || checks || history || shown.length > 0;
+		els.panelEmpty.hidden = brief || checks || history || mix || shown.length > 0;
 		loc(els.panelEmpty, "text", state.comments.length === 0 ? "panel.empty.none" : state.tab === "open" ? "panel.empty.open" : "panel.empty.resolved");
 		els.list.replaceChildren(...shown.map((comment) => {
 			const item = document.createElement("li");
@@ -5151,6 +5241,242 @@
 		renderList();
 	});
 
+	// ---- mix ----------------------------------------------------------------
+	// "Add to the mix" in the comment popover keeps an element of an artboard, with an optional note, in this browser
+	// (per design); the Mix tab lists the picks by artboard, and "Create combined direction" asks the session for one
+	// new artboard with the structure of the base artboard and every pick. Sent picks stay, shown as used, until
+	// "Clear used" or the next pick.
+
+	const MIX_ID = /^[A-Za-z0-9]{1,16}$/;
+	const mixAlert = createAlert();
+	els.mixFoot.append(mixAlert.root);
+
+	/** The stored picks of design `slug`: anything malformed is left out, and storage that throws means none. */
+	function storedMix(slug) {
+		let value = null;
+		try {
+			value = JSON.parse(localStorage.getItem(`${MIX_KEY_PREFIX}${slug}`) ?? "null");
+		} catch {
+			return [];
+		}
+		if (!value || typeof value !== "object" || !Array.isArray(value.picks)) return [];
+		const text = (field, min, max) => typeof field === "string" && field.length >= min && field.length <= max;
+		const picks = [];
+		for (const entry of value.picks) {
+			if (!entry || typeof entry !== "object" || typeof entry.id !== "string" || !MIX_ID.test(entry.id) || picks.some((pick) => pick.id === entry.id)) continue;
+			if (!text(entry.file, 1, 512) || !text(entry.selector, 1, LIMITS.selector) || !text(entry.excerpt, 0, LIMITS.excerpt) || !text(entry.note, 0, LIMITS.comment)) continue;
+			picks.push({ id: entry.id, file: entry.file, selector: entry.selector, excerpt: entry.excerpt, note: entry.note, used: entry.used === true });
+		}
+		return picks.slice(0, LIMITS.mixPicks);
+	}
+
+	function saveMix() {
+		if (!state.mix.slug) return;
+		try { localStorage.setItem(`${MIX_KEY_PREFIX}${state.mix.slug}`, JSON.stringify({ version: 1, picks: state.mix.picks })); } catch { /* storage may be unavailable */ }
+	}
+
+	/** The mix of design `slug` (null: none), read once when the canvas turns to that design. */
+	function useMix(slug) {
+		if (state.mix.slug === slug) return;
+		state.mix = { slug, picks: slug ? storedMix(slug) : [] };
+		state.mixBase = null;
+		hideAlert(mixAlert);
+	}
+
+	/** Picks whose artboard is no longer in the manifest are dropped. */
+	function pruneMix() {
+		const files = new Set(state.boards.map((board) => board.artboard.file));
+		const kept = state.mix.picks.filter((pick) => files.has(pick.file));
+		if (kept.length === state.mix.picks.length) return;
+		state.mix.picks = kept;
+		saveMix();
+	}
+
+	function picksForBoard(board) {
+		if (board.system || board.slug !== state.mix.slug) return [];
+		return state.mix.picks.filter((pick) => pick.file === board.artboard.file);
+	}
+
+	/** The picks in the order the Mix tab shows them: by artboard, then as they were added. */
+	function orderedPicks() {
+		return state.boards.flatMap(picksForBoard);
+	}
+
+	function mixNumber(pick) {
+		return orderedPicks().indexOf(pick) + 1;
+	}
+
+	const boardLabel = (board) => `${String(board.number).padStart(2, "0")} · ${board.artboard.title}`;
+
+	/** Structure from: the user's choice while it is an artboard, else the artboard with the most picks (the first on a tie). */
+	function mixBaseFile() {
+		const files = state.boards.map((board) => board.artboard.file);
+		if (state.mixBase && files.includes(state.mixBase)) return state.mixBase;
+		let best = files[0] ?? null;
+		let most = 0;
+		for (const file of files) {
+			const count = state.mix.picks.filter((pick) => pick.file === file).length;
+			if (count > most) {
+				best = file;
+				most = count;
+			}
+		}
+		return best;
+	}
+
+	function newPickId() {
+		for (;;) {
+			const id = Math.random().toString(36).slice(2, 10);
+			if (MIX_ID.test(id) && !state.mix.picks.some((pick) => pick.id === id)) return id;
+		}
+	}
+
+	/** After any change of the picks: the store, every artboard's pins and the panel. */
+	function mixChanged() {
+		saveMix();
+		state.boards.forEach((board) => surfacesOf(board).forEach(sendPins));
+		renderComments();
+	}
+
+	/** Adds a pick, or updates the note of the same element; false when the mix is full. The next pick after a send clears the used ones. */
+	function addPick(fields) {
+		const mix = state.mix;
+		if (mix.picks.some((pick) => pick.used)) mix.picks = mix.picks.filter((pick) => !pick.used);
+		const same = mix.picks.find((pick) => pick.file === fields.file && pick.selector === fields.selector);
+		if (same) Object.assign(same, { excerpt: fields.excerpt, note: fields.note });
+		else if (mix.picks.length >= LIMITS.mixPicks) return false;
+		else mix.picks.push({ id: newPickId(), ...fields, used: false });
+		mixChanged();
+		return true;
+	}
+
+	function removePick(id) {
+		const ordered = orderedPicks();
+		const index = ordered.findIndex((pick) => pick.id === id);
+		state.mix.picks = state.mix.picks.filter((pick) => pick.id !== id);
+		mixChanged();
+		// Focus goes to the next pick's Remove (or the previous one), else to the tab.
+		const rest = ordered.filter((pick) => pick.id !== id);
+		const next = rest[Math.min(index, rest.length - 1)];
+		(next ? state.mixCards.get(next.id).remove : els.tabMix).focus();
+	}
+
+	/** A pick's pin: the Mix tab, with keyboard focus on that pick. */
+	function showPick(id) {
+		if (els.panel.hidden && !state.focus) setPanel(true);
+		setTab("mix");
+		state.mixCards.get(id)?.item.focus();
+	}
+
+	function mixCard(pick) {
+		const number = mixNumber(pick);
+		const item = document.createElement("li");
+		item.className = "gd-mix-item";
+		item.dataset.id = pick.id;
+		item.setAttribute("tabindex", "-1");
+		item.classList.toggle("gd-mix-used", pick.used);
+		const meta = document.createElement("div");
+		meta.className = "gd-mix-meta";
+		const selector = document.createElement("code");
+		selector.className = "gd-mix-selector";
+		selector.textContent = pick.selector;
+		meta.append(chip("gd-mix-number", String(number)), selector);
+		if (pick.used) meta.append(chip("gd-badge gd-badge-used", t("mix.used")));
+		item.append(meta);
+		if (pick.excerpt) item.append(chip("gd-mix-excerpt", `“${pick.excerpt}”`));
+		if (pick.note) item.append(chip("gd-mix-note", pick.note));
+		const remove = document.createElement("button");
+		remove.type = "button";
+		remove.className = "gd-mix-remove gd-small";
+		remove.textContent = t("mix.remove");
+		remove.setAttribute("aria-label", t("mix.removeAria", { number }));
+		remove.addEventListener("click", () => removePick(pick.id));
+		item.append(remove);
+		state.mixCards.set(pick.id, { item, remove });
+		return item;
+	}
+
+	/** The Mix tab: count, empty state, picks by artboard, Structure from, and Create with the reason it is off. */
+	function renderMix() {
+		const picks = state.mix.picks;
+		els.countMix.textContent = String(picks.length);
+		els.mixEmpty.hidden = picks.length > 0;
+		loc(els.mixEmpty, "text", "mix.empty");
+		const focused = state.mixCards.size > 0 ? [...state.mixCards].find(([, card]) => card.item === document.activeElement || card.remove === document.activeElement) : null;
+		state.mixCards = new Map();
+		els.mixGroups.replaceChildren(...state.boards.filter((board) => picksForBoard(board).length > 0).map((board) => {
+			const group = document.createElement("section");
+			group.className = "gd-mix-group";
+			const title = document.createElement("h3");
+			title.className = "gd-mix-group-title";
+			title.id = `gd-mix-group-${board.number}`;
+			title.textContent = boardLabel(board);
+			group.setAttribute("aria-labelledby", title.id);
+			const list = document.createElement("ol");
+			list.className = "gd-mix-list";
+			list.append(...picksForBoard(board).map(mixCard));
+			group.append(title, list);
+			return group;
+		}));
+		// A re-render keeps keyboard focus on the same pick.
+		if (focused) {
+			const card = state.mixCards.get(focused[0]);
+			if (card) (focused[1].remove === document.activeElement ? card.remove : card.item).focus();
+		}
+		els.mixBase.replaceChildren(...state.boards.map((board) => {
+			const option = document.createElement("option");
+			option.value = board.artboard.file;
+			option.textContent = boardLabel(board);
+			return option;
+		}));
+		els.mixBase.value = mixBaseFile() ?? "";
+		els.mixBase.disabled = state.boards.length === 0;
+		const offline = DELIVERY.mix ? null : explain({ status: 501, body: { error: "mix-unavailable" } });
+		const fresh = picks.filter((pick) => !pick.used).length;
+		const reason = offline ? offline.key : fresh > 0 ? null : picks.length > 0 ? "mix.allUsed" : "mix.noPicks";
+		els.mixCreate.disabled = state.mixSending || reason !== null;
+		loc(els.mixNote, "text", reason, offline ? offline.params : undefined);
+		els.mixNote.title = offline ? offline.detail : "";
+		els.mixNote.hidden = reason === null;
+		els.mixClear.hidden = !picks.some((pick) => pick.used);
+	}
+
+	els.mixBase.addEventListener("change", () => {
+		state.mixBase = els.mixBase.value || null;
+	});
+
+	els.mixClear.addEventListener("click", () => {
+		state.mix.picks = state.mix.picks.filter((pick) => !pick.used);
+		mixChanged();
+		els.tabMix.focus();
+	});
+
+	els.mixCreate.addEventListener("click", async () => {
+		const slug = state.mix.slug;
+		const picks = orderedPicks().filter((pick) => !pick.used);
+		const base = mixBaseFile();
+		const board = state.boards.find((candidate) => candidate.artboard.file === base);
+		if (els.mixCreate.disabled || state.mixSending || !DELIVERY.mix || !slug || slug !== state.slug || picks.length === 0 || !board) return;
+		state.mixSending = true;
+		hideAlert(mixAlert);
+		renderMix();
+		const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/mix`, { base, picks: picks.map(({ file, selector, excerpt, note }) => ({ file, selector, excerpt, note })) });
+		state.mixSending = false;
+		if (!reply.ok) {
+			// The picks stay as they were, so it can be sent again.
+			const info = explain(reply, "mix");
+			if (state.mix.slug === slug) showAlert(mixAlert, reply, "mix");
+			else showToast(info.text, true);
+			renderMix();
+			return;
+		}
+		for (const pick of picks) pick.used = true;
+		if (state.mix.slug === slug) mixChanged();
+		showToast(t(reply.body.queued === true ? "mix.queued" : "mix.sent", { title: board.artboard.title }), false);
+		// Like another direction: a placeholder shows where the new artboard will appear.
+		if (slug === state.slug) showPlaceholder(board);
+	});
+
 	function setMode(mode) {
 		state.mode = mode === "collect" ? "collect" : "send";
 		els.modeSend.checked = state.mode === "send";
@@ -5163,7 +5489,7 @@
 	els.modeCollect.addEventListener("change", () => setMode("collect"));
 
 	function tabButtons() {
-		return [els.filterOpen, els.filterResolved, els.tabHistory, els.tabChecks, els.tabBrief];
+		return [els.filterOpen, els.filterResolved, els.tabHistory, els.tabChecks, els.tabMix, els.tabBrief];
 	}
 
 	function setTab(name) {
@@ -5496,6 +5822,26 @@
 		els.message.title = savedOnly ? explain(reply).detail : "";
 		els.message.classList.toggle("gd-error", savedOnly);
 		state.closeTimer = setTimeout(closePopover, savedOnly ? 2500 : 1200);
+	});
+
+	// The popover's second action: the picked element joins the mix, with the field as its optional note.
+	els.mixAdd.addEventListener("click", () => {
+		const pick = state.pick;
+		if (!pick) return;
+		const note = els.text.value.replace(/\r\n?/g, "\n").trim();
+		const refuse = (text) => {
+			els.message.textContent = text;
+			els.message.title = "";
+			els.message.classList.add("gd-error");
+		};
+		if (note.length > LIMITS.comment) return refuse(t("mix.noteTooLong", { max: LIMITS.comment }));
+		if (!addPick({ file: pick.board.artboard.file, selector: pick.selector, excerpt: pick.excerpt, note })) return refuse(t("mix.full", { max: LIMITS.mixPicks }));
+		els.text.value = "";
+		els.message.textContent = t("mix.added");
+		els.message.title = "";
+		els.message.classList.remove("gd-error");
+		clearTimeout(state.closeTimer);
+		state.closeTimer = setTimeout(closePopover, 1200);
 	});
 
 	window.addEventListener("message", (event) => {

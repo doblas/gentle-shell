@@ -120,6 +120,7 @@
 					<button type="button" role="tab" id="gd-filter-resolved" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.resolved">Resolved</span> <span id="gd-count-resolved" class="gd-count">0</span></button>
 					<button type="button" role="tab" id="gd-tab-history" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.history">History</span> <span id="gd-count-history" class="gd-count">0</span></button>
 					<button type="button" role="tab" id="gd-tab-checks" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.checks">Checks</span> <span id="gd-count-checks" class="gd-count">0</span></button>
+					<button type="button" role="tab" id="gd-tab-mix" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.mix">Mix</span> <span id="gd-count-mix" class="gd-count">0</span></button>
 					<button type="button" role="tab" id="gd-tab-brief" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1" data-i18n="tab.brief">Brief</button>
 				</div>
 				<button type="button" id="gd-tabs-next" class="gd-tabs-arrow" tabindex="-1" aria-hidden="true" aria-label="More tabs" data-i18n-aria-label="tabs.next" data-i18n-title="tabs.next" title="More tabs" hidden><svg class="gd-i"><use href="#i-chevron-right"/></svg></button>
@@ -134,6 +135,16 @@
 				</div>
 				<div id="gd-history" class="gd-history" hidden></div>
 				<div id="gd-checks" class="gd-checks" hidden></div>
+				<div id="gd-mix" class="gd-mix" hidden>
+					<p id="gd-mix-empty" class="gd-panel-empty" data-i18n="mix.empty">Nothing in the mix yet. In Comment mode, click an element and choose Add to the mix: a container brings its whole section, an element only itself.</p>
+					<div id="gd-mix-groups" class="gd-mix-groups"></div>
+					<div id="gd-mix-foot" class="gd-mix-foot">
+						<label class="gd-mix-base" for="gd-mix-base"><span data-i18n="mix.base">Structure from</span> <select id="gd-mix-base"></select></label>
+						<button type="button" id="gd-mix-create" class="gd-primary" aria-describedby="gd-mix-note" data-i18n="mix.create">Create combined direction</button>
+						<p id="gd-mix-note" class="gd-send-note" hidden></p>
+						<button type="button" id="gd-mix-clear" class="gd-small" data-i18n="mix.clearUsed" hidden>Clear used</button>
+					</div>
+				</div>
 				<section id="gd-handoff-panel" class="gd-handoff-panel" aria-labelledby="gd-handoff-title" hidden>
 					<h3 id="gd-handoff-title" class="gd-handoff-title"></h3>
 					<ol id="gd-timeline" class="gd-timeline"></ol>
@@ -193,6 +204,7 @@
 			<div class="gd-popover-actions">
 				<span id="gd-popover-message" class="gd-popover-message" role="status" aria-live="polite"></span>
 				<button type="button" id="gd-popover-cancel" data-i18n="common.cancel">Cancel</button>
+				<button type="button" id="gd-popover-mix" data-i18n="mix.add">Add to the mix</button>
 				<button type="submit" id="gd-popover-send" class="gd-primary" data-i18n="common.send">Send</button>
 			</div>
 		</form>
