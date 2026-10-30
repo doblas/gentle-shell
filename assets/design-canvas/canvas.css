@@ -728,7 +728,8 @@ select {
 	transform-origin: right bottom;
 }
 
-.gd-compact .gd-board-actions { display: none; }
+/* Zoomed out, the handoff row and Implement this collapse; Open stays, it is how a direction opens (canvas-progressive S4). */
+.gd-compact .gd-handoff, .gd-compact .gd-implement { display: none; }
 
 .gd-implement { white-space: nowrap; }
 
@@ -1362,7 +1363,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .gd-panel[hidden] { display: none; }
 
 /* Tabs: Comments N / Resolved N / History N / Checks N / Brief */
-/* Five tabs can be wider than the panel (longer in Spanish): the row stays one line and scrolls rather than
+/* The tabs (Comments, Quality, Mix) and More beside them can be wider than the panel: the row stays one line and scrolls rather than
    squeezing labels and counts into each other; an arrow on each edge with tabs behind it scrolls toward that side.
    The bottom line is an inset shadow on the bar because a scrolling row clips anything drawn below it. */
 .gd-tabs-bar {
@@ -1417,6 +1418,11 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .gd-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
 
+/* More (History, Original request): a menu button beside the tablist, underlined while one of its views shows. */
+.gd-tab-more { gap: 4px; margin: 8px 10px 0 4px; }
+.gd-tab-more[aria-expanded="true"] { color: var(--text); background: var(--surface-2); }
+.gd-tab-more.gd-tab-more-current { color: var(--text); border-bottom-color: var(--accent); }
+
 .gd-count {
 	padding: 0 6px;
 	border-radius: var(--radius-pill);
@@ -1436,6 +1442,24 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 
 .gd-panel-empty { margin: 0; color: var(--text-muted); }
+
+/* No comments yet, and how to add one (canvas-progressive S5). */
+.gd-comments-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	margin-top: 24px;
+	padding: 20px;
+	border: 1px dashed var(--border);
+	border-radius: var(--radius-md);
+	color: var(--text-muted);
+	font-size: 13px;
+	text-align: center;
+}
+
+.gd-comments-empty .gd-i { width: 28px; height: 28px; color: var(--accent); }
+.gd-comments-empty strong { color: var(--text); font-size: 14px; }
 
 /* The Comments tab's Open / Resolved filter: the segmented control of the size bar. */
 .gd-comment-filter { align-self: flex-start; }
@@ -2378,17 +2402,34 @@ kbd {
 
 /* ---- technical details (canvas-ux-quick-wins S2) ---- */
 
-/* The top bar toggle: off by default, accent while on. */
+/* The last row of the review side (canvas-progressive S5): off by default; a switch at its end shows the state. */
 .gd-technical {
-	gap: 6px;
+	justify-content: flex-start;
+	width: 100%;
+	gap: 8px;
+	border-color: transparent;
 	color: var(--text-muted);
+	font-size: 13px;
 }
 
-.gd-technical[aria-pressed="true"] {
+.gd-technical[aria-pressed="true"] { color: var(--text); }
+
+.gd-switch {
+	display: inline-flex;
+	align-items: center;
+	flex: none;
+	width: 34px;
+	height: 20px;
+	margin-left: auto;
+	padding: 2px;
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-pill);
 	background: var(--surface-2);
-	border-color: var(--accent-line);
-	color: var(--accent);
 }
+
+.gd-switch::before { content: ""; width: 14px; height: 14px; border-radius: 50%; background: var(--text-muted); }
+.gd-technical[aria-pressed="true"] .gd-switch { justify-content: flex-end; background: var(--accent); border-color: var(--accent); }
+.gd-technical[aria-pressed="true"] .gd-switch::before { background: var(--bg); }
 
 .gd-technical:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 

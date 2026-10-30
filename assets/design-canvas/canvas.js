@@ -72,7 +72,8 @@
 	const DELIVERY = { comment: true, batch: true, implement: true, variant: true, mix: true, ...(config.delivery && typeof config.delivery === "object" ? config.delivery : {}) };
 	// Suggestions in the "another direction" dialog: each fills the field with its own label.
 	const VARIANT_SUGGESTIONS = ["variant.compact", "variant.bolder", "variant.mobile", "variant.calmer"];
-	const TAB_NAMES = ["comments", "history", "checks", "mix", "brief"];
+	// The review panel's tabs; History and Original request ("history", "brief") are views its More menu opens in the panel.
+	const TAB_NAMES = ["comments", "checks", "mix"];
 
 	/* catalog:start */
 	// S4: every word the canvas shows, once per language, one entry per line. A key missing from `es` shows the English text.
@@ -132,7 +133,7 @@
 			"zoom.fit": "Fit all",
 			"zoom.fit.title": "Fit all (0)",
 			"nav.title": "Directions · {count}",
-			"nav.note": "Design system board is always first in Overview.",
+			"nav.note": "Open a direction to comment on it, mix it or implement it.",
 			"nav.thumb": "{title} preview",
 			"nav.summary.open.one": "{count} open comment",
 			"nav.summary.open.other": "{count} open comments",
@@ -145,7 +146,7 @@
 			"a11y.fails.one": "{count} check",
 			"a11y.fails.other": "{count} checks",
 			"a11y.okTitle": "Automatic checks found no problems. They are heuristics, not a full audit.",
-			"a11y.failTitle": "Open the Checks tab to see them.",
+			"a11y.failTitle": "Open the Quality tab to see them.",
 			"viewport.label": "Directions",
 			"mode.navigating": "Moving around the canvas · wheel to zoom",
 			"mode.commenting": "Click a direction to open it and comment · Esc",
@@ -160,18 +161,21 @@
 			"panel.toggleTitle": "Review panel (])",
 			"tab.comments": "Comments",
 			"tab.history": "History",
-			"tab.checks": "Checks",
+			"tab.checks": "Quality",
 			"tab.mix": "Mix",
 			"tab.brief": "Original request",
 			"tabs.prev": "Earlier tabs",
 			"tabs.next": "More tabs",
+			"panel.more": "More",
 			"panel.comments": "Comments",
-			"panel.empty.none": "No comments yet. Turn on Comment mode and click an element.",
+			"panel.empty.none": "No comments yet",
+			"panel.empty.hint": "Open a direction and press “Comment” on whatever you want to change.",
 			"panel.empty.open": "No open comments.",
 			"panel.empty.resolved": "No resolved comments.",
 			"filter.label": "Show comments",
-			"filter.open": "Open ({count})",
-			"filter.resolved": "Resolved ({count})",
+			"filter.open": "Open · {count}",
+			"filter.resolved": "Resolved · {count}",
+			"filter.all": "All",
 			"panel.sendMode": "When a comment is sent to the session",
 			"panel.sendNow": "Send now",
 			"panel.collect": "Save to send later",
@@ -230,6 +234,8 @@
 			"board.comment": "Open {title} to comment",
 			"board.frameTitle": "{title} artboard",
 			"board.menuButton": "More actions for {title}",
+			"board.open": "Open",
+			"board.openAria": "Open direction {number}, {title}",
 			"system.title": "Design system",
 			"system.tradeoff": "Project tokens (design/system.md)",
 			"system.note": "Comments apply to design artboards only. To change the system, update the project's design sources and run /gentle:design sync.",
@@ -566,7 +572,7 @@
 			"zoom.fit": "Ajustar todo",
 			"zoom.fit.title": "Ajustar todo (0)",
 			"nav.title": "Propuestas · {count}",
-			"nav.note": "El tablero del design system siempre va primero en Ver todo.",
+			"nav.note": "Abre una propuesta para comentarla, mezclarla o implementarla.",
 			"nav.thumb": "Vista previa de {title}",
 			"nav.summary.open.one": "{count} comentario abierto",
 			"nav.summary.open.other": "{count} comentarios abiertos",
@@ -579,7 +585,7 @@
 			"a11y.fails.one": "{count} comprobación",
 			"a11y.fails.other": "{count} comprobaciones",
 			"a11y.okTitle": "Las comprobaciones automáticas no encontraron problemas. Son heurísticas, no una auditoría completa.",
-			"a11y.failTitle": "Abre la pestaña Comprobaciones para verlas.",
+			"a11y.failTitle": "Abre la pestaña Calidad para verlas.",
 			"viewport.label": "Propuestas",
 			"mode.navigating": "Moviéndote por el lienzo · rueda para acercar",
 			"mode.commenting": "Haz clic en una propuesta para abrirla y comentar · Esc",
@@ -594,20 +600,23 @@
 			"panel.toggleTitle": "Panel de revisión (])",
 			"tab.comments": "Comentarios",
 			"tab.history": "Historial",
-			"tab.checks": "Comprobaciones",
+			"tab.checks": "Calidad",
 			"tab.mix": "Mezcla",
 			"tab.brief": "Petición original",
 			"tabs.prev": "Pestañas anteriores",
 			"tabs.next": "Más pestañas",
+			"panel.more": "Más",
 			"panel.comments": "Comentarios",
-			"panel.empty.none": "Aún no hay comentarios. Activa el modo Comentar y haz clic en un elemento.",
+			"panel.empty.none": "Aún no hay comentarios",
+			"panel.empty.hint": "Abre una propuesta y pulsa «Comentar» sobre lo que quieras cambiar.",
 			"panel.empty.open": "No hay comentarios abiertos.",
 			"panel.empty.resolved": "No hay comentarios resueltos.",
 			"filter.label": "Mostrar comentarios",
-			"filter.open": "Abiertos ({count})",
-			"filter.resolved": "Resueltos ({count})",
+			"filter.open": "Abiertos · {count}",
+			"filter.resolved": "Resueltos · {count}",
+			"filter.all": "Todos",
 			"panel.sendMode": "Cuándo se envía un comentario a la sesión",
-			"panel.sendNow": "Enviar ya",
+			"panel.sendNow": "Enviar al momento",
 			"panel.collect": "Guardar para enviar luego",
 			"panel.footIntro": "Tus comentarios se envían al agente para que cambie el diseño",
 			"panel.pending.one": "{count} pendiente de enviar",
@@ -664,6 +673,8 @@
 			"board.comment": "Abrir {title} para comentar",
 			"board.frameTitle": "Artboard {title}",
 			"board.menuButton": "Más acciones de {title}",
+			"board.open": "Abrir",
+			"board.openAria": "Abrir la propuesta {number}, {title}",
 			"system.title": "Design system",
 			"system.tradeoff": "Tokens del proyecto (design/system.md)",
 			"system.note": "Los comentarios solo se aplican a los artboards de diseño. Para cambiar el sistema, actualiza las fuentes de diseño del proyecto y ejecuta /gentle:design sync.",
@@ -1087,8 +1098,7 @@
 		tabs: $("gd-tabs"),
 		tabsPrev: $("gd-tabs-prev"),
 		tabsNext: $("gd-tabs-next"),
-		tabHistory: $("gd-tab-history"),
-		countHistory: $("gd-count-history"),
+		panelMore: $("gd-panel-more"),
 		history: $("gd-history"),
 		versions: $("gd-versions"),
 		versionsTitle: $("gd-versions-title"),
@@ -1111,7 +1121,6 @@
 		mixClear: $("gd-mix-clear"),
 		mixAdd: $("gd-popover-mix"),
 		mixShow: $("gd-popover-show-mix"),
-		tabBrief: $("gd-tab-brief"),
 		countOpen: $("gd-count-open"),
 		tabPanel: $("gd-tabpanel"),
 		brief: $("gd-brief"),
@@ -1154,6 +1163,8 @@
 		commentFilter: $("gd-comment-filter"),
 		filterOpen: $("gd-filter-open"),
 		filterResolved: $("gd-filter-resolved"),
+		filterAll: $("gd-filter-all"),
+		commentsEmpty: $("gd-comments-empty"),
 		panelEmpty: $("gd-panel-empty"),
 		list: $("gd-comment-list"),
 		toast: $("gd-toast"),
@@ -1227,7 +1238,7 @@
 		comments: [],
 		// Whether the navigator hides the discarded artboards while one is chosen.
 		hideDiscarded: false,
-		// The review tab (TAB_NAMES), and which comments the Comments tab lists: "open" or "resolved".
+		// The review tab (TAB_NAMES) or More view ("history", "brief"), and which comments the Comments tab lists: "open", "resolved" or "all".
 		tab: "comments",
 		filter: "open",
 		mode: storedMode(),
@@ -1764,6 +1775,10 @@
 			board.wrapper.inert = Boolean(focused) && !active;
 			board.shield.hidden = active;
 			board.wrapper.classList.toggle("gd-all-sizes", active && state.size.kind === "all");
+			if (board.openButton) {
+				board.openButton.hidden = active;
+				board.implement.root.hidden = !active;
+			}
 			if (!active) {
 				// Leaving focus mode, or focusing another artboard, restores the manifest size.
 				setFrameSize(board, board.artboard.width, board.artboard.height);
@@ -1925,11 +1940,19 @@
 		handoff.hidden = true;
 		if (sizeControl) label.append(sizeControl.root);
 		let implement = null;
+		let openButton = null;
 		if (!system) {
 			const actions = document.createElement("div");
 			actions.className = "gd-board-actions";
+			// Open in the overview (comparing); Implement this only inside the direction, in focus mode (reviewing).
+			openButton = document.createElement("button");
+			openButton.type = "button";
+			openButton.className = "gd-board-open gd-small";
+			loc(openButton, "text", "board.open");
+			loc(openButton, "aria-label", "board.openAria", { number: String(number).padStart(2, "0"), title: artboard.title });
 			implement = createImplementControl(slug, artboard);
-			actions.append(handoff, implement.root);
+			implement.root.hidden = true;
+			actions.append(handoff, openButton, implement.root);
 			label.append(actions);
 		}
 		if (system) {
@@ -1963,13 +1986,14 @@
 		pins.className = "gd-pins";
 		// rects: null until the artboard reports where each commented element is.
 		const flag = createOverflowFlag();
-		const board = { slug, artboard, number, frame, wrapper, shield, hint, pins, handoff, stateChip, rects: null, system, viewWidth: artboard.width, viewHeight: artboard.height, flag, overflow: null, sizeControl, sizeFrames: [], sizesView: null, checks: null, menuButton, implement };
+		const board = { slug, artboard, number, frame, wrapper, shield, hint, pins, handoff, stateChip, rects: null, system, viewWidth: artboard.width, viewHeight: artboard.height, flag, overflow: null, sizeControl, sizeFrames: [], sizesView: null, checks: null, menuButton, implement, openButton };
 		setFrameSize(board, artboard.width, artboard.height);
 		renderShield(board);
 		renderHandoff(board);
 		// The system board is not listed in the navigator, so it has no item or thumbnail.
 		if (!system) board.nav = createNavItem(board);
 		if (menuButton) wireMenuButton(board);
+		if (openButton) openButton.addEventListener("click", () => enterFocus(board));
 		shield.addEventListener("keydown", (event) => {
 			if (event.key !== "Enter" && event.key !== " ") return;
 			event.preventDefault();
@@ -2352,7 +2376,7 @@
 
 	// ---- artboard menu ---------------------------------------------------------
 	// A ⋯ button in each design artboard's header opens one shared menu (index.html). It is built each
-	// time it opens, so it follows the handoff state. Implement this stays in the header as well.
+	// time it opens, so it follows the handoff state. Implement this is also in the header, in focus mode.
 
 	let menuNotes = 0;
 
@@ -2380,7 +2404,8 @@
 			{ label: "menu.exportPng2x", icon: "i-image", run: () => exportArtboard(board, 2) },
 			{ label: "menu.exportPdf", icon: "i-image", run: () => exportPdf(board) },
 			{ label: "menu.downloadHtml", icon: "i-download", run: () => downloadHtml(board) },
-			{ label: board.implement.isDiscarded() ? "menu.switch" : "menu.implement", separator: true, off: off(DELIVERY.implement, "implement-unavailable"), run: () => board.implement.open() },
+			// Implement this lives inside the direction: from the overview the menu opens it first, then the confirm step.
+			{ label: board.implement.isDiscarded() ? "menu.switch" : "menu.implement", separator: true, off: off(DELIVERY.implement, "implement-unavailable"), run: () => { enterFocus(board); board.implement.open(); } },
 		);
 		return actions;
 	}
@@ -2557,6 +2582,7 @@
 		item.setAttribute("tabindex", "-1");
 		if (action.icon) item.append(icon(action.icon, "gd-i gd-i-s"));
 		item.append(chip("gd-menu-label", t(action.label)));
+		if (typeof action.count === "number") item.append(chip("gd-count", String(action.count)));
 		// A single-key shortcut that does the same, shown at the end of the item.
 		if (action.shortcut) {
 			item.setAttribute("aria-keyshortcuts", action.shortcut);
@@ -3416,7 +3442,7 @@
 	 */
 	function renderNav() {
 		loc(els.navTitle, "text", "nav.title", { count: state.boards.length });
-		els.navNote.hidden = !state.systemBoard;
+		els.navNote.hidden = state.boards.length === 0;
 		const refocus = els.navList.contains(document.activeElement) ? document.activeElement.dataset.file : null;
 		let discardedCount = 0;
 		let anyChosen = false;
@@ -4737,7 +4763,6 @@
 	function renderHistory() {
 		const board = historyBoard();
 		const versions = boardVersions(board);
-		els.countHistory.textContent = String(versions.length);
 		if (state.tab !== "history") return;
 		if (!state.historyAlert) {
 			state.historyAlert = createAlert();
@@ -5209,14 +5234,25 @@
 		loc(els.filterResolved, "text", "filter.resolved", { count: resolved.length });
 		els.filterOpen.setAttribute("aria-pressed", String(state.filter === "open"));
 		els.filterResolved.setAttribute("aria-pressed", String(state.filter === "resolved"));
+		els.filterAll.setAttribute("aria-pressed", String(state.filter === "all"));
 		// New counts change how wide the row is without resizing it.
 		updateTabFades();
+		// A More view (History, Original request) selects no tab; the first one then keeps the tablist in the tab order.
+		const tabIndex = TAB_NAMES.indexOf(state.tab);
 		TAB_NAMES.forEach((name, index) => {
 			const tab = tabButtons()[index];
-			tab.setAttribute("aria-selected", String(state.tab === name));
-			tab.setAttribute("tabindex", state.tab === name ? "0" : "-1");
+			tab.setAttribute("aria-selected", String(index === tabIndex));
+			tab.setAttribute("tabindex", index === Math.max(0, tabIndex) ? "0" : "-1");
 		});
-		els.tabPanel.setAttribute("aria-labelledby", tabButtons()[TAB_NAMES.indexOf(state.tab)].id);
+		if (tabIndex >= 0) {
+			els.tabPanel.setAttribute("aria-labelledby", tabButtons()[tabIndex].id);
+			loc(els.tabPanel, "aria-label", null);
+		} else {
+			const viewKey = state.tab === "history" ? "tab.history" : "tab.brief";
+			els.tabPanel.removeAttribute("aria-labelledby");
+			loc(els.tabPanel, "aria-label", viewKey);
+		}
+		els.panelMore.classList.toggle("gd-tab-more-current", tabIndex < 0);
 		const unsent = open.filter((comment) => comment.sentAt === null).length;
 		loc(els.sendAll, "text", "panel.sendAll", { count: unsent });
 		els.sendAll.disabled = unsent === 0 || !DELIVERY.batch;
@@ -5235,9 +5271,12 @@
 		renderChecks();
 		renderHistory();
 		renderMix();
-		const shown = state.filter === "resolved" ? resolved : open;
-		els.panelEmpty.hidden = brief || checks || history || mix || shown.length > 0;
-		loc(els.panelEmpty, "text", state.comments.length === 0 ? "panel.empty.none" : state.filter === "open" ? "panel.empty.open" : "panel.empty.resolved");
+		const shown = state.filter === "resolved" ? resolved : state.filter === "all" ? state.comments : open;
+		// No comments at all: how to add one; comments but none under this filter: one line.
+		const none = state.comments.length === 0;
+		els.commentsEmpty.hidden = state.tab !== "comments" || !none;
+		els.panelEmpty.hidden = state.tab !== "comments" || none || shown.length > 0;
+		loc(els.panelEmpty, "text", state.filter === "resolved" ? "panel.empty.resolved" : "panel.empty.open");
 		els.list.replaceChildren(...shown.map((comment) => {
 			const item = document.createElement("li");
 			item.className = "gd-comment-item";
@@ -5350,7 +5389,8 @@
 		renderComments();
 		const comment = state.comments.find((candidate) => candidate.id === id);
 		if (!comment) return;
-		if (options.focusList && (state.tab !== "comments" || state.filter !== comment.status)) setFilter(comment.status);
+		// All already lists every comment; Open or Resolved switches to the one that lists it.
+		if (options.focusList && (state.tab !== "comments" || (state.filter !== "all" && state.filter !== comment.status))) setFilter(state.filter === "all" ? "all" : comment.status);
 		const board = state.boards.find((candidate) => candidate.artboard.file === comment.file);
 		if (board) for (const surface of surfacesOf(board)) surface.frame.contentWindow?.postMessage({ type: "gd:highlight", id }, "*");
 		// Keyboard focus lands on the card's Show button, its first child.
@@ -5686,7 +5726,7 @@
 	els.technical.addEventListener("click", () => setTechnical(!state.technical));
 
 	function tabButtons() {
-		return [els.tabComments, els.tabHistory, els.tabChecks, els.tabMix, els.tabBrief];
+		return [els.tabComments, els.tabChecks, els.tabMix];
 	}
 
 	function setTab(name) {
@@ -5695,7 +5735,7 @@
 		updateTabFades();
 	}
 
-	/** The Comments tab's filter, "open" or "resolved"; it shows the Comments tab too. */
+	/** The Comments tab's filter, "open", "resolved" or "all"; it shows the Comments tab too. */
 	function setFilter(filter) {
 		state.filter = filter;
 		setTab("comments");
@@ -5703,6 +5743,17 @@
 
 	els.filterOpen.addEventListener("click", () => setFilter("open"));
 	els.filterResolved.addEventListener("click", () => setFilter("resolved"));
+	els.filterAll.addEventListener("click", () => setFilter("all"));
+
+	/** The review panel's More: History (with its count) and Original request, which open in the panel. */
+	function panelMoreActions() {
+		return [
+			{ label: "tab.history", count: boardVersions(historyBoard()).length, run: () => setTab("history") },
+			{ label: "tab.brief", run: () => setTab("brief") },
+		];
+	}
+
+	wireMenu(els.panelMore, (last) => showMenu(els.panelMore, panelMoreActions(), t("panel.more"), last));
 
 	/** The tab row scrolls when it is wider than the panel; each edge with tabs behind it fades and shows its arrow (L10, A2). */
 	function updateTabFades() {
@@ -5738,9 +5789,10 @@
 	tabButtons().forEach((tab, index) => tab.addEventListener("click", () => setTab(TAB_NAMES[index])));
 	// Arrow keys, Home and End move between the tabs, wrapping around.
 	els.tabs.addEventListener("keydown", (event) => {
+		// From a More view (no tab selected), ArrowRight comes back to the first tab and ArrowLeft to the last.
 		const current = TAB_NAMES.indexOf(state.tab);
 		const count = TAB_NAMES.length;
-		const next = { ArrowRight: (current + 1) % count, ArrowLeft: (current + count - 1) % count, Home: 0, End: count - 1 }[event.key];
+		const next = { ArrowRight: (current + 1) % count, ArrowLeft: current < 0 ? count - 1 : (current + count - 1) % count, Home: 0, End: count - 1 }[event.key];
 		if (next === undefined) return;
 		event.preventDefault();
 		setTab(TAB_NAMES[next]);

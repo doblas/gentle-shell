@@ -29,6 +29,7 @@
 		<symbol id="i-restore" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
 		<symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/></symbol>
 		<symbol id="i-palette" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="8" cy="10" r="1"/><circle cx="12" cy="7" r="1"/><circle cx="16" cy="10" r="1"/><path d="M12 21a3 3 0 0 1 0-6h2"/></symbol>
+		<symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
 		<symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
 		<symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m11 3 1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z"/><path d="M19 3v4M17 5h4"/></symbol>
 		<symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol><symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
@@ -59,7 +60,6 @@
 		<nav id="gd-steps" class="gd-steps" aria-label="Steps" data-i18n-aria-label="steps.label"><ol id="gd-steps-list" class="gd-steps-list"></ol></nav>
 		<div id="gd-work" class="gd-work" role="status" aria-live="polite" hidden></div>
 		<span class="gd-spacer"></span>
-		<button type="button" id="gd-technical" class="gd-technical" aria-pressed="false" title="Selectors and the token inspector" data-i18n-title="technical.title"><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-code"/></svg><span data-i18n="technical.label">Technical details</span></button>
 		<button type="button" id="gd-lang" class="gd-lang-button" aria-haspopup="menu" aria-expanded="false" aria-controls="gd-lang-menu" aria-label="Language (EN)" title="Language / Idioma" data-i18n-aria-label="lang.button" data-i18n-title="lang.title"><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-globe"/></svg><span id="gd-lang-code">EN</span></button>
 		<div class="gd-group gd-zoom" role="group" aria-label="Zoom" data-i18n-aria-label="zoom.group">
 			<button type="button" id="gd-zoom-out" aria-label="Zoom out" title="Zoom out (-)" data-i18n-aria-label="zoom.out" data-i18n-title="zoom.out.title"><svg class="gd-i"><use href="#i-minus"/></svg></button>
@@ -77,7 +77,7 @@
 			<h2 id="gd-nav-title" class="gd-nav-title" data-i18n="nav.title">Directions · 0</h2>
 			<button type="button" id="gd-nav-discarded" class="gd-nav-discarded" aria-expanded="true" aria-controls="gd-nav-list" data-i18n="nav.hideDiscarded" hidden>Hide discarded (0)</button>
 			<ol id="gd-nav-list" class="gd-nav-list"></ol>
-			<p id="gd-nav-note" class="gd-nav-note" data-i18n="nav.note" hidden>Design system board is always first in Overview.</p>
+			<p id="gd-nav-note" class="gd-nav-note" data-i18n="nav.note">Open a direction to comment on it, mix it or implement it.</p>
 		</aside>
 		<main id="gd-viewport" class="gd-viewport" aria-label="Directions" data-i18n-aria-label="viewport.label" tabindex="0">
 			<div id="gd-world" class="gd-world"></div>
@@ -119,19 +119,24 @@
 				<button type="button" id="gd-tabs-prev" class="gd-tabs-arrow" tabindex="-1" aria-hidden="true" aria-label="Earlier tabs" data-i18n-aria-label="tabs.prev" data-i18n-title="tabs.prev" title="Earlier tabs" hidden><svg class="gd-i"><use href="#i-chevron-left"/></svg></button>
 				<div id="gd-tabs" class="gd-tabs" role="tablist" aria-label="Review" data-i18n-aria-label="panel.label">
 					<button type="button" role="tab" id="gd-tab-comments" class="gd-tab" aria-selected="true" aria-controls="gd-tabpanel"><span data-i18n="tab.comments">Comments</span> <span id="gd-count-open" class="gd-count">0</span></button>
-					<button type="button" role="tab" id="gd-tab-history" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.history">History</span> <span id="gd-count-history" class="gd-count">0</span></button>
-					<button type="button" role="tab" id="gd-tab-checks" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.checks">Checks</span> <span id="gd-count-checks" class="gd-count">0</span></button>
+					<button type="button" role="tab" id="gd-tab-checks" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.checks">Quality</span> <span id="gd-count-checks" class="gd-count">0</span></button>
 					<button type="button" role="tab" id="gd-tab-mix" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.mix">Mix</span> <span id="gd-count-mix" class="gd-count">0</span></button>
-					<button type="button" role="tab" id="gd-tab-brief" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1" data-i18n="tab.brief">Original request</button>
 				</div>
 				<button type="button" id="gd-tabs-next" class="gd-tabs-arrow" tabindex="-1" aria-hidden="true" aria-label="More tabs" data-i18n-aria-label="tabs.next" data-i18n-title="tabs.next" title="More tabs" hidden><svg class="gd-i"><use href="#i-chevron-right"/></svg></button>
+				<button type="button" id="gd-panel-more" class="gd-tab gd-tab-more" aria-haspopup="menu" aria-expanded="false" aria-controls="gd-menu"><span data-i18n="panel.more">More</span><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-down"/></svg></button>
 			</div>
 			<div id="gd-tabpanel" class="gd-panel-body" role="tabpanel" aria-labelledby="gd-tab-comments">
 				<div id="gd-comment-filter" class="gd-devices gd-comment-filter" role="group" aria-label="Show comments" data-i18n-aria-label="filter.label">
-					<button type="button" id="gd-filter-open" class="gd-size-button" aria-pressed="true" data-i18n="filter.open">Open (0)</button>
-					<button type="button" id="gd-filter-resolved" class="gd-size-button" aria-pressed="false" data-i18n="filter.resolved">Resolved (0)</button>
+					<button type="button" id="gd-filter-open" class="gd-size-button" aria-pressed="true" data-i18n="filter.open">Open · 0</button>
+					<button type="button" id="gd-filter-resolved" class="gd-size-button" aria-pressed="false" data-i18n="filter.resolved">Resolved · 0</button>
+					<button type="button" id="gd-filter-all" class="gd-size-button" aria-pressed="false" data-i18n="filter.all">All</button>
 				</div>
-				<p id="gd-panel-empty" class="gd-panel-empty" data-i18n="panel.empty.none">No comments yet. Turn on Comment mode and click an element.</p>
+				<div id="gd-comments-empty" class="gd-comments-empty" hidden>
+					<svg class="gd-i" aria-hidden="true"><use href="#i-comment"/></svg>
+					<strong data-i18n="panel.empty.none">No comments yet</strong>
+					<span data-i18n="panel.empty.hint">Open a direction and press “Comment” on whatever you want to change.</span>
+				</div>
+				<p id="gd-panel-empty" class="gd-panel-empty" data-i18n="panel.empty.open" hidden>No open comments.</p>
 				<ol id="gd-comment-list" class="gd-comment-list" aria-label="Comments" data-i18n-aria-label="panel.comments"></ol>
 				<div id="gd-brief" class="gd-brief" hidden>
 					<h3 id="gd-brief-title" class="gd-brief-title"></h3>
@@ -169,6 +174,7 @@
 					<button type="button" id="gd-send-alert-dismiss" class="gd-alert-dismiss" aria-label="Dismiss" title="Dismiss" data-i18n-aria-label="common.dismiss" data-i18n-title="common.dismiss"><svg class="gd-i" aria-hidden="true"><use href="#i-x"/></svg></button>
 				</div>
 				<button type="button" id="gd-send-all" class="gd-primary" aria-describedby="gd-send-note" data-i18n="panel.sendAll" disabled>Send all (0)</button>
+				<button type="button" id="gd-technical" class="gd-technical" aria-pressed="false" title="Selectors and the token inspector" data-i18n-title="technical.title"><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-code"/></svg><span data-i18n="technical.label">Technical details</span><span class="gd-switch" aria-hidden="true"></span></button>
 			</div>
 		</aside>
 		<section id="gd-compare" class="gd-compare" aria-labelledby="gd-compare-title" hidden>
