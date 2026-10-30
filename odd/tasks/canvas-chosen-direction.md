@@ -13,8 +13,8 @@ Branch: `feat/canvas-chosen-direction` (from local `main`). Work-unit commits on
 
 ## Tasks
 
-- [ ] T1 S1-S2, S5 — top-bar status, discarded alternatives (canvas, navigator tag, minimap, Switch to this…), docs, tests. Route: inline. Commit:
-- [ ] T2 S3-S5 — chosen stepper, pulsing state, readable note, navigator accent/dim/hide toggle, docs, tests, visual check. Route: inline. Commit:
+- [x] T1 S1-S2, S5 — top-bar status, discarded alternatives (canvas, navigator tag, minimap, Switch to this…), docs, tests. Route: inline. Commit: 33ef6e706
+- [x] T2 S3-S5 — chosen stepper, pulsing state, readable note, navigator accent/dim/hide toggle, docs, tests, visual check. Route: gentle-ai-worker (context backstop). Commit:
 
 ## Log
 
@@ -22,3 +22,5 @@ Branch: `feat/canvas-chosen-direction` (from local `main`). Work-unit commits on
 - L2: Proposal accepted by the user ("Implementar directamente": 4 changes in two commits, 1+2 then 3+4); quoted in S1-S4.
 - L3 (user, verbatim): "Descartada"
 - L4: Reordering the navigator would reload thumbnails (S6 test "thumbnails keep their iframes…"), so S4 keeps DOM order and uses accent/dim/collapse instead of moving the chosen item first.
+- L5: T1 RED 8/8 new tests failed; GREEN assets 293/293 (8 existing tests renamed Alternative→Discarded / Alternativa→Descartada as requested); server+gentle-design+handoffs 185/185. Commit 33ef6e706 (excludes the pre-existing design/canvas-features/handoffs.json edit). Slice note: the branch counter includes local main's 50 unpushed commits; this feature's slices stay ~300 lines each.
+- L6: T2 by gentle-ai-worker (mvuqn1r9-1-7eyu): RED 7/7 new tests; GREEN assets 300/300, server+gentle-design+handoffs 185/185 (parent re-run 485/485, diff --check clean). Accepted decisions: the navigator toggle uses aria-expanded (disclosure pattern with a Hide/Show label) instead of aria-pressed; the top-bar dot pulses too; the stepper says "Sent"/"Enviado"; the chosen label gets 56px top padding for the stepper line. Parent removed the dead .gd-choice-alternative rule. Visual check in Chrome (scratch design, Spanish): top-bar status, dimmed Descartada boards with Cambiar a esta…, stepper over the chosen frame, readable note, Ocultar descartadas (5), dimmed minimap blocks; no overlap at 11-51% zoom. Pulse animation not observable in a still screenshot.

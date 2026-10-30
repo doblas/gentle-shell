@@ -6494,3 +6494,169 @@ test("chosen-direction S2: canvas.css dims a discarded artboard and restores it 
 	for (const selector of [".gd-discarded .gd-frame-box", ".gd-choice-discarded", ".gd-minimap-discarded", ".gd-work"]) assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule(selector)), `${selector}: tokens only`);
 	assert.match(css, /@media \(prefers-reduced-motion: no-preference\) \{[^]*\.gd-discarded \.gd-frame-box \{ transition:/, "the fade only animates without reduced motion");
 });
+
+// ---- Chosen direction: the chosen artboard's stepper and pulse, the navigator's accent, dim and toggle (canvas-chosen-direction T2/S3-S5)
+
+/** The chosen artboard's mini stepper: each step's label and state, and the position in words for assistive technology. */
+const ministep = (board: FakeElement) => {
+	const [root] = withClass(board, "gd-ministep");
+	if (!root) return null;
+	const steps = withClass(root, "gd-ministep-step");
+	return {
+		labels: steps.map((step) => texts(step, "gd-ministep-label")[0]),
+		states: steps.map((step) => step.dataset.state),
+		words: texts(root, "gd-ministep-words"),
+		hiddenList: withClass(root, "gd-ministep-list").map((list) => list.getAttribute("aria-hidden")),
+	};
+};
+const navToggle = (canvas: Canvas) => canvas.document.getElementById("gd-nav-discarded");
+const navLis = (canvas: Canvas) => canvas.document.getElementById("gd-nav-list").children;
+
+test("chosen-direction S3: the chosen artboard's handoff row has a 4-step mini stepper that follows the handoff, with the step in words", async () => {
+	const canvas = await loadRail();
+	assert.deepEqual(boardsOf(canvas).map(ministep), [null, null], "no stepper before a choice");
+
+	await setHandoffs(canvas, handoffDoc("02-b.html", {}));
+	const [first, second] = boardsOf(canvas);
+	assert.equal(ministep(first), null, "a discarded artboard has no stepper");
+	assert.deepEqual(ministep(second), { labels: ["Chosen", "Sent", "In progress", "Implemented"], states: ["done", "pending", "pending", "pending"], words: ["Step 1 of 4: Chosen"], hiddenList: ["true"] });
+
+	const cases: Array<[Record<string, unknown>, string[], string]> = [
+		[{ status: "sent", queued: true }, ["done", "current", "pending", "pending"], "Step 2 of 4: Sent"],
+		[{ status: "sent" }, ["done", "done", "current", "pending"], "Step 3 of 4: In progress"],
+		[{ status: "in_progress", note: "Wiring the header" }, ["done", "done", "current", "pending"], "Step 3 of 4: In progress"],
+		[{ status: "implemented" }, ["done", "done", "done", "done"], "Step 4 of 4: Implemented"],
+	];
+	for (const [entry, states, words] of cases) {
+		await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": entry }));
+		const stepper = ministep(boardsOf(canvas)[1])!;
+		assert.deepEqual([stepper.states, stepper.words], [states, [words]], JSON.stringify(entry));
+	}
+	// The timeline in the review side reads the same steps.
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", note: "Wiring the header" } }));
+	assert.deepEqual(withClass(canvas.document.getElementById("gd-timeline"), "gd-step").map((step) => step.dataset.state), ["done", "done", "current", "pending"]);
+	const [note] = withClass(boardsOf(canvas)[1], "gd-handoff-note");
+	assert.equal(note.title, "Wiring the header", "the note keeps its full text in the tooltip");
+
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.deepEqual(boardsOf(canvas).map(ministep), [null, null], "gone again when nothing is chosen");
+});
+
+test("chosen-direction S3: canvas.css pulses the sent and in-progress dot only without reduced motion, and the note reads in one plain line", () => {
+	const css = read("canvas.css");
+	// The rule of the selector alone, not a list that names it.
+	const rule = (selector: string) => {
+		const start = css.indexOf(`\n${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	assert.match(css, /\.gd-handoff-badge\[data-status="sent"\]::before,\s*\.gd-handoff-badge\[data-status="in_progress"\]::before \{[^}]*border-radius:\s*50%[^}]*background:\s*var\(--info\)/, "a dot leads the sent and in-progress badge");
+	assert.match(css, /@keyframes gd-pulse \{/);
+	const motion = css.slice(css.indexOf("@media (prefers-reduced-motion: no-preference) {"));
+	assert.match(motion.slice(0, motion.indexOf("\n}\n")), /\.gd-handoff-badge\[data-status="sent"\]::before,\s*\.gd-handoff-badge\[data-status="in_progress"\]::before \{ animation: gd-pulse/, "the pulse runs only without reduced motion");
+	const outsideMotion = css.replace(/@media \(prefers-reduced-motion: no-preference\) \{[^]*?\n\}\n/g, "");
+	assert.ok(!/animation:\s*gd-pulse/.test(outsideMotion), "nothing pulses under reduced motion");
+	const note = rule(".gd-handoff-note");
+	assert.ok(!/italic/.test(note), "the note is not italic");
+	assert.match(note, /max-width:\s*(\d+)ch/);
+	assert.ok(Number(/max-width:\s*(\d+)ch/.exec(note)![1]) >= 48, "the note is wider than before");
+	for (const selector of [".gd-handoff-note", ".gd-ministep", ".gd-ministep-list", ".gd-ministep-step", ".gd-ministep-dot"]) assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule(selector)), `${selector}: tokens only`);
+	assert.match(css, /\.gd-ministep-step\[data-state="done"\] \.gd-ministep-dot \{[^}]*var\(--success\)/);
+	assert.match(css, /\.gd-ministep-step\[data-state="current"\] \.gd-ministep-dot \{[^}]*var\(--info\)/);
+});
+
+test("chosen-direction S4: the navigator marks the chosen item with an accent and dims the discarded ones, without moving any item", async () => {
+	const canvas = await loadRail();
+	const items = [...navLis(canvas)];
+	const frames = [thumbFrame(canvas, 0), thumbFrame(canvas, 1)];
+	const marks = () => navItems(canvas).map((button) => [button.classes.has("gd-nav-item-chosen"), button.classes.has("gd-nav-item-discarded")]);
+	assert.deepEqual(marks(), [[false, false], [false, false]], "nothing is marked before a choice");
+
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }));
+	assert.deepEqual(marks(), [[false, true], [true, false]]);
+	assert.deepEqual([...navLis(canvas)], items, "the chosen item is not moved first: same items, same order");
+	assert.deepEqual([thumbFrame(canvas, 0), thumbFrame(canvas, 1)], frames, "so no thumbnail reloads");
+
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": {} }));
+	assert.deepEqual(marks(), [[true, false], [false, true]], "the marks follow a switch");
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.deepEqual(marks(), [[false, false], [false, false]]);
+});
+
+test("chosen-direction S4: Hide discarded (N) hides the discarded items in place and Show discarded (N) brings them back; it hides with the choice", async () => {
+	const canvas = await loadRail();
+	const toggle = navToggle(canvas);
+	assert.equal(toggle.hidden, true, "hidden while nothing is chosen");
+
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }));
+	const items = [...navLis(canvas)];
+	const frames = [thumbFrame(canvas, 0), thumbFrame(canvas, 1)];
+	assert.equal(toggle.hidden, false);
+	assert.equal(toggle.textContent, "Hide discarded (1)");
+	assert.equal(toggle.getAttribute("aria-expanded"), "true");
+
+	toggle.focus();
+	toggle.dispatch("click");
+	assert.deepEqual(items.map((item) => item.hidden), [true, false], "the discarded item is hidden");
+	assert.equal(toggle.textContent, "Show discarded (1)");
+	assert.equal(toggle.getAttribute("aria-expanded"), "false");
+	assert.equal(canvas.document.activeElement, toggle, "focus stays on the toggle");
+	assert.deepEqual([...navLis(canvas)], items, "hidden in place, never removed or moved");
+	assert.deepEqual([thumbFrame(canvas, 0), thumbFrame(canvas, 1)], frames);
+
+	await setComments(canvas, comment("a1", "01-a.html"));
+	assert.deepEqual(items.map((item) => item.hidden), [true, false], "a re-render keeps them hidden");
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": {} }));
+	assert.deepEqual(items.map((item) => item.hidden), [false, true], "a switch hides the newly discarded one");
+
+	toggle.dispatch("click");
+	assert.deepEqual(items.map((item) => item.hidden), [false, false]);
+	assert.equal(toggle.textContent, "Hide discarded (1)");
+
+	toggle.dispatch("click");
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.deepEqual(items.map((item) => item.hidden), [false, false], "clearing the choice shows everything");
+	assert.equal(toggle.hidden, true, "and hides the toggle");
+	await setHandoffs(canvas, handoffDoc("02-b.html", {}));
+	assert.deepEqual([items.map((item) => item.hidden), toggle.textContent], [[false, false], "Hide discarded (1)"], "a new choice starts with everything shown");
+});
+
+test("chosen-direction S4: index.html puts the toggle under the navigator title, outside the list, hidden at first", () => {
+	const html = read("index.html");
+	assert.match(html, /<button type="button" id="gd-nav-discarded" class="gd-nav-discarded" aria-expanded="true" aria-controls="gd-nav-list" data-i18n="nav.hideDiscarded" hidden>Hide discarded \(0\)<\/button>/);
+	assert.ok(html.indexOf('id="gd-nav-title"') < html.indexOf('id="gd-nav-discarded"') && html.indexOf('id="gd-nav-discarded"') < html.indexOf('id="gd-nav-list"'));
+	const css = read("canvas.css");
+	const rule = (selector: string) => {
+		const start = css.indexOf(`${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	assert.match(rule(".gd-nav-item-chosen"), /var\(--accent\)/);
+	assert.match(rule(".gd-nav-item-discarded .gd-nav-thumb"), /opacity:\s*\.45/);
+	assert.match(css, /\.gd-nav-item-discarded:hover \.gd-nav-thumb,\s*\.gd-nav-item-discarded:focus-visible \.gd-nav-thumb \{[^}]*opacity:\s*1/, "restored on hover or keyboard focus");
+	for (const selector of [".gd-nav-item-chosen", ".gd-nav-item-discarded .gd-nav-thumb", ".gd-nav-discarded"]) assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule(selector)), `${selector}: tokens only`);
+	assert.match(css, /\.gd-nav-discarded\[hidden\] \{ display: none; \}/);
+});
+
+test("chosen-direction S3/S4: the stepper and the navigator toggle speak Spanish", async () => {
+	const canvas = await loadLang({ browser: "es", replies: { "/t/api/designs/alpha/handoffs": handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }) } });
+	const c = canvas as unknown as Canvas;
+	assert.deepEqual(ministep(boardsOf(c)[1]), { labels: ["Elegido", "Enviado", "En curso", "Implementado"], states: ["done", "done", "current", "pending"], words: ["Paso 3 de 4: En curso"], hiddenList: ["true"] });
+	assert.equal(navToggle(c).textContent, "Ocultar descartadas (1)");
+	navToggle(c).dispatch("click");
+	assert.equal(navToggle(c).textContent, "Mostrar descartadas (1)");
+	chooseLang(canvas, "en");
+	assert.equal(navToggle(c).textContent, "Show discarded (1)", "a switch of language rewrites it");
+	assert.deepEqual(ministep(boardsOf(c)[1])!.words, ["Step 3 of 4: In progress"]);
+});
+
+test("chosen-direction S5: the docs describe the stepper, the pulsing dot, the readable note and the navigator toggle", () => {
+	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
+	const section = docs.slice(docs.indexOf("### Gentle Design"));
+	assert.match(section, /mini stepper/i);
+	assert.match(section, /\*\*Chosen\*\* → \*\*Sent\*\* → \*\*In progress\*\* → \*\*Implemented\*\*/);
+	assert.match(section, /puls/i);
+	assert.match(section, /reduced motion/i);
+	assert.match(section, /\*\*Hide discarded \(N\)\*\*/);
+	assert.match(section, /\*\*Show discarded \(N\)\*\*/);
+});

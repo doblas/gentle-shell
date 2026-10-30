@@ -120,6 +120,8 @@
 			"nav.summary.resolved.one": "{count} resolved",
 			"nav.summary.resolved.other": "{count} resolved",
 			"nav.summary.none": "No comments",
+			"nav.hideDiscarded": "Hide discarded ({count})",
+			"nav.showDiscarded": "Show discarded ({count})",
 			"a11y.ok": "A11y ✓",
 			"a11y.fails.one": "{count} check",
 			"a11y.fails.other": "{count} checks",
@@ -293,6 +295,8 @@
 			"timeline.done": "(done)",
 			"timeline.current": "(current)",
 			"timeline.pending": "(not yet)",
+			"stepper.sent": "Sent",
+			"stepper.position": "Step {n} of {total}: {step}",
 			"time.today": "Today {clock}",
 			"compare.title": "Compare",
 			"compare.titleFor": "Compare: {title}",
@@ -506,6 +510,8 @@
 			"nav.summary.resolved.one": "{count} resuelto",
 			"nav.summary.resolved.other": "{count} resueltos",
 			"nav.summary.none": "Sin comentarios",
+			"nav.hideDiscarded": "Ocultar descartadas ({count})",
+			"nav.showDiscarded": "Mostrar descartadas ({count})",
 			"a11y.ok": "A11y ✓",
 			"a11y.fails.one": "{count} comprobación",
 			"a11y.fails.other": "{count} comprobaciones",
@@ -679,6 +685,8 @@
 			"timeline.done": "(hecho)",
 			"timeline.current": "(actual)",
 			"timeline.pending": "(pendiente)",
+			"stepper.sent": "Enviado",
+			"stepper.position": "Paso {n} de {total}: {step}",
 			"time.today": "Hoy {clock}",
 			"compare.title": "Comparar",
 			"compare.titleFor": "Comparar: {title}",
@@ -975,6 +983,7 @@
 		navTitle: $("gd-nav-title"),
 		navList: $("gd-nav-list"),
 		navNote: $("gd-nav-note"),
+		navDiscarded: $("gd-nav-discarded"),
 		featureSep: $("gd-feature-sep"),
 		compareApp: $("gd-compare-app"),
 		tabs: $("gd-tabs"),
@@ -1096,6 +1105,8 @@
 		shotToken: 0,
 		closeTimer: 0,
 		comments: [],
+		// Whether the navigator hides the discarded artboards while one is chosen.
+		hideDiscarded: false,
 		// The review tab: "open" or "resolved" (the comment list) or "brief".
 		tab: "open",
 		mode: storedMode(),
@@ -2863,7 +2874,39 @@
 		return element;
 	}
 
-	/** The header row of one artboard: Chosen or Alternative, the handoff badge, its feature document, note and Compare. */
+	// The four handoff steps, as the timeline and the chosen artboard's stepper show them.
+	const STEPPER_KEYS = ["choice.chosen", "stepper.sent", "handoff.in_progress", "timeline.implemented"];
+
+	/** Where a handoff of this kind stands on the four steps: each one done, current or pending. */
+	function handoffSteps(kind) {
+		// The index of the step the handoff is at; steps before it are done, a step at it is current.
+		const at = { queued: 1, sent: 2, in_progress: 2, implemented: 4 }[kind] ?? 1;
+		return STEPPER_KEYS.map((key, index) => (index < at ? "done" : index === at && kind ? "current" : "pending"));
+	}
+
+	/** The chosen artboard's mini stepper: Chosen → Sent → In progress → Implemented, and in words which step it is at. */
+	function miniStepper(kind) {
+		const steps = handoffSteps(kind);
+		const current = steps.indexOf("current");
+		const at = current >= 0 ? current : steps.lastIndexOf("done");
+		const root = chip("gd-ministep", "");
+		// Never color alone: the position is in words for assistive technology, the dots are decoration.
+		const words = chip("gd-visually-hidden gd-ministep-words", t("stepper.position", { n: at + 1, total: steps.length, step: t(STEPPER_KEYS[at]) }));
+		const list = document.createElement("ol");
+		list.className = "gd-ministep-list";
+		list.setAttribute("aria-hidden", "true");
+		list.append(...steps.map((status, index) => {
+			const item = document.createElement("li");
+			item.className = "gd-ministep-step";
+			item.dataset.state = status;
+			item.append(chip("gd-ministep-dot", ""), chip("gd-ministep-label", t(STEPPER_KEYS[index])));
+			return item;
+		}));
+		root.append(words, list);
+		return root;
+	}
+
+	/** The header row of one artboard: Chosen or Discarded, the chosen one's stepper, the handoff badge, its feature document, note and Compare. */
 	function renderHandoff(board) {
 		if (board.system || !board.handoff) return;
 		const { chosen, entry } = handoffOf(board);
@@ -2873,8 +2916,9 @@
 		board.wrapper.classList.toggle("gd-discarded", isDiscarded);
 		board.implement.setDiscarded(isDiscarded);
 		const parts = [];
-		if (typeof chosen === "string") parts.push(chip(`gd-choice ${isChosen ? "gd-choice-chosen" : "gd-choice-discarded"}`, t(isChosen ? "choice.chosen" : "choice.discarded")));
 		const kind = entry ? handoffKind(entry) : null;
+		if (isChosen) parts.push(miniStepper(kind));
+		if (typeof chosen === "string") parts.push(chip(`gd-choice ${isChosen ? "gd-choice-chosen" : "gd-choice-discarded"}`, t(isChosen ? "choice.chosen" : "choice.discarded")));
 		board.stateChip.hidden = !kind;
 		board.stateChip.textContent = kind ? t(`handoff.${kind}`) : "";
 		if (kind) board.stateChip.dataset.status = kind;
@@ -2909,6 +2953,7 @@
 		board.handoff.replaceChildren(...parts);
 		board.handoff.hidden = parts.length === 0;
 		board.wrapper.classList.toggle("gd-has-handoff", parts.length > 0);
+		board.wrapper.classList.toggle("gd-has-stepper", isChosen);
 		if (hadFocus && compare) compare.focus();
 	}
 
@@ -3025,9 +3070,7 @@
 		els.handoffTitle.textContent = t("timeline.title", { title: board.artboard.title });
 		const entry = handoffOf(board).entry;
 		const kind = entry ? handoffKind(entry) : null;
-		// The index of the step the handoff is at; steps before it are done, a step at it is current.
-		const at = { queued: 1, sent: 2, in_progress: 2, implemented: 4 }[kind] ?? 1;
-		const stateOf = (index) => (index < at ? "done" : index === at && kind ? "current" : "pending");
+		const steps = handoffSteps(kind);
 		const sent = entry ? shortTime(entry.sentAt) : "";
 		const started = entry ? shortTime(entry.startedAt) : "";
 		const finished = entry ? shortTime(entry.implementedAt) : "";
@@ -3040,7 +3083,7 @@
 			[t("timeline.implemented"), [kind === "implemented" ? finished : t("timeline.compareWhenReady")]],
 		];
 		els.timeline.replaceChildren(...defs.map(([label, details], index) => {
-			const status = stateOf(index);
+			const status = steps[index];
 			const item = document.createElement("li");
 			item.className = `gd-step gd-step-${status}`;
 			item.dataset.state = status;
@@ -3125,11 +3168,16 @@
 		if (board.nav) board.nav.thumb.frame.src = `${boardUrl(board)}?v=${Date.now()}`;
 	}
 
-	/** The artboard navigator: one item per design artboard; the system board is not listed. */
+	/**
+	 * The artboard navigator: one item per design artboard; the system board is not listed. Once one is chosen it is marked
+	 * and the others are dimmed, and Hide discarded hides them in place: an item never moves, or its thumbnail would reload.
+	 */
 	function renderNav() {
 		loc(els.navTitle, "text", "nav.title", { count: state.boards.length });
 		els.navNote.hidden = !state.systemBoard;
 		const refocus = els.navList.contains(document.activeElement) ? document.activeElement.dataset.file : null;
+		let discardedCount = 0;
+		let anyChosen = false;
 		const items = state.boards.map((board) => {
 			const nav = board.nav;
 			if (board === state.focus) nav.button.setAttribute("aria-current", "true");
@@ -3138,8 +3186,14 @@
 			nav.summary.textContent = commentSummary(board);
 			const tags = [];
 			const { chosen } = handoffOf(board);
+			const isChosen = typeof chosen === "string" && chosen === board.artboard.file;
+			const isDiscarded = typeof chosen === "string" && !isChosen;
+			if (typeof chosen === "string") anyChosen = true;
+			if (isDiscarded) discardedCount += 1;
+			nav.button.classList.toggle("gd-nav-item-chosen", isChosen);
+			nav.button.classList.toggle("gd-nav-item-discarded", isDiscarded);
+			nav.item.hidden = isDiscarded && state.hideDiscarded;
 			if (typeof chosen === "string") {
-				const isChosen = chosen === board.artboard.file;
 				nav.tag.className = `gd-nav-tag${isChosen ? " gd-nav-tag-chosen" : ""}`;
 				nav.tag.textContent = t(isChosen ? "choice.chosen" : "choice.discarded");
 				tags.push(nav.tag);
@@ -3154,12 +3208,27 @@
 			nav.tags.replaceChildren(...tags);
 			return nav.item;
 		});
+		renderNavDiscarded(anyChosen, discardedCount);
 		// Putting the same items back would reload their thumbnails: rebuild the list only when it changed.
 		const current = Array.from(els.navList.children);
 		if (items.length === current.length && items.every((item, index) => item === current[index])) return;
 		els.navList.replaceChildren(...items);
 		if (refocus) els.navList.querySelector?.(`[data-file="${CSS.escape(refocus)}"]`)?.focus();
 	}
+
+	/** Hide discarded (N) or Show discarded (N): only while an artboard is chosen; clearing the choice shows everything again. */
+	function renderNavDiscarded(anyChosen, count) {
+		// Nothing is discarded without a choice, so no item is hidden; the next choice starts with everything shown.
+		if (!anyChosen) state.hideDiscarded = false;
+		els.navDiscarded.hidden = !anyChosen;
+		els.navDiscarded.setAttribute("aria-expanded", String(!state.hideDiscarded));
+		loc(els.navDiscarded, "text", state.hideDiscarded ? "nav.showDiscarded" : "nav.hideDiscarded", { count });
+	}
+
+	els.navDiscarded.addEventListener("click", () => {
+		state.hideDiscarded = !state.hideDiscarded;
+		renderNav();
+	});
 
 	function setHandoffs(slug, data) {
 		const valid = Boolean(data && typeof data === "object" && data.handoffs && typeof data.handoffs === "object" && !Array.isArray(data.handoffs));
