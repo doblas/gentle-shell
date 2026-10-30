@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { designCommentBatchContent, designCommentContent, hasSystemTokens, listDesignEntries, readDesignManifest, resolveSystemBoard, startDesignCanvasServer, type DesignArtboard, type DesignCanvasServer, type DesignCanvasServerOptions, type DesignSessionContent } from "./design-canvas-server.ts";
+import { designCommentBatchContent, designCommentContent, hasSystemTokens, listDesignEntries, readDesignManifest, resolveSystemBoard, startDesignCanvasServer, type DesignArtboard, type DesignCanvasServer, type DesignCanvasServerOptions, type DesignMixRequest, type DesignSessionContent } from "./design-canvas-server.ts";
 import { createDesignCommentStore, DesignCommentsError, describeViewport, normalizeNote, noteProblem, type StoredDesignComment } from "./design-comments.ts";
 import { createDesignHistoryStore, type DesignHistoryStore } from "./design-history.ts";
 import { createDesignHandoffStore, DesignHandoffsError, sendDesignHandoff, type DesignHandoff, type DesignHandoffDelivery, type DesignHandoffStatus } from "./design-handoffs.ts";
@@ -150,6 +150,45 @@ export function designVariantMessage(input: DesignVariantInput): string {
 	return lines.join("\n");
 }
 
+export type DesignMixInput = {
+	slug: string;
+	/** The artboard whose structure the new direction starts from. */
+	base: Pick<DesignArtboard, "file" | "title">;
+	/** The picked elements, in the order the user made them; `note` may be empty. */
+	picks: ReadonlyArray<{ artboard: Pick<DesignArtboard, "file" | "title">; selector: string; excerpt: string; note: string }>;
+	/** Whether design/system.md exists. */
+	systemTokens: boolean;
+};
+
+/** The message for "Create combined direction" (canvas-mix S4): the skill writes one artboard from the base and the picks. */
+export function designMixMessage(input: DesignMixInput): string {
+	const folder = `design/${input.slug}`;
+	const basePath = `${folder}/${input.base.file}`;
+	const lines = [
+		`Combine artboards of the design ${folder}/ into a new direction, with the structure of ${basePath}`,
+		"",
+		`Base artboard: ${basePath}`,
+		`Title: ${input.base.title}`,
+		"",
+		`Picked elements (${input.picks.length}); bring each one into the new artboard:`,
+	];
+	input.picks.forEach((pick, index) => {
+		lines.push(
+			`${index + 1}. Artboard: ${folder}/${pick.artboard.file} (${pick.artboard.title})`,
+			`   Element: ${pick.selector}`,
+			`   Excerpt: ${pick.excerpt ? JSON.stringify(pick.excerpt) : "(none)"}`,
+			...(pick.note ? ["   Note:", ...pick.note.split("\n").map((line) => `   ${line}`)] : ["   Note: (none)"]),
+		);
+	});
+	lines.push(
+		"",
+		`Follow the ${DESIGN_SKILL_NAME} skill ("Combine artboards of the design …"): write the next artboard (the next NN after the existing ones, NN-mix-<name>.html) in ${folder}/, starting from the structure of the base artboard and bringing in each picked element, and append it to ${folder}/design.json with its title, width, height and a tradeoff that names the artboards it combines. Keep every existing artboard and its file as they are.`,
+	);
+	if (input.systemTokens) lines.push("Take colors, typography, spacing, radius and shadows from design/system.md, the project's token source.");
+	lines.push(`When it is written, refresh the canvas with the ${DESIGN_TOOL_NAME} tool (action "open", slug "${input.slug}").`);
+	return lines.join("\n");
+}
+
 /** The artboard a handoff records in handoffs.json (S15). */
 export type DesignHandoffTarget = { slug: string; file: string; feature?: string };
 
@@ -225,6 +264,21 @@ export function planDesignVariant(cwd: string, request: { slug: string; file: st
 	if (resolved.kind === "refuse") return resolved;
 	const { slug, artboard } = resolved;
 	return { kind: "send", message: designVariantMessage({ slug, artboard, instruction: request.instruction, systemTokens: hasSystemTokens(join(cwd, "design")) }) };
+}
+
+/** Validates the base and every pick against the design's manifest and builds the mix message; the canvas route sends exactly this. */
+export function planDesignMix(cwd: string, request: DesignMixRequest): DesignVariantPlan {
+	const resolved = resolveDesignTarget(cwd, `${request.slug}/${request.base}`, "combine from");
+	if (resolved.kind === "refuse") return resolved;
+	const { slug, artboard: base } = resolved;
+	const artboards = readDesignManifest(join(cwd, "design"), slug).artboards;
+	const picks = [];
+	for (const pick of request.picks) {
+		const artboard = artboards.find((candidate) => candidate.file === pick.file);
+		if (!artboard) return unknownTarget(cwd, `No artboard "${pick.file}" in design/${slug}/design.json.`);
+		picks.push({ artboard, selector: pick.selector, excerpt: pick.excerpt, note: pick.note });
+	}
+	return { kind: "send", message: designMixMessage({ slug, base, picks, systemTokens: hasSystemTokens(join(cwd, "design")) }) };
 }
 
 /** A handoffs.json problem as the reason the user or the model reads; a broken file is never overwritten. */
@@ -313,6 +367,12 @@ export function createDesignCanvas(deliver: (message: DesignSessionContent) => D
 				// Not a handoff: nothing is recorded, the new artboard arrives through the manifest.
 				onVariant: (request) => {
 					const plan = planDesignVariant(cwd, request);
+					if (plan.kind === "refuse") throw new Error(plan.notice.message);
+					return deliver(plan.message);
+				},
+				// Not a handoff either: the picks stay in the canvas, the combined artboard arrives through the manifest.
+				onMix: (request) => {
+					const plan = planDesignMix(cwd, request);
 					if (plan.kind === "refuse") throw new Error(plan.notice.message);
 					return deliver(plan.message);
 				},

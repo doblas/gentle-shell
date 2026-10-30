@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { TestContext } from "node:test";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { designCommentBatchContent, designCommentContent, formatDesignComment, formatDesignCommentBatch, startDesignCanvasServer, type DesignCanvasServerOptions, type DesignComment } from "../lib/design-canvas-server.ts";
+import { designCommentBatchContent, designCommentContent, formatDesignComment, formatDesignCommentBatch, startDesignCanvasServer, type DesignCanvasServerOptions, type DesignComment, type DesignMixRequest } from "../lib/design-canvas-server.ts";
 
 const TOKEN = "test-token-0123456789abcdef";
 const ASSET_DIR = fileURLToPath(new URL("../assets/design-canvas/", import.meta.url));
@@ -74,23 +74,25 @@ function fixture(t: TestContext) {
 	return { root, outside };
 }
 
-async function start(t: TestContext, extra: { initialSlug?: string; onImplement?: DesignCanvasServerOptions["onImplement"]; onVariant?: DesignCanvasServerOptions["onVariant"] } = {}) {
+async function start(t: TestContext, extra: { initialSlug?: string; onImplement?: DesignCanvasServerOptions["onImplement"]; onVariant?: DesignCanvasServerOptions["onVariant"]; onMix?: DesignCanvasServerOptions["onMix"] } = {}) {
 	const { root } = fixture(t);
 	const comments: DesignComment[] = [];
 	const batches: DesignComment[][] = [];
 	const implements_: Array<{ slug: string; file: string }> = [];
 	const variants: Array<{ slug: string; file: string; instruction: string }> = [];
+	const mixes: DesignMixRequest[] = [];
 	const server = await startDesignCanvasServer({
 		designRoot: root,
 		onComment: (comment) => { comments.push(comment); },
 		onComments: (batch) => { batches.push(batch); },
 		onImplement: (request) => { implements_.push(request); },
 		onVariant: (request) => { variants.push(request); },
+		onMix: (request) => { mixes.push(request); },
 		randomToken: () => TOKEN,
 		...extra,
 	});
 	t.after(() => server.close());
-	return { server, root, comments, batches, implements: implements_, variants, port: server.port, base: `/${TOKEN}/` };
+	return { server, root, comments, batches, implements: implements_, variants, mixes, port: server.port, base: `/${TOKEN}/` };
 }
 
 test("start returns a loopback URL with a random base64url token by default", async (t) => {
@@ -156,11 +158,11 @@ test("the canvas page carries a strict CSP and a JSON config, never inline code"
 	assert.ok(!csp.includes("unsafe-inline") && !csp.includes("unsafe-eval"));
 	const config = /<script id="gd-config" type="application\/json">([^<]*)<\/script>/.exec(page.body);
 	assert.ok(config, "config script present");
-	assert.deepEqual(JSON.parse(config[1]), { base, slug: null, delivery: { comment: true, batch: true, implement: true, variant: true } });
+	assert.deepEqual(JSON.parse(config[1]), { base, slug: null, delivery: { comment: true, batch: true, implement: true, variant: true, mix: true } });
 	assert.ok(page.body.includes(`src="${base}assets/canvas.js"`));
 	const slugPage = await rawRequest(port, `${base}d/alpha/`);
 	assert.equal(slugPage.status, 200);
-	assert.deepEqual(JSON.parse(/<script id="gd-config" type="application\/json">([^<]*)<\/script>/.exec(slugPage.body)![1]), { base, slug: "alpha", delivery: { comment: true, batch: true, implement: true, variant: true } });
+	assert.deepEqual(JSON.parse(/<script id="gd-config" type="application\/json">([^<]*)<\/script>/.exec(slugPage.body)![1]), { base, slug: "alpha", delivery: { comment: true, batch: true, implement: true, variant: true, mix: true } });
 	assert.equal((await rawRequest(port, `${base}d/Bad_Slug/`)).status, 404);
 	assert.equal((await rawRequest(port, `${base}d/alpha/extra`)).status, 404);
 	assert.equal((await rawRequest(port, base, { method: "POST" })).status, 405);
@@ -883,6 +885,118 @@ test("T2/S3: variant answers queued from the delivery, 501 without onVariant and
 	assert.equal((await rawRequest(failing.port, `/${TOKEN}/api/designs`)).status, 200, "the server survives");
 });
 
+// S4 (canvas-mix): "Create combined direction" posts the base and the picks to api/designs/<slug>/mix.
+
+const MIX = "api/designs/alpha/mix";
+const PICK = { file: "02-bare.html", selector: "body > h1", excerpt: "Bare", note: "me gusta la cabecera" };
+
+test("S4: mix delivers exactly one request with the base and every pick, normalized, and answers 202", async (t) => {
+	const { port, root, mixes } = await start(t);
+	const ok = await postJson(port, MIX, {
+		base: "01-hero.html",
+		picks: [
+			{ file: "02-bare.html", selector: "  body >\n h1 ", excerpt: "  Bare\n  title ", note: "  me gusta\r\nla cabecera  " },
+			{ file: "01-hero.html", selector: "h1" },
+		],
+	});
+	assert.equal(ok.status, 202);
+	assert.deepEqual(JSON.parse(ok.body), { ok: true, slug: "alpha", queued: false });
+	assert.deepEqual(mixes, [{
+		slug: "alpha",
+		base: "01-hero.html",
+		picks: [
+			{ file: "02-bare.html", selector: "body > h1", excerpt: "Bare title", note: "me gusta\nla cabecera" },
+			{ file: "01-hero.html", selector: "h1", excerpt: "", note: "" },
+		],
+	}], "selector and excerpt collapsed, the note trimmed with LF line ends, missing fields empty");
+	assert.equal(existsSync(join(root, "alpha", "handoffs.json")), false, "a mix is not a handoff: nothing is written");
+	const full = Array.from({ length: 20 }, () => ({ file: "02-bare.html", selector: "s".repeat(500), excerpt: "e".repeat(400), note: "n".repeat(2000) }));
+	const edge = await postJson(port, MIX, { base: "02-bare.html", picks: full });
+	assert.equal(edge.status, 202, "20 picks at the field limits are allowed");
+	assert.equal(mixes[1].picks.length, 20);
+	assert.equal(mixes[1].picks[0].selector.length, 500);
+	assert.equal(mixes[1].picks[0].excerpt.length, 300, "the excerpt is cut to its limit, like a comment's");
+	assert.equal(mixes[1].picks[0].note.length, 2000);
+});
+
+test("S4: mix refuses a bad base, a pick outside the manifest, 0 or 21 picks and over-long fields, delivering nothing", async (t) => {
+	const { port, mixes } = await start(t);
+	const refused = async (body: unknown, error: string, label: string) => {
+		const reply = await postJson(port, MIX, body);
+		assert.equal(reply.status, 400, label);
+		assert.equal(JSON.parse(reply.body).error, error, label);
+	};
+	// sub/inner.html exists but is not an artboard of the manifest.
+	for (const base of ["sub/inner.html", "missing.html", "../beta/01-a.html", "styles.css", "alias.html", 7, "", undefined]) {
+		await refused({ base, picks: [PICK] }, "invalid-base", `base ${String(base)}`);
+	}
+	for (const file of ["sub/inner.html", "missing.html", "../beta/01-a.html", "alias.html", 7, "", undefined]) {
+		await refused({ base: "01-hero.html", picks: [PICK, { ...PICK, file }] }, "invalid-file", `pick file ${String(file)}`);
+	}
+	for (const picks of [[], Array.from({ length: 21 }, () => PICK), undefined, "x", { 0: PICK }, null]) {
+		await refused({ base: "01-hero.html", picks }, "invalid-picks", `picks ${JSON.stringify(picks)?.slice(0, 20)}`);
+	}
+	for (const pick of [null, "x", 7, [PICK]]) await refused({ base: "01-hero.html", picks: [pick] }, "invalid-pick", `pick ${JSON.stringify(pick)}`);
+	for (const selector of ["", "   ", "s".repeat(501), 7, undefined]) await refused({ base: "01-hero.html", picks: [{ ...PICK, selector }] }, "invalid-selector", `selector ${String(selector).slice(0, 10)}`);
+	await refused({ base: "01-hero.html", picks: [{ ...PICK, excerpt: 7 }] }, "invalid-excerpt", "excerpt not a string");
+	for (const note of ["n".repeat(2001), 7]) await refused({ base: "01-hero.html", picks: [{ ...PICK, note }] }, "invalid-note", `note ${String(note).slice(0, 10)}`);
+	const reason = JSON.parse((await postJson(port, MIX, { base: "01-hero.html", picks: [PICK, { ...PICK, file: "missing.html" }] })).body).reason;
+	assert.equal(reason, "pick 2: missing.html is not an artboard of design/alpha");
+	assert.equal((await postJson(port, "api/designs/missing/mix", { base: "01-hero.html", picks: [PICK] })).status, 404);
+	assert.equal((await postJson(port, "api/designs/broken/mix", { base: "01-a.html", picks: [PICK] })).status, 422);
+	assert.equal((await postJson(port, "api/designs/Not_A_Slug/mix", { base: "01-a.html", picks: [PICK] })).status, 404);
+	assert.equal((await postJson(port, "api/designs/..%2Falpha/mix", { base: "01-hero.html", picks: [PICK] })).status, 404);
+	assert.equal(mixes.length, 0, "no refused request reaches onMix");
+});
+
+test("S4: the mix route keeps the Host, token, Origin, content-type, JSON, size and method rules", async (t) => {
+	const { port, mixes } = await start(t);
+	const path = `/${TOKEN}/${MIX}`;
+	const body = JSON.stringify({ base: "01-hero.html", picks: [PICK] });
+	const own = { Origin: `http://127.0.0.1:${port}`, "Content-Type": "application/json" };
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { "Content-Type": "application/json" }, body })).status, 403, "no Origin");
+	for (const origin of ["http://evil.example", "null", `http://localhost:${port + 1}`]) {
+		assert.equal((await rawRequest(port, path, { method: "POST", headers: { ...own, Origin: origin }, body })).status, 403, origin);
+	}
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { ...own, "Content-Type": "text/plain" }, body })).status, 415);
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { Origin: own.Origin }, body })).status, 415, "no content type");
+	assert.equal((await rawRequest(port, `/wrong-token-0123456789/${MIX}`, { method: "POST", headers: own, body })).status, 404, "wrong token");
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: own, body, host: `evil.example:${port}` })).status, 421);
+	for (const text of ["not json", "[1]", "null", "\"x\""]) assert.equal((await rawRequest(port, path, { method: "POST", headers: own, body: text })).status, 400, text);
+	assert.equal(JSON.parse((await rawRequest(port, path, { method: "POST", headers: own, body: "not json" })).body).error, "invalid-json");
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: own, body: JSON.stringify({ base: "01-hero.html", picks: [{ ...PICK, note: "x".repeat(257 * 1024) }] }) })).status, 413);
+	assert.equal((await rawRequest(port, path)).status, 405);
+	assert.equal((await rawRequest(port, path, { method: "PUT", headers: own, body })).status, 405);
+	assert.equal(mixes.length, 0, "nothing refused reaches onMix");
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { ...own, Origin: `http://localhost:${port}` }, body })).status, 202);
+	assert.equal(mixes.length, 1);
+});
+
+test("S4: mix answers queued from the delivery, 501 without onMix and 500 when it throws", async (t) => {
+	const { root } = fixture(t);
+	const request = { base: "01-hero.html", picks: [PICK] };
+	const bare = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onVariant: () => {}, randomToken: () => TOKEN });
+	t.after(() => bare.close());
+	const none = await postJson(bare.port, MIX, request);
+	assert.equal(none.status, 501);
+	assert.deepEqual(JSON.parse(none.body), { error: "mix-unavailable" });
+
+	const states = [{ queued: true }, { queued: false }, undefined];
+	const seen: unknown[] = [];
+	const queueing = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onMix: async (call) => { seen.push(call); return states[seen.length - 1]; }, randomToken: () => TOKEN });
+	t.after(() => queueing.close());
+	assert.equal(JSON.parse((await postJson(queueing.port, MIX, request)).body).queued, true);
+	assert.equal(JSON.parse((await postJson(queueing.port, MIX, request)).body).queued, false);
+	assert.equal(JSON.parse((await postJson(queueing.port, MIX, request)).body).queued, false, "no answer means not queued");
+
+	const failing = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onMix: () => { throw new Error("boom"); }, randomToken: () => TOKEN });
+	t.after(() => failing.close());
+	const reply = await postJson(failing.port, MIX, request);
+	assert.equal(reply.status, 500);
+	assert.deepEqual(JSON.parse(reply.body), { error: "delivery-failed", slug: "alpha", reason: "boom" });
+	assert.equal((await rawRequest(failing.port, `/${TOKEN}/api/designs`)).status, 200, "the server survives");
+});
+
 // S15: the canvas Implement route records the handoff in design/<slug>/handoffs.json.
 
 const handoffsOf = (root: string, slug = "alpha") => JSON.parse(readFileSync(join(root, slug, "handoffs.json"), "utf8"));
@@ -1225,7 +1339,7 @@ test("the page config tells the canvas which deliveries exist, and the 501 check
 
 	const bare = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, randomToken: () => TOKEN });
 	t.after(() => bare.close());
-	assert.deepEqual((await configOf(bare.port, TOKEN)).delivery, { comment: true, batch: false, implement: false, variant: false });
+	assert.deepEqual((await configOf(bare.port, TOKEN)).delivery, { comment: true, batch: false, implement: false, variant: false, mix: false });
 	const batchOnly = await postJson(bare.port, "api/designs/alpha/comments/send-all", {});
 	// Nothing unsent: the batch capability is only checked when there is something to deliver.
 	assert.equal(batchOnly.status, 200);
@@ -1239,16 +1353,22 @@ test("the page config tells the canvas which deliveries exist, and the 501 check
 
 	const batch = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onComments: () => {}, randomToken: () => "b".repeat(32) });
 	t.after(() => batch.close());
-	assert.deepEqual((await configOf(batch.port, "b".repeat(32))).delivery, { comment: true, batch: true, implement: false, variant: false });
+	assert.deepEqual((await configOf(batch.port, "b".repeat(32))).delivery, { comment: true, batch: true, implement: false, variant: false, mix: false });
 	const implement = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onImplement: () => ({ queued: false }), randomToken: () => "i".repeat(32) });
 	t.after(() => implement.close());
-	assert.deepEqual((await configOf(implement.port, "i".repeat(32))).delivery, { comment: true, batch: false, implement: true, variant: false });
+	assert.deepEqual((await configOf(implement.port, "i".repeat(32))).delivery, { comment: true, batch: false, implement: true, variant: false, mix: false });
 	const variant = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onVariant: () => ({ queued: false }), randomToken: () => "v".repeat(32) });
 	t.after(() => variant.close());
-	assert.deepEqual((await configOf(variant.port, "v".repeat(32))).delivery, { comment: true, batch: false, implement: false, variant: true });
+	assert.deepEqual((await configOf(variant.port, "v".repeat(32))).delivery, { comment: true, batch: false, implement: false, variant: true, mix: false });
 	const noVariant = await postJson(bare.port, "api/designs/alpha/variant", { file: "01-a.html", instruction: "Bolder" });
 	assert.equal(noVariant.status, 501);
 	assert.equal(JSON.parse(noVariant.body).error, "variant-unavailable");
+	const mix = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onMix: () => ({ queued: false }), randomToken: () => "m".repeat(32) });
+	t.after(() => mix.close());
+	assert.deepEqual((await configOf(mix.port, "m".repeat(32))).delivery, { comment: true, batch: false, implement: false, variant: false, mix: true });
+	const noMix = await postJson(bare.port, "api/designs/alpha/mix", { base: "01-hero.html", picks: [{ file: "01-hero.html", selector: "h1" }] });
+	assert.equal(noMix.status, 501);
+	assert.equal(JSON.parse(noMix.body).error, "mix-unavailable");
 });
 
 // S7: the viewport a comment was made at.
