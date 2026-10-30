@@ -8142,7 +8142,8 @@ test("progressive S5: the review panel has three tabs, Comments, Quality and Mix
 	for (const id of ["gd-count-open", "gd-count-checks", "gd-count-mix"]) assert.ok(tablist.includes(`id="${id}"`), `${id} in its tab`);
 	assert.equal([...html.matchAll(/role="tab"/g)].length, 3);
 	for (const gone of ["gd-tab-history", "gd-tab-brief", "gd-count-history"]) assert.ok(!html.includes(`id="${gone}"`), `${gone} is no longer a tab`);
-	assert.match(html, /<button type="button" id="gd-panel-more" class="gd-tab gd-tab-more" aria-haspopup="menu" aria-expanded="false" aria-controls="gd-menu"><span data-i18n="panel.more">More<\/span><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-down"\/><\/svg><\/button>/);
+	// canvas-progressive fix: More is an icon button named More, so Comments, Quality and Mix fit the panel.
+	assert.match(html, /<button type="button" id="gd-panel-more" class="gd-tab gd-tab-more" aria-haspopup="menu" aria-expanded="false" aria-controls="gd-menu" title="More" data-i18n-title="panel.more"><span class="gd-visually-hidden" data-i18n="panel.more">More<\/span><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-more"\/><\/svg><\/button>/);
 	assert.ok(!tablist.includes("gd-panel-more"), "More is a menu button beside the tablist, not a tab");
 	const { en, es } = loadCatalog();
 	assert.deepEqual([en["tab.comments"], en["tab.checks"], en["tab.mix"], en["panel.more"]], ["Comments", "Quality", "Mix", "More"]);
@@ -8463,4 +8464,28 @@ test("progressive S7 (T3): the docs describe the first-run guide", () => {
 	const readme = readFileSync(fileURLToPath(new URL("../README.md", import.meta.url)), "utf8");
 	const row = readme.split("\n").find((line) => line.startsWith("| Gentle Design |"))!;
 	assert.ok(row.includes("first-run guide"), "the README row mentions the first-run guide");
+});
+
+// ---- canvas-progressive fix: every review tab stays in view in the default 360px panel
+
+test("canvas-progressive fix: the panel's More is an icon button that keeps its name, and the tabs shrink instead of scrolling out of view", async () => {
+	const html = read("index.html");
+	const more = /<button type="button" id="gd-panel-more"[^>]*>([^]*?)<\/button>/.exec(html);
+	assert.ok(more, "the More button is in index.html");
+	assert.match(more[0], /title="More" data-i18n-title="panel.more"/, "its tooltip names it");
+	assert.match(more[1], /<span class="gd-visually-hidden" data-i18n="panel.more">More<\/span>/, "its name stays for assistive technology, visually hidden");
+	assert.match(more[1], /<use href="#i-more"\/>/, "it shows the ⋯ icon");
+	const css = read("canvas.css");
+	const rule = (selector: string) => {
+		const start = css.indexOf(`\n${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	assert.match(rule(".gd-tabs .gd-tab"), /flex:\s*0 1 auto/, "a tab may shrink when the panel is narrow");
+	assert.match(rule(".gd-tabs .gd-tab"), /min-width:\s*0/);
+	assert.match(rule(".gd-tabs .gd-tab"), /text-overflow:\s*ellipsis/);
+	assert.match(rule(".gd-tab"), /font-size:\s*13px/);
+	const spanish = await loadLang({ browser: "es" });
+	const button = spanish.document.getElementById("gd-panel-more");
+	assert.equal(button.title, "Más", "the tooltip follows the language");
 });

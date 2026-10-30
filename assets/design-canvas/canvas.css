@@ -1376,8 +1376,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 	display: flex;
 	flex: 1;
 	min-width: 0;
-	gap: 2px;
-	padding: 8px 10px 0;
+	gap: 0;
+	padding: 8px 4px 0;
 	overflow-x: auto;
 	overflow-y: hidden;
 	scrollbar-width: none;
@@ -1409,7 +1409,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .gd-tab {
 	flex: none;
-	padding: 6px 8px;
+	padding: 6px;
+	font-size: 13px;
 	border-radius: var(--radius-sm) var(--radius-sm) 0 0;
 	border: 0;
 	border-bottom: 2px solid transparent;
@@ -1418,8 +1419,18 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .gd-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
 
+/* The three tabs fit the default panel; a narrower one shrinks the labels (with an ellipsis) before anything scrolls out of view. */
+.gd-tabs .gd-tab {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 /* More (History, Original request): a menu button beside the tablist, underlined while one of its views shows. */
-.gd-tab-more { gap: 4px; margin: 8px 10px 0 4px; }
+/* More is an icon (⋯) with a visually hidden name and a tooltip, so the tabs keep the room. */
+.gd-tab-more { margin: 8px 6px 0 0; }
 .gd-tab-more[aria-expanded="true"] { color: var(--text); background: var(--surface-2); }
 .gd-tab-more.gd-tab-more-current { color: var(--text); border-bottom-color: var(--accent); }
 
