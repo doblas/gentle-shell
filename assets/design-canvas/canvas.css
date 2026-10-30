@@ -838,10 +838,7 @@ select {
 
 .gd-shield:hover .gd-shield-hint, .gd-shield:focus-visible .gd-shield-hint { opacity: 1; }
 
-/* In comment mode the inspector draws the hover box itself. */
-.gd-commenting .gd-shield { cursor: crosshair; }
-.gd-commenting .gd-shield:hover { background: transparent; box-shadow: none; }
-.gd-commenting .gd-shield-hint { display: none; }
+/* Comment mode in the overview: a click opens the direction (its hint says so); elements are picked inside it. */
 
 .gd-viewport.gd-focused { cursor: default; }
 .gd-focused .gd-artboard:not(.gd-focus-board) { opacity: 0.25; }
@@ -1364,6 +1361,10 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .gd-panel-empty { margin: 0; color: var(--text-muted); }
 
+/* The Comments tab's Open / Resolved filter: the segmented control of the size bar. */
+.gd-comment-filter { align-self: flex-start; }
+.gd-comment-filter[hidden] { display: none; }
+
 .gd-brief { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 
 /* Mix: the picks by artboard, then Structure from and Create combined direction. */
@@ -1487,9 +1488,15 @@ button:disabled { opacity: 0.5; cursor: default; }
 	font-size: 13px;
 }
 
+/* "Save to send later" is longer than one line in a narrow panel: it wraps, centered. */
+.gd-sendmode .gd-radio { white-space: normal; text-align: center; }
 .gd-sendmode .gd-radio input { position: absolute; opacity: 0; }
 .gd-sendmode .gd-radio:has(input:checked) { background: var(--surface-2); color: var(--text); }
 .gd-sendmode .gd-radio:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Where comments go, and how many wait to be sent (hidden at 0). */
+.gd-send-intro { margin: 0; color: var(--text); font-size: 13px; }
+.gd-send-pending { margin: 0; color: var(--warning); font-size: 12px; font-weight: 600; }
+
 /* Feedback next to the action: the Send all explanation and its failure alert. */
 .gd-send-note, .gd-implement-note {
 	margin: 0;
@@ -2281,6 +2288,22 @@ kbd {
 	0%, 100% { box-shadow: 0 0 0 0 var(--info-halo); }
 	50% { box-shadow: 0 0 0 4px var(--info-halo); }
 }
+
+/* ---- technical details (canvas-ux-quick-wins S2) ---- */
+
+/* The top bar toggle: off by default, accent while on. */
+.gd-technical {
+	gap: 6px;
+	color: var(--text-muted);
+}
+
+.gd-technical[aria-pressed="true"] {
+	background: var(--surface-2);
+	border-color: var(--accent-line);
+	color: var(--accent);
+}
+
+.gd-technical:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ---- language switch (canvas-language T1) ---- */
 

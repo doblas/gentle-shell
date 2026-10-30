@@ -7,7 +7,8 @@
 // Navigation mode (the default) covers every artboard with a shield, so the wheel,
 // drags and clicks always reach the canvas; a click on a shield enters focus mode,
 // which shows that artboard at 100% and lets it own the pointer and the keyboard
-// until "Back to canvas" or Shift+Esc restores the previous view.
+// until "Back to canvas" or Shift+Esc restores the previous view. Comment mode does the same in
+// the overview (comparing), so elements are picked only inside a direction, at full size (reviewing).
 // A minimap in the viewport's bottom right (M) shows every board and the visible area; clicking or dragging in it pans.
 // Every word it shows is in one catalog (English and Spanish, below); the language starts from the browser's and
 // a button in the top bar switches it live. Messages sent to the session are not text of the canvas and stay English.
@@ -33,6 +34,8 @@
 	const LIMITS = { selector: 500, excerpt: 300, comment: 2000, variant: 2000, mixPicks: 20, pins: 500, tokens: 500, versions: 50, historyArtboards: 256, screenshotBytes: 5 * 1024 * 1024 };
 	const SCREENSHOT_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 	const MODE_KEY = "gentle-design:send-mode";
+	// "on" shows the CSS selectors on cards and the token inspector; anything else (or nothing) is off.
+	const TECHNICAL_KEY = "gentle-design:technical";
 	// The picks of the mix, per design: `${MIX_KEY_PREFIX}<slug>`. A pick's pin id is `${MIX_PIN}<pick id>`, never a comment id.
 	const MIX_KEY_PREFIX = "gentle-design:mix:";
 	const MIX_PIN = "mix:";
@@ -68,7 +71,7 @@
 	const DELIVERY = { comment: true, batch: true, implement: true, variant: true, mix: true, ...(config.delivery && typeof config.delivery === "object" ? config.delivery : {}) };
 	// Suggestions in the "another direction" dialog: each fills the field with its own label.
 	const VARIANT_SUGGESTIONS = ["variant.compact", "variant.bolder", "variant.mobile", "variant.calmer"];
-	const TAB_NAMES = ["open", "resolved", "history", "checks", "mix", "brief"];
+	const TAB_NAMES = ["comments", "history", "checks", "mix", "brief"];
 
 	/* catalog:start */
 	// S4: every word the canvas shows, once per language, one entry per line. A key missing from `es` shows the English text.
@@ -96,10 +99,10 @@
 			"rail.navigate.title": "Navigate (V)",
 			"rail.comment": "Comment",
 			"rail.comment.title": "Comment (C)",
-			"rail.overview": "Overview: fit all artboards",
+			"rail.overview": "Overview: fit all directions",
 			"rail.overview.title": "Overview: fit all (F)",
-			"rail.list": "Artboard list",
-			"rail.list.title": "Artboard list ([)",
+			"rail.list": "Direction list",
+			"rail.list.title": "Direction list ([)",
 			"rail.system": "Design system board",
 			"rail.keys": "Keyboard shortcuts",
 			"rail.keys.title": "Keyboard shortcuts (?)",
@@ -107,6 +110,8 @@
 			"bar.design": "Design",
 			"bar.feature": "Feature document",
 			"bar.compareApp": "Compare with app",
+			"technical.label": "Technical details",
+			"technical.title": "Selectors and the token inspector",
 			"zoom.group": "Zoom",
 			"zoom.out": "Zoom out",
 			"zoom.out.title": "Zoom out (-)",
@@ -115,7 +120,7 @@
 			"zoom.in.title": "Zoom in (+)",
 			"zoom.fit": "Fit all",
 			"zoom.fit.title": "Fit all (0)",
-			"nav.title": "Artboards · {count}",
+			"nav.title": "Directions · {count}",
 			"nav.note": "Design system board is always first in Overview.",
 			"nav.thumb": "{title} preview",
 			"nav.summary.open.one": "{count} open comment",
@@ -125,44 +130,49 @@
 			"nav.summary.none": "No comments",
 			"nav.hideDiscarded": "Hide discarded ({count})",
 			"nav.showDiscarded": "Show discarded ({count})",
-			"a11y.ok": "A11y ✓",
+			"a11y.ok": "Accessible ✓",
 			"a11y.fails.one": "{count} check",
 			"a11y.fails.other": "{count} checks",
 			"a11y.okTitle": "Automatic checks found no problems. They are heuristics, not a full audit.",
 			"a11y.failTitle": "Open the Checks tab to see them.",
-			"viewport.label": "Artboards",
+			"viewport.label": "Directions",
 			"mode.navigating": "Navigating",
-			"mode.commenting": "Click an element to comment · Esc",
+			"mode.commenting": "Click a direction to open it and comment · Esc",
 			"mode.using": "Using: {title} · Shift+Esc to exit",
 			"back": "Back to canvas",
 			"back.title": "Back to canvas (Shift+Esc)",
 			"minimap.title": "Minimap",
-			"minimap.aria": "Position of the visible area among the artboards. Click or drag to move the view; use the artboard list with the keyboard.",
-			"minimap.aria.one": "Position of the visible area among {count} artboard. Click or drag to move the view; use the artboard list with the keyboard.",
-			"minimap.aria.other": "Position of the visible area among {count} artboards. Click or drag to move the view; use the artboard list with the keyboard.",
+			"minimap.aria": "Position of the visible area among the directions. Click or drag to move the view; use the direction list with the keyboard.",
+			"minimap.aria.one": "Position of the visible area among {count} direction. Click or drag to move the view; use the direction list with the keyboard.",
+			"minimap.aria.other": "Position of the visible area among {count} directions. Click or drag to move the view; use the direction list with the keyboard.",
 			"panel.label": "Review",
 			"panel.toggleTitle": "Review panel (])",
 			"tab.comments": "Comments",
-			"tab.resolved": "Resolved",
 			"tab.history": "History",
 			"tab.checks": "Checks",
 			"tab.mix": "Mix",
-			"tab.brief": "Brief",
+			"tab.brief": "Original request",
 			"tabs.prev": "Earlier tabs",
 			"tabs.next": "More tabs",
 			"panel.comments": "Comments",
 			"panel.empty.none": "No comments yet. Turn on Comment mode and click an element.",
 			"panel.empty.open": "No open comments.",
 			"panel.empty.resolved": "No resolved comments.",
+			"filter.label": "Show comments",
+			"filter.open": "Open ({count})",
+			"filter.resolved": "Resolved ({count})",
 			"panel.sendMode": "When a comment is sent to the session",
 			"panel.sendNow": "Send now",
-			"panel.collect": "Collect",
+			"panel.collect": "Save to send later",
+			"panel.footIntro": "Your comments go to the agent so it changes the design",
+			"panel.pending.one": "{count} waiting to be sent",
+			"panel.pending.other": "{count} waiting to be sent",
 			"panel.sendAll": "Send all ({count})",
 			"panel.sent.one": "Sent {count} comment to the session",
 			"panel.sent.other": "Sent {count} comments to the session",
 			"panel.noUnsent": "No unsent comments",
 			"brief.noDesign": "No design selected",
-			"brief.none": "No brief written.",
+			"brief.none": "No original request written.",
 			"comment.sent": "Sent",
 			"comment.waiting": "Waiting",
 			"comment.detached": "Detached",
@@ -195,7 +205,7 @@
 			"designs.invalid": "{slug} (invalid design.json)",
 			"empty.noDesigns": "No designs yet. Run /gentle:design with a brief to create one.",
 			"empty.cannotShow": "Design \"{slug}\" cannot be shown: {message}",
-			"empty.noArtboards": "This design has no artboards yet.",
+			"empty.noArtboards": "This design has no directions yet.",
 			"empty.cannotList": "Designs cannot be listed: {message}",
 			"status.invalidManifest": "design.json for {slug} is invalid",
 			"status.warnings": "design.json: {warnings}",
@@ -205,6 +215,8 @@
 			"board.use": "Use {title}",
 			"board.hintUse": "Click to use this design",
 			"board.hintSystem": "Click to view the design system",
+			"board.hintComment": "Click to open and comment",
+			"board.comment": "Open {title} to comment",
 			"board.frameTitle": "{title} artboard",
 			"board.menuButton": "More actions for {title}",
 			"system.title": "Design system",
@@ -448,11 +460,11 @@
 			"keys.navigate": "Navigate",
 			"keys.comment": "Comment on an element",
 			"keys.or": "or",
-			"keys.fit": "Fit all artboards",
+			"keys.fit": "Fit all directions",
 			"keys.zoom": "Zoom in and out",
 			"keys.pan": "Pan (Shift for larger steps)",
 			"keys.minimap": "Show or hide the minimap",
-			"keys.nav": "Show or hide the artboard list",
+			"keys.nav": "Show or hide the direction list",
 			"keys.panel": "Show or hide the review panel",
 			"keys.esc": "Leave Comment mode or close the comment box",
 			"keys.shiftEsc": "Back to canvas from an artboard or Compare",
@@ -512,10 +524,10 @@
 			"rail.navigate.title": "Navegar (V)",
 			"rail.comment": "Comentar",
 			"rail.comment.title": "Comentar (C)",
-			"rail.overview": "Ver todo: ajustar todos los artboards",
+			"rail.overview": "Ver todo: ajustar todas las propuestas",
 			"rail.overview.title": "Ver todo: ajustar todo (F)",
-			"rail.list": "Lista de artboards",
-			"rail.list.title": "Lista de artboards ([)",
+			"rail.list": "Lista de propuestas",
+			"rail.list.title": "Lista de propuestas ([)",
 			"rail.system": "Tablero del design system",
 			"rail.keys": "Atajos de teclado",
 			"rail.keys.title": "Atajos de teclado (?)",
@@ -523,6 +535,8 @@
 			"bar.design": "Diseño",
 			"bar.feature": "Documento de la funcionalidad",
 			"bar.compareApp": "Comparar con la app",
+			"technical.label": "Detalles técnicos",
+			"technical.title": "Selectores e inspector de tokens",
 			"zoom.group": "Zoom",
 			"zoom.out": "Alejar",
 			"zoom.out.title": "Alejar (-)",
@@ -531,7 +545,7 @@
 			"zoom.in.title": "Acercar (+)",
 			"zoom.fit": "Ajustar todo",
 			"zoom.fit.title": "Ajustar todo (0)",
-			"nav.title": "Artboards · {count}",
+			"nav.title": "Propuestas · {count}",
 			"nav.note": "El tablero del design system siempre va primero en Ver todo.",
 			"nav.thumb": "Vista previa de {title}",
 			"nav.summary.open.one": "{count} comentario abierto",
@@ -541,44 +555,49 @@
 			"nav.summary.none": "Sin comentarios",
 			"nav.hideDiscarded": "Ocultar descartadas ({count})",
 			"nav.showDiscarded": "Mostrar descartadas ({count})",
-			"a11y.ok": "A11y ✓",
+			"a11y.ok": "Accesible ✓",
 			"a11y.fails.one": "{count} comprobación",
 			"a11y.fails.other": "{count} comprobaciones",
 			"a11y.okTitle": "Las comprobaciones automáticas no encontraron problemas. Son heurísticas, no una auditoría completa.",
 			"a11y.failTitle": "Abre la pestaña Comprobaciones para verlas.",
-			"viewport.label": "Artboards",
+			"viewport.label": "Propuestas",
 			"mode.navigating": "Navegando",
-			"mode.commenting": "Haz clic en un elemento para comentar · Esc",
+			"mode.commenting": "Haz clic en una propuesta para abrirla y comentar · Esc",
 			"mode.using": "Usando: {title} · Shift+Esc para salir",
 			"back": "Volver al canvas",
 			"back.title": "Volver al canvas (Shift+Esc)",
 			"minimap.title": "Minimapa",
-			"minimap.aria": "Posición del área visible entre los artboards. Haz clic o arrastra para mover la vista; usa la lista de artboards con el teclado.",
-			"minimap.aria.one": "Posición del área visible entre {count} artboard. Haz clic o arrastra para mover la vista; usa la lista de artboards con el teclado.",
-			"minimap.aria.other": "Posición del área visible entre {count} artboards. Haz clic o arrastra para mover la vista; usa la lista de artboards con el teclado.",
+			"minimap.aria": "Posición del área visible entre las propuestas. Haz clic o arrastra para mover la vista; usa la lista de propuestas con el teclado.",
+			"minimap.aria.one": "Posición del área visible entre {count} propuesta. Haz clic o arrastra para mover la vista; usa la lista de propuestas con el teclado.",
+			"minimap.aria.other": "Posición del área visible entre {count} propuestas. Haz clic o arrastra para mover la vista; usa la lista de propuestas con el teclado.",
 			"panel.label": "Revisión",
 			"panel.toggleTitle": "Panel de revisión (])",
 			"tab.comments": "Comentarios",
-			"tab.resolved": "Resueltos",
 			"tab.history": "Historial",
 			"tab.checks": "Comprobaciones",
 			"tab.mix": "Mezcla",
-			"tab.brief": "Encargo",
+			"tab.brief": "Petición original",
 			"tabs.prev": "Pestañas anteriores",
 			"tabs.next": "Más pestañas",
 			"panel.comments": "Comentarios",
 			"panel.empty.none": "Aún no hay comentarios. Activa el modo Comentar y haz clic en un elemento.",
 			"panel.empty.open": "No hay comentarios abiertos.",
 			"panel.empty.resolved": "No hay comentarios resueltos.",
+			"filter.label": "Mostrar comentarios",
+			"filter.open": "Abiertos ({count})",
+			"filter.resolved": "Resueltos ({count})",
 			"panel.sendMode": "Cuándo se envía un comentario a la sesión",
 			"panel.sendNow": "Enviar ya",
-			"panel.collect": "Acumular",
+			"panel.collect": "Guardar para enviar luego",
+			"panel.footIntro": "Tus comentarios se envían al agente para que cambie el diseño",
+			"panel.pending.one": "{count} pendiente de enviar",
+			"panel.pending.other": "{count} pendientes de enviar",
 			"panel.sendAll": "Enviar todo ({count})",
 			"panel.sent.one": "Se envió {count} comentario a la sesión",
 			"panel.sent.other": "Se enviaron {count} comentarios a la sesión",
 			"panel.noUnsent": "No hay comentarios sin enviar",
 			"brief.noDesign": "Ningún diseño seleccionado",
-			"brief.none": "Aún no hay encargo escrito.",
+			"brief.none": "Aún no se ha escrito la petición original.",
 			"comment.sent": "Enviado",
 			"comment.waiting": "Esperando",
 			"comment.detached": "Desvinculado",
@@ -609,9 +628,9 @@
 			"shot.size": "La captura debe pesar 5 MB como máximo.",
 			"shot.read": "No se pudo leer la captura.",
 			"designs.invalid": "{slug} (design.json no válido)",
-			"empty.noDesigns": "Aún no hay diseños. Ejecuta /gentle:design con un encargo para crear uno.",
+			"empty.noDesigns": "Aún no hay diseños. Ejecuta /gentle:design con una petición para crear uno.",
 			"empty.cannotShow": "No se puede mostrar el diseño «{slug}»: {message}",
-			"empty.noArtboards": "Este diseño aún no tiene artboards.",
+			"empty.noArtboards": "Este diseño aún no tiene propuestas.",
 			"empty.cannotList": "No se pueden listar los diseños: {message}",
 			"status.invalidManifest": "design.json de {slug} no es válido",
 			"status.warnings": "design.json: {warnings}",
@@ -621,6 +640,8 @@
 			"board.use": "Usar {title}",
 			"board.hintUse": "Haz clic para usar este diseño",
 			"board.hintSystem": "Haz clic para ver el design system",
+			"board.hintComment": "Haz clic para abrirla y comentar",
+			"board.comment": "Abrir {title} para comentar",
 			"board.frameTitle": "Artboard {title}",
 			"board.menuButton": "Más acciones de {title}",
 			"system.title": "Design system",
@@ -864,11 +885,11 @@
 			"keys.navigate": "Navegar",
 			"keys.comment": "Comentar un elemento",
 			"keys.or": "o",
-			"keys.fit": "Ajustar todos los artboards",
+			"keys.fit": "Ajustar todas las propuestas",
 			"keys.zoom": "Acercar y alejar",
 			"keys.pan": "Desplazar (Shift para pasos más grandes)",
 			"keys.minimap": "Mostrar u ocultar el minimapa",
-			"keys.nav": "Mostrar u ocultar la lista de artboards",
+			"keys.nav": "Mostrar u ocultar la lista de propuestas",
 			"keys.panel": "Mostrar u ocultar el panel de revisión",
 			"keys.esc": "Salir del modo Comentar o cerrar el cuadro de comentario",
 			"keys.shiftEsc": "Volver al canvas desde un artboard o Comparar",
@@ -1041,6 +1062,7 @@
 		navDiscarded: $("gd-nav-discarded"),
 		featureSep: $("gd-feature-sep"),
 		compareApp: $("gd-compare-app"),
+		technical: $("gd-technical"),
 		tabs: $("gd-tabs"),
 		tabsPrev: $("gd-tabs-prev"),
 		tabsNext: $("gd-tabs-next"),
@@ -1070,7 +1092,6 @@
 		mixShow: $("gd-popover-show-mix"),
 		tabBrief: $("gd-tab-brief"),
 		countOpen: $("gd-count-open"),
-		countResolved: $("gd-count-resolved"),
 		tabPanel: $("gd-tabpanel"),
 		brief: $("gd-brief"),
 		briefTitle: $("gd-brief-title"),
@@ -1105,8 +1126,11 @@
 		modeCollect: $("gd-mode-collect"),
 		sendAll: $("gd-send-all"),
 		sendNote: $("gd-send-note"),
+		sendPending: $("gd-send-pending"),
 		panelToggle: $("gd-panel-toggle"),
 		panel: $("gd-panel"),
+		tabComments: $("gd-tab-comments"),
+		commentFilter: $("gd-comment-filter"),
 		filterOpen: $("gd-filter-open"),
 		filterResolved: $("gd-filter-resolved"),
 		panelEmpty: $("gd-panel-empty"),
@@ -1156,6 +1180,14 @@
 		}
 	}
 
+	function storedTechnical() {
+		try {
+			return localStorage.getItem(TECHNICAL_KEY) === "on";
+		} catch {
+			return false;
+		}
+	}
+
 	const state = {
 		slug: typeof config.slug === "string" ? config.slug : null,
 		manifest: null,
@@ -1174,9 +1206,12 @@
 		comments: [],
 		// Whether the navigator hides the discarded artboards while one is chosen.
 		hideDiscarded: false,
-		// The review tab: "open" or "resolved" (the comment list) or "brief".
-		tab: "open",
+		// The review tab (TAB_NAMES), and which comments the Comments tab lists: "open" or "resolved".
+		tab: "comments",
+		filter: "open",
 		mode: storedMode(),
+		// Technical details: selectors on the cards and the token inspector, off unless switched on (TECHNICAL_KEY).
+		technical: storedTechnical(),
 		activeId: null,
 		designCount: 0,
 		// The minimap's switch (M); it also hides in focus mode, Compare and a version comparison.
@@ -1196,7 +1231,6 @@
 		savedNav: null,
 		// The size shown while focused: { kind: "phone" | "tablet" | "desktop" | "all" }, or { kind: "custom", width }.
 		size: { kind: "desktop" },
-		hoverBoard: null,
 		// The open version comparison: { board, n, mode, pos, enteredFocus, ... }, or null.
 		vcompare: null,
 		// The history of design `slug`: Map of artboard file to its versions (oldest first), the reply's warnings, and a load error.
@@ -1547,7 +1581,7 @@
 	}, { passive: false });
 
 	// A press on a shield pans like the background; released without moving, it is a
-	// click on that artboard: a routed pick in comment mode, else focus mode.
+	// click on that artboard: focus mode, in Comment mode too (S1: elements are picked inside it).
 	let drag = null;
 	els.viewport.addEventListener("pointerdown", (event) => {
 		if (state.focus || event.button !== 0 || event.target.closest("button")) return;
@@ -1558,10 +1592,7 @@
 		els.viewport.classList.add("gd-panning");
 	});
 	els.viewport.addEventListener("pointermove", (event) => {
-		if (!drag || drag.id !== event.pointerId) {
-			if (!drag) hoverAt(event);
-			return;
-		}
+		if (!drag || drag.id !== event.pointerId) return;
 		panBy(event.clientX - drag.x, event.clientY - drag.y);
 		drag.x = event.clientX;
 		drag.y = event.clientY;
@@ -1572,11 +1603,10 @@
 		const ended = drag;
 		drag = null;
 		els.viewport.classList.remove("gd-panning");
-		if (event.type === "pointerup" && ended.board && !ended.moved) activateBoard(ended.board, event.clientX, event.clientY);
+		if (event.type === "pointerup" && ended.board && !ended.moved) enterFocus(ended.board);
 	};
 	els.viewport.addEventListener("pointerup", endDrag);
 	els.viewport.addEventListener("pointercancel", endDrag);
-	els.viewport.addEventListener("pointerleave", () => setHoverBoard(null));
 
 	// A still click on the canvas (its background, an artboard, a header; also in focus mode) clears a check's ring; a drag keeps it.
 	let markPress = null;
@@ -1625,32 +1655,11 @@
 		return allBoards().find((board) => board.shield === shield) ?? null;
 	}
 
-	/** A viewport point in the artboard's own CSS pixels. */
-	function framePoint(board, clientX, clientY) {
-		const rect = board.frame.getBoundingClientRect();
-		const scale = rect.width / board.viewWidth || 1;
-		return { x: (clientX - rect.left) / scale, y: (clientY - rect.top) / scale };
-	}
-
-	function activateBoard(board, clientX, clientY) {
-		if (!state.commenting) enterFocus(board);
-		else if (!board.system) board.frame.contentWindow?.postMessage({ type: "gd:pick-at", ...framePoint(board, clientX, clientY) }, "*");
-	}
-
-	function setHoverBoard(board) {
-		if (state.hoverBoard && state.hoverBoard !== board) state.hoverBoard.frame.contentWindow?.postMessage({ type: "gd:hover-at", x: null, y: null }, "*");
-		state.hoverBoard = board;
-	}
-
-	/** Comment mode in navigation: the shield routes the hover to the inspector so it can outline the element. */
-	function hoverAt(event) {
-		// The inspector panel is beside the artboard: reaching it keeps the element outlined.
-		if (event.target && els.inspector.contains(event.target)) return;
-		if (!state.commenting || state.focus) return setHoverBoard(null);
-		const shield = event.target.closest(".gd-shield");
-		const board = shield ? boardOfShield(shield) : null;
-		setHoverBoard(board && !board.system ? board : null);
-		if (state.hoverBoard) state.hoverBoard.frame.contentWindow?.postMessage({ type: "gd:hover-at", ...framePoint(board, event.clientX, event.clientY) }, "*");
+	/** The shield's hint and name say what a click does: open the direction, and in Comment mode open it to comment. */
+	function renderShield(board) {
+		if (board.system) return;
+		loc(board.hint, "text", state.commenting ? "board.hintComment" : "board.hintUse");
+		loc(board.shield, "aria-label", state.commenting ? "board.comment" : "board.use", { title: board.artboard.title });
 	}
 
 	/** The board's own frame, then the extra frames All sizes adds: every one reports picks and pins the same way. */
@@ -1776,7 +1785,6 @@
 			if (state.savedNav && board.artboard.width + FOCUS_MARGIN * 2 > els.viewport.getBoundingClientRect().width) setNav(false);
 		}
 		closePopover();
-		setHoverBoard(null);
 		state.focus = board;
 		// Every focus session starts at Desktop.
 		state.size = { kind: "desktop" };
@@ -1926,18 +1934,18 @@
 		shield.setAttribute("role", "button");
 		shield.tabIndex = 0;
 		if (system) loc(shield, "aria-label", "system.view");
-		else loc(shield, "aria-label", "board.use", { title: artboard.title });
 		const hint = document.createElement("span");
 		hint.className = "gd-shield-hint";
 		hint.setAttribute("aria-hidden", "true");
-		loc(hint, "text", system ? "board.hintSystem" : "board.hintUse");
+		if (system) loc(hint, "text", "board.hintSystem");
 		shield.append(hint);
 		const pins = document.createElement("div");
 		pins.className = "gd-pins";
 		// rects: null until the artboard reports where each commented element is.
 		const flag = createOverflowFlag();
-		const board = { slug, artboard, number, frame, wrapper, shield, pins, handoff, stateChip, rects: null, system, viewWidth: artboard.width, viewHeight: artboard.height, flag, overflow: null, sizeControl, sizeFrames: [], sizesView: null, checks: null, menuButton, implement };
+		const board = { slug, artboard, number, frame, wrapper, shield, hint, pins, handoff, stateChip, rects: null, system, viewWidth: artboard.width, viewHeight: artboard.height, flag, overflow: null, sizeControl, sizeFrames: [], sizesView: null, checks: null, menuButton, implement };
 		setFrameSize(board, artboard.width, artboard.height);
+		renderShield(board);
 		renderHandoff(board);
 		// The system board is not listed in the navigator, so it has no item or thumbnail.
 		if (!system) board.nav = createNavItem(board);
@@ -3478,7 +3486,6 @@
 		exitCompare(false);
 		exitFocus();
 		closePopover();
-		setHoverBoard(null);
 		const { width, height, title } = board.artboard;
 		const artboardFrame = compareFrame(width, height, t("board.frameTitle", { title }));
 		artboardFrame.setAttribute("sandbox", "allow-scripts");
@@ -4347,10 +4354,6 @@
 		const detail = document.createElement("small");
 		detail.className = "gd-check-detail";
 		detail.textContent = words.detail;
-		const selector = document.createElement("code");
-		selector.className = "gd-check-selector";
-		selector.textContent = issue.selector;
-		selector.title = issue.selector;
 		const actions = document.createElement("div");
 		actions.className = "gd-check-actions";
 		const show = document.createElement("button");
@@ -4366,7 +4369,14 @@
 		fix.append(chip("", t("checks.fix")));
 		fix.addEventListener("click", () => askAboutIssue(board, issue));
 		actions.append(show, fix);
-		body.append(heading, detail, selector);
+		body.append(heading, detail);
+		if (state.technical) {
+			const selector = document.createElement("code");
+			selector.className = "gd-check-selector";
+			selector.textContent = issue.selector;
+			selector.title = issue.selector;
+			body.append(selector);
+		}
 		// Show cannot point at what is out of sight: the card says why nothing is marked.
 		if (issue.hidden) {
 			const note = chip("gd-check-hidden", t("checks.hidden"));
@@ -5070,7 +5080,10 @@
 		const open = state.comments.filter((comment) => comment.status === "open");
 		const resolved = state.comments.filter((comment) => comment.status === "resolved");
 		els.countOpen.textContent = String(open.length);
-		els.countResolved.textContent = String(resolved.length);
+		loc(els.filterOpen, "text", "filter.open", { count: open.length });
+		loc(els.filterResolved, "text", "filter.resolved", { count: resolved.length });
+		els.filterOpen.setAttribute("aria-pressed", String(state.filter === "open"));
+		els.filterResolved.setAttribute("aria-pressed", String(state.filter === "resolved"));
 		// New counts change how wide the row is without resizing it.
 		updateTabFades();
 		TAB_NAMES.forEach((name, index) => {
@@ -5082,6 +5095,8 @@
 		const unsent = open.filter((comment) => comment.sentAt === null).length;
 		loc(els.sendAll, "text", "panel.sendAll", { count: unsent });
 		els.sendAll.disabled = unsent === 0 || !DELIVERY.batch;
+		loc(els.sendPending, "text", unsent > 0 ? plural("panel.pending", unsent) : null, { count: unsent });
+		els.sendPending.hidden = unsent === 0;
 		const brief = state.tab === "brief";
 		const checks = state.tab === "checks";
 		const history = state.tab === "history";
@@ -5091,12 +5106,13 @@
 		els.history.hidden = !history;
 		els.mix.hidden = !mix;
 		els.list.hidden = brief || checks || history || mix;
+		els.commentFilter.hidden = state.tab !== "comments";
 		renderChecks();
 		renderHistory();
 		renderMix();
-		const shown = state.tab === "resolved" ? resolved : open;
+		const shown = state.filter === "resolved" ? resolved : open;
 		els.panelEmpty.hidden = brief || checks || history || mix || shown.length > 0;
-		loc(els.panelEmpty, "text", state.comments.length === 0 ? "panel.empty.none" : state.tab === "open" ? "panel.empty.open" : "panel.empty.resolved");
+		loc(els.panelEmpty, "text", state.comments.length === 0 ? "panel.empty.none" : state.filter === "open" ? "panel.empty.open" : "panel.empty.resolved");
 		els.list.replaceChildren(...shown.map((comment) => {
 			const item = document.createElement("li");
 			item.className = "gd-comment-item";
@@ -5106,17 +5122,20 @@
 			show.type = "button";
 			show.className = "gd-comment-show";
 			show.setAttribute("aria-label", t("comment.show", { number: commentNumber(comment), file: comment.file }));
-			// Pin number, the element's selector, and whether the session has it yet.
+			// Pin number, the element's selector (with Technical details on), and whether the session has it yet.
 			const meta = document.createElement("span");
 			meta.className = "gd-comment-meta";
 			const number = document.createElement("span");
 			number.className = "gd-comment-number";
 			number.textContent = String(commentNumber(comment));
-			const selector = document.createElement("code");
-			selector.className = "gd-comment-selector";
-			selector.title = `${comment.file} · ${comment.selector}`;
-			selector.textContent = comment.selector;
-			meta.append(number, selector);
+			meta.append(number);
+			if (state.technical) {
+				const selector = document.createElement("code");
+				selector.className = "gd-comment-selector";
+				selector.title = `${comment.file} · ${comment.selector}`;
+				selector.textContent = comment.selector;
+				meta.append(selector);
+			}
 			const badge = (text, kind) => {
 				const element = document.createElement("span");
 				element.className = `gd-badge gd-badge-${kind}`;
@@ -5206,10 +5225,11 @@
 		renderComments();
 		const comment = state.comments.find((candidate) => candidate.id === id);
 		if (!comment) return;
-		if (comment.status !== state.tab && options.focusList) setTab(comment.status);
+		if (options.focusList && (state.tab !== "comments" || state.filter !== comment.status)) setFilter(comment.status);
 		const board = state.boards.find((candidate) => candidate.artboard.file === comment.file);
 		if (board) for (const surface of surfacesOf(board)) surface.frame.contentWindow?.postMessage({ type: "gd:highlight", id }, "*");
-		if (options.focusList) els.list.querySelector(`[data-id="${CSS.escape(id)}"] .gd-comment-show`)?.focus();
+		// Keyboard focus lands on the card's Show button, its first child.
+		if (options.focusList) Array.from(els.list.children).find((item) => item.dataset.id === id)?.children[0]?.focus();
 		if (!options.scroll) return;
 		// The focused artboard is already at 1:1; another board's comment leaves focus mode first.
 		if (state.focus) {
@@ -5408,10 +5428,13 @@
 		item.classList.toggle("gd-mix-used", pick.used);
 		const meta = document.createElement("div");
 		meta.className = "gd-mix-meta";
-		const selector = document.createElement("code");
-		selector.className = "gd-mix-selector";
-		selector.textContent = pick.selector;
-		meta.append(chip("gd-mix-number", String(number)), selector);
+		meta.append(chip("gd-mix-number", String(number)));
+		if (state.technical) {
+			const selector = document.createElement("code");
+			selector.className = "gd-mix-selector";
+			selector.textContent = pick.selector;
+			meta.append(selector);
+		}
 		if (pick.used) meta.append(chip("gd-badge gd-badge-used", t("mix.used")));
 		item.append(meta);
 		if (pick.excerpt) item.append(chip("gd-mix-excerpt", `“${pick.excerpt}”`));
@@ -5519,8 +5542,26 @@
 	els.modeSend.addEventListener("change", () => setMode("send"));
 	els.modeCollect.addEventListener("change", () => setMode("collect"));
 
+	// ---- technical details (S2) ------------------------------------------------
+	// The top bar's Technical details toggle: on, the cards show their CSS selector and Comment mode shows the token
+	// inspector on hover; off (the default), neither. Saved in this browser; a switch applies at once.
+
+	function setTechnical(on) {
+		state.technical = on;
+		try { localStorage.setItem(TECHNICAL_KEY, on ? "on" : "off"); } catch { /* storage may be unavailable */ }
+		if (!on) hideInspector();
+		renderTechnical();
+		renderList();
+	}
+
+	function renderTechnical() {
+		els.technical.setAttribute("aria-pressed", String(state.technical));
+	}
+
+	els.technical.addEventListener("click", () => setTechnical(!state.technical));
+
 	function tabButtons() {
-		return [els.filterOpen, els.filterResolved, els.tabHistory, els.tabChecks, els.tabMix, els.tabBrief];
+		return [els.tabComments, els.tabHistory, els.tabChecks, els.tabMix, els.tabBrief];
 	}
 
 	function setTab(name) {
@@ -5528,6 +5569,15 @@
 		renderList();
 		updateTabFades();
 	}
+
+	/** The Comments tab's filter, "open" or "resolved"; it shows the Comments tab too. */
+	function setFilter(filter) {
+		state.filter = filter;
+		setTab("comments");
+	}
+
+	els.filterOpen.addEventListener("click", () => setFilter("open"));
+	els.filterResolved.addEventListener("click", () => setFilter("resolved"));
 
 	/** The tab row scrolls when it is wider than the panel; each edge with tabs behind it fades and shows its arrow (L10, A2). */
 	function updateTabFades() {
@@ -5627,10 +5677,8 @@
 		els.world.classList.toggle("gd-commenting", enabled);
 		state.boards.forEach((board) => board.sizesView?.classList.toggle("gd-commenting", enabled));
 		state.boards.forEach((board) => surfacesOf(board).forEach(sendMode));
-		if (!enabled) {
-			setHoverBoard(null);
-			closePopover();
-		}
+		state.boards.forEach(renderShield);
+		if (!enabled) closePopover();
 	}
 
 	els.comment.addEventListener("click", () => setCommenting(!state.commenting));
@@ -5928,8 +5976,8 @@
 			surface.overflow = data.overflow ? { scrollWidth: data.scrollWidth } : null;
 			renderOverflow(surface);
 		} else if (data.type === "gd:inspect") {
-			// Only while commenting on the focused artboard (or any, in the overview), never while the comment box is open.
-			if (board.system || !state.commenting || !els.popover.hidden || (state.focus && board !== state.focus)) return;
+			// Only with Technical details on, while commenting on the focused artboard (or any, in the overview), never while the comment box is open.
+			if (!state.technical || board.system || !state.commenting || !els.popover.hidden || (state.focus && board !== state.focus)) return;
 			if (data.element === null) {
 				if (state.inspect && state.inspect.surface === surface) scheduleInspectorHide();
 				return;
@@ -5973,6 +6021,7 @@
 	els.langMenu.hidden = true;
 	setMode(state.mode);
 	renderTools();
+	renderTechnical();
 	if (!DELIVERY.batch) {
 		const info = explain({ status: 501, body: { error: "batch-delivery-unavailable" } });
 		loc(els.sendNote, "text", info.key, info.params);

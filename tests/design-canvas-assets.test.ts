@@ -401,7 +401,7 @@ test("the Back to canvas button and Shift+Esc in the canvas both leave focus mod
 	assert.equal(canvas.navMode.textContent, "Navigating");
 });
 
-test("a drag over an artboard pans the canvas, and in comment mode a click is routed to the inspector as a pick", async () => {
+test("a drag over an artboard pans the canvas, and in comment mode a click opens the artboard in focus instead of picking", async () => {
 	const canvas = await loadCanvas();
 	const [first] = canvas.boards;
 	first.frame.rect = { left: 100, top: 100, width: 200, height: 150 };
@@ -414,9 +414,9 @@ test("a drag over an artboard pans the canvas, and in comment mode a click is ro
 
 	canvas.document.getElementById("gd-comment").dispatch("click");
 	click(first.shield!, 150, 130);
-	assert.equal(canvas.navMode.textContent, "Click an element to comment · Esc", "comment mode picks instead of focusing");
-	// The frame shows a 400x300 artboard at half size: (150-100)/0.5, (130-100)/0.5.
-	assert.deepEqual(first.frame.contentWindow!.posted.at(-1), { type: "gd:pick-at", x: 100, y: 60 });
+	// canvas-ux-quick-wins S1: in the overview a click opens the direction; the element is picked inside it.
+	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit", "comment mode focuses instead of picking");
+	assert.ok(!first.frame.contentWindow!.posted.some((message) => message.type === "gd:pick-at"));
 });
 
 // S14: `open` while a canvas page is connected sends it a show event instead of opening a tab.
@@ -793,7 +793,7 @@ function press(canvas: Canvas, key: string, init: Record<string, unknown> = {}, 
 }
 
 const pressed = (canvas: Canvas, id: string) => canvas.document.getElementById(id).getAttribute("aria-pressed");
-const COMMENT_CHIP = "Click an element to comment · Esc";
+const COMMENT_CHIP = "Click a direction to open it and comment · Esc";
 
 test("the rail's Navigate and Comment form a pressed pair over the comment mode, and the chip says which", async () => {
 	const canvas = await loadRail();
@@ -833,7 +833,9 @@ test("the mode chip names focus mode over comment mode, and returns to the right
 	assert.equal(canvas.navMode.textContent, COMMENT_CHIP);
 	canvas.document.getElementById("gd-back").dispatch("click");
 	click(first.shield!, 200, 200);
-	assert.equal(canvas.navMode.textContent, COMMENT_CHIP, "a routed pick, not focus, in comment mode");
+	// canvas-ux-quick-wins S1: comment mode opens the direction too, and stays on.
+	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit", "focus, not a routed pick, in comment mode");
+	canvas.document.getElementById("gd-back").dispatch("click");
 	canvas.document.getElementById("gd-comment").dispatch("click");
 	click(first.shield!, 200, 200);
 	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit");
@@ -964,7 +966,7 @@ test("the rail Fit and the artboard count follow the canvas", async () => {
 	canvas.viewport.dispatch("wheel", { deltaX: 0, deltaY: 40, deltaMode: 0, ctrlKey: true, metaKey: false, shiftKey: false, clientX: 300, clientY: 300 });
 	canvas.document.getElementById("gd-rail-fit").dispatch("click");
 	assert.equal(canvas.zoomLevel.textContent, "45%");
-	assert.equal(canvas.document.getElementById("gd-nav-title").textContent, "Artboards · 2");
+	assert.equal(canvas.document.getElementById("gd-nav-title").textContent, "Directions · 2");
 });
 
 test("index.html: one sprite, named icon buttons with shortcut titles, a shortcuts dialog and a labeled rail", () => {
@@ -1015,7 +1017,7 @@ const setComments = async (canvas: Canvas, ...comments: Array<Record<string, unk
 
 test("the navigator lists the artboards with a number, a comment summary and a title for the count", async () => {
 	const canvas = await loadRail(300, commentsDoc(comment("a1", "01-a.html"), comment("a2", "01-a.html"), comment("a3", "01-a.html", "resolved"), comment("b1", "02-b.html", "resolved")));
-	assert.equal(canvas.document.getElementById("gd-nav-title").textContent, "Artboards · 2");
+	assert.equal(canvas.document.getElementById("gd-nav-title").textContent, "Directions · 2");
 	assert.deepEqual(navTexts(canvas, "gd-nav-item-title"), ["01 First", "02 Second"]);
 	// Open comments first, then resolved; either alone stands alone; none says so.
 	assert.deepEqual(navTexts(canvas, "gd-nav-summary"), ["2 open comments · 1 resolved", "1 resolved"]);
@@ -1058,7 +1060,7 @@ test("the navigator footer note appears only when a system board exists", async 
 	const withSystem = await loadRail(300, { "/t/api/system": { exists: true, file: "system.html", width: 1440, height: 1200 } });
 	const note = withSystem.document.getElementById("gd-nav-note");
 	assert.equal(note.hidden, false);
-	assert.equal(withSystem.document.getElementById("gd-nav-title").textContent, "Artboards · 2", "the system board is not counted");
+	assert.equal(withSystem.document.getElementById("gd-nav-title").textContent, "Directions · 2", "the system board is not counted");
 	assert.deepEqual(navTexts(withSystem, "gd-nav-item-title"), ["01 First", "02 Second"], "nor listed");
 });
 
@@ -1209,25 +1211,26 @@ test("Compare with app shows only for the chosen artboard when implemented with 
 	assert.equal(button(canvas).disabled, false);
 });
 
-test("the review side has Comments, Resolved, History, Checks, Mix and Brief tabs that drive the list", async () => {
+test("the review side has Comments (with its Open / Resolved filter), History, Checks, Mix and Original request tabs that drive the list", async () => {
 	const canvas = await loadRail(300, { ...commentsDoc(comment("a1", "01-a.html"), comment("a2", "02-b.html", "resolved", { sentAt: "2026-10-26T10:00:00.000Z" })), "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "Make a checkout.", feature: "odd/tasks/checkout.md", artboards: [{ file: "01-a.html", title: "First", tradeoff: "", width: 400, height: 300 }, { file: "02-b.html", title: "Second", tradeoff: "", width: 400, height: 300 }] } });
 	const doc = canvas.document;
-	const tabs = ["gd-filter-open", "gd-filter-resolved", "gd-tab-history", "gd-tab-checks", "gd-tab-mix", "gd-tab-brief"];
+	// canvas-ux-quick-wins S4: one Comments tab; open and resolved are a filter inside it.
+	const tabs = ["gd-tab-comments", "gd-tab-history", "gd-tab-checks", "gd-tab-mix", "gd-tab-brief"];
 	const selected = () => tabs.map((id) => doc.getElementById(id).getAttribute("aria-selected"));
 	const list = doc.getElementById("gd-comment-list");
 	const brief = doc.getElementById("gd-brief");
-	assert.deepEqual(selected(), ["true", "false", "false", "false", "false", "false"]);
+	assert.deepEqual(selected(), ["true", "false", "false", "false", "false"]);
 	assert.equal(doc.getElementById("gd-count-open").textContent, "1");
-	assert.equal(doc.getElementById("gd-count-resolved").textContent, "1");
+	assert.equal(doc.getElementById("gd-filter-resolved").textContent, "Resolved (1)");
 	assert.equal(brief.hidden, true);
 	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a1"]);
 
 	doc.getElementById("gd-filter-resolved").dispatch("click");
-	assert.deepEqual(selected(), ["false", "true", "false", "false", "false", "false"]);
+	assert.deepEqual(selected(), ["true", "false", "false", "false", "false"]);
 	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a2"]);
 
 	doc.getElementById("gd-tab-brief").dispatch("click");
-	assert.deepEqual(selected(), ["false", "false", "false", "false", "false", "true"]);
+	assert.deepEqual(selected(), ["false", "false", "false", "false", "true"]);
 	assert.equal(brief.hidden, false);
 	assert.equal(list.hidden, true);
 	assert.equal(doc.getElementById("gd-panel-empty").hidden, true);
@@ -1240,17 +1243,17 @@ test("the review side has Comments, Resolved, History, Checks, Mix and Brief tab
 	// Arrow keys move between tabs (roving tabindex), wrapping around.
 	const tablist = doc.getElementById("gd-tabs");
 	tablist.dispatch("keydown", { key: "ArrowRight" });
-	assert.deepEqual(selected(), ["true", "false", "false", "false", "false", "false"]);
-	assert.equal(doc.activeElement, doc.getElementById("gd-filter-open"));
-	assert.equal(doc.getElementById("gd-filter-open").getAttribute("tabindex"), "0");
+	assert.deepEqual(selected(), ["true", "false", "false", "false", "false"]);
+	assert.equal(doc.activeElement, doc.getElementById("gd-tab-comments"));
+	assert.equal(doc.getElementById("gd-tab-comments").getAttribute("tabindex"), "0");
 	assert.equal(doc.getElementById("gd-tab-brief").getAttribute("tabindex"), "-1");
 	tablist.dispatch("keydown", { key: "End" });
-	assert.deepEqual(selected(), ["false", "false", "false", "false", "false", "true"]);
+	assert.deepEqual(selected(), ["false", "false", "false", "false", "true"]);
 	tablist.dispatch("keydown", { key: "ArrowLeft" });
-	assert.deepEqual(selected(), ["false", "false", "false", "false", "true", "false"], "Mix sits between Checks and Brief");
+	assert.deepEqual(selected(), ["false", "false", "false", "true", "false"], "Mix sits between Checks and Brief");
 	assert.equal(doc.getElementById("gd-mix").hidden, false);
 	tablist.dispatch("keydown", { key: "ArrowLeft" });
-	assert.deepEqual(selected(), ["false", "false", "false", "true", "false", "false"], "Checks sits between History and Mix");
+	assert.deepEqual(selected(), ["false", "false", "true", "false", "false"], "Checks sits between History and Mix");
 	assert.equal(brief.hidden, true);
 	assert.equal(doc.getElementById("gd-checks").hidden, false);
 });
@@ -1259,13 +1262,15 @@ test("the Brief tab says so when the design has no brief, and keeps the Send foo
 	const canvas = await loadRail();
 	canvas.document.getElementById("gd-tab-brief").dispatch("click");
 	assert.equal(canvas.document.getElementById("gd-brief-title").textContent, "Alpha");
-	assert.equal(canvas.document.getElementById("gd-brief-text").textContent, "No brief written.");
+	assert.equal(canvas.document.getElementById("gd-brief-text").textContent, "No original request written.");
 	assert.equal(canvas.document.getElementById("gd-brief-feature").hidden, true);
 	assert.equal(canvas.document.getElementById("gd-send-all").disabled, true, "the footer stays under every tab");
 });
 
 test("a comment card shows its number, selector chip, waiting or sent state, text and actions", async () => {
 	const canvas = await loadRail(300, commentsDoc(comment("a1", "01-a.html"), comment("a2", "01-a.html", "open", { sentAt: "2026-10-26T10:00:00.000Z", screenshot: { path: "x.png", mimeType: "image/png" } })));
+	// canvas-ux-quick-wins S2: the selector chip shows with Technical details on.
+	canvas.document.getElementById("gd-technical").dispatch("click");
 	const list = canvas.document.getElementById("gd-comment-list");
 	assert.deepEqual(texts(list, "gd-comment-number"), ["1", "2"]);
 	assert.deepEqual(texts(list, "gd-comment-selector"), ["main > .a1", "main > .a2"]);
@@ -1359,11 +1364,11 @@ test("the focused artboard header shows its number, title and handoff state chip
 	assert.equal(chip.dataset.status, "implemented");
 });
 
-test("the T2 markup: tablist with six tabs, tabpanel, timeline region, Compare with app and the navigator note", () => {
+test("the T2 markup: tablist with five tabs (canvas-ux S4: no Resolved tab), tabpanel, timeline region, Compare with app and the navigator note", () => {
 	const html = read("index.html");
 	assert.match(html, /role="tablist"/);
-	assert.equal([...html.matchAll(/role="tab"/g)].length, 6);
-	assert.match(html, /id="gd-filter-open"[^>]*role="tab"|role="tab"[^>]*id="gd-filter-open"/);
+	assert.equal([...html.matchAll(/role="tab"/g)].length, 5);
+	assert.match(html, /id="gd-tab-comments"[^>]*role="tab"|role="tab"[^>]*id="gd-tab-comments"/);
 	assert.match(html, /role="tabpanel"/);
 	assert.match(html, /<section id="gd-handoff-panel"[^>]*aria-labelledby="gd-handoff-title"/);
 	assert.match(html, /id="gd-compare-app"[^>]*hidden>.*Compare with app<\/span><\/button>/);
@@ -2505,6 +2510,8 @@ async function inspecting(tokens: unknown = TOKEN_SET, extraContext: Record<stri
 	const canvas = await loadRail(300, { [TOKENS_URL]: tokens }, {}, extraContext);
 	tallViewport(canvas);
 	canvas.document.getElementById("gd-comment").dispatch("click");
+	// canvas-ux-quick-wins S2: the token inspector shows with Technical details on.
+	canvas.document.getElementById("gd-technical").dispatch("click");
 	return canvas;
 }
 function inspect(canvas: Canvas, surface: { contentWindow: unknown }, element: unknown = MEASURE) {
@@ -2658,6 +2665,7 @@ test("S2: tokens reload live: a changed system.md changes the next comparison", 
 test("S2: the panel appears only in Comment mode, from a trusted frame of the focused artboard, and leaves with the mode", async () => {
 	const canvas = await loadRail(300, { [TOKENS_URL]: TOKEN_SET });
 	const [first, second] = canvas.boards;
+	canvas.document.getElementById("gd-technical").dispatch("click");
 	inspect(canvas, first.frame);
 	assert.equal(panelOf(canvas).hidden, true, "not in Navigate mode");
 	canvas.document.getElementById("gd-comment").dispatch("click");
@@ -2757,6 +2765,7 @@ test("S2: the panel is placed against the frame the element is in: a scaled size
 	focusOn(canvas);
 	sizeButton(canvas, "all").dispatch("click");
 	canvas.document.getElementById("gd-comment").dispatch("click");
+	canvas.document.getElementById("gd-technical").dispatch("click");
 	const [phone] = sizeSections(canvas).map(iframeOf);
 	phone.rect = { left: 100, top: 200, width: 195, height: 422 };
 	inspect(canvas, phone, { ...MEASURE, rect: { x: 40, y: 100, width: 100, height: 40 } });
@@ -3155,6 +3164,8 @@ test("S4: results from an artboard's frame fill the tab: count, an issue card pe
 		finding({ check: "target", severity: "advice", title: "Touch target under 44 px", detail: '"Pay" is 100 × 28 px; 44 × 44 px is recommended for touch.', selector: "#pay", label: "button#pay" }),
 	]);
 	assert.equal(canvas.document.getElementById("gd-count-checks").textContent, "2", "advice does not count");
+	// canvas-ux-quick-wins S2: the selector shows with Technical details on.
+	canvas.document.getElementById("gd-technical").dispatch("click");
 	openChecks(canvas);
 	const groups = withClass(checksPanel(canvas), "gd-check-group");
 	assert.equal(groups.length, 1, "one group per checked artboard");
@@ -3180,7 +3191,7 @@ test("S4: an artboard with no findings reads as passed, and a message from anyth
 	openChecks(canvas);
 	assert.equal(checkCards(canvas).length, 0);
 	assert.equal(texts(checksPanel(canvas), "gd-check-passed")[0], "Passed: Text contrast · Target size · Images have alt text · Form fields have labels · Headings in order");
-	assert.match(texts(checksPanel(canvas), "gd-check-summary")[0], /A11y ✓/);
+	assert.match(texts(checksPanel(canvas), "gd-check-summary")[0], /Accessible ✓/);
 	// Strangers, thumbnails and malformed reports change nothing.
 	canvas.message({}, checksReport([finding()]));
 	canvas.message(thumbFrame(canvas, 1).contentWindow, checksReport([finding()]));
@@ -3212,13 +3223,13 @@ test("S4: size frames do not report checks; the artboard's own frame does, whate
 	assert.equal(canvas.document.getElementById("gd-count-checks").textContent, "1");
 });
 
-test("S4: each artboard's list item carries A11y ✓ or N checks; none before the artboard has reported", async () => {
+test("S4: each artboard's list item carries Accessible ✓ (canvas-ux S3, was A11y ✓) or N checks; none before the artboard has reported", async () => {
 	const canvas = await loadRail();
 	const [first, second] = canvas.boards;
 	assert.deepEqual(navA11y(canvas), []);
 	report_(canvas, first.frame, []);
 	report_(canvas, second.frame, [finding(), finding({ selector: "#b" }), finding({ check: "target", severity: "advice", selector: "#c" })]);
-	assert.deepEqual(navA11y(canvas).map((tag) => tag.textContent), ["A11y ✓", "2 checks"]);
+	assert.deepEqual(navA11y(canvas).map((tag) => tag.textContent), ["Accessible ✓", "2 checks"]);
 	assert.deepEqual(navA11y(canvas).map((tag) => tag.dataset.state), ["ok", "warn"]);
 	assert.match(navA11y(canvas)[1].title, /Checks tab/);
 	assert.match(navA11y(canvas)[0].title, /heuristics/i);
@@ -3242,7 +3253,7 @@ test("S4: results are refreshed on reload: a reloading artboard drops its result
 	openChecks(canvas);
 	assert.equal(withClass(checksPanel(canvas), "gd-check-group").length, 0);
 	report_(canvas, first.frame, []);
-	assert.equal(navA11y(canvas)[0].textContent, "A11y ✓");
+	assert.equal(navA11y(canvas)[0].textContent, "Accessible ✓");
 	// A frame that resizes (a size picked) re-reports through the same channel and replaces the result.
 	report_(canvas, first.frame, [finding(), finding({ selector: "#b" })]);
 	assert.equal(navA11y(canvas)[0].textContent, "2 checks");
@@ -3338,7 +3349,7 @@ test("S4: the Checks tab follows the design: results of the old design never sho
 test("S4: index.html and canvas.css carry the Checks tab, the issue cards and the list tag with tokens only", () => {
 	const html = read("index.html");
 	assert.match(html, /<button type="button" role="tab" id="gd-tab-checks" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.checks">Checks<\/span> <span id="gd-count-checks" class="gd-count">0<\/span><\/button>/);
-	assert.ok(html.indexOf('id="gd-filter-resolved"') < html.indexOf('id="gd-tab-checks"') && html.indexOf('id="gd-tab-checks"') < html.indexOf('id="gd-tab-brief"'));
+	assert.ok(html.indexOf('id="gd-tab-history"') < html.indexOf('id="gd-tab-checks"') && html.indexOf('id="gd-tab-checks"') < html.indexOf('id="gd-tab-brief"'));
 	assert.match(html, /<div id="gd-checks" class="gd-checks" hidden>/);
 	const css = read("canvas.css");
 	for (const selector of [".gd-checks", ".gd-check-group", ".gd-check", ".gd-check-fail", ".gd-check-advice", ".gd-check-passed", ".gd-nav-a11y"]) assert.ok(css.includes(`${selector} {`) || css.includes(`${selector},`) || css.includes(`${selector}[`), `${selector} is styled`);
@@ -3374,7 +3385,7 @@ const cardButton = (canvas: Canvas, className: string, n: number) => withClass(c
 const historyAlert = (canvas: Canvas) => withClass(historyPanel(canvas), "gd-alert")[0];
 const fetchCount = (canvas: Canvas, url: string) => canvas.fetched.filter((entry) => entry === url).length;
 
-test("S2: the History tab sits after Resolved with its own count, and arrow keys reach it with five tabs", async () => {
+test("S2: the History tab sits after Comments (canvas-ux S4: no Resolved tab) with its own count, and arrow keys reach it", async () => {
 	const canvas = await withHistory();
 	assert.equal(historyTab(canvas).getAttribute("aria-selected"), "false");
 	assert.equal(historyTab(canvas).getAttribute("tabindex"), "-1");
@@ -3396,7 +3407,7 @@ test("S2: the History tab sits after Resolved with its own count, and arrow keys
 	assert.equal(historyTab(canvas).getAttribute("aria-selected"), "true");
 	assert.equal(canvas.document.activeElement, historyTab(canvas));
 	tablist.dispatch("keydown", { key: "ArrowLeft" });
-	assert.equal(canvas.document.getElementById("gd-filter-resolved").getAttribute("aria-selected"), "true");
+	assert.equal(canvas.document.getElementById("gd-tab-comments").getAttribute("aria-selected"), "true");
 	assert.equal(historyPanel(canvas).hidden, true, "leaving the tab hides it");
 });
 
@@ -3907,7 +3918,7 @@ test("S4: the restore question survives a refresh of the list while it is open",
 test("S2-S4: the History tab and the comparison are in index.html and canvas.css with tokens only, focus rings and no inline script or style", () => {
 	const html = read("index.html");
 	assert.match(html, /<button type="button" role="tab" id="gd-tab-history" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.history">History<\/span> <span id="gd-count-history" class="gd-count">0<\/span><\/button>/);
-	assert.ok(html.indexOf('id="gd-filter-resolved"') < html.indexOf('id="gd-tab-history"') && html.indexOf('id="gd-tab-history"') < html.indexOf('id="gd-tab-checks"'));
+	assert.ok(html.indexOf('id="gd-tab-comments"') < html.indexOf('id="gd-tab-history"') && html.indexOf('id="gd-tab-history"') < html.indexOf('id="gd-tab-checks"'));
 	assert.match(html, /<div id="gd-history" class="gd-history" hidden><\/div>/);
 	assert.match(html, /<section id="gd-versions" class="gd-versions" aria-labelledby="gd-versions-title" hidden>/);
 	assert.match(html, /<div class="gd-devices gd-versions-mode" role="group" aria-label="Comparison mode" data-i18n-aria-label="versions.group">/);
@@ -4017,7 +4028,7 @@ test("L10 (A2): moving between tabs with the keyboard scrolls the chosen tab int
 	const canvas = await loadCanvas();
 	const doc = canvas.document;
 	const scrolled: Array<[string, unknown]> = [];
-	for (const id of ["gd-filter-open", "gd-filter-resolved", "gd-tab-history", "gd-tab-checks", "gd-tab-brief"]) {
+	for (const id of ["gd-tab-comments", "gd-tab-history", "gd-tab-checks", "gd-tab-brief"]) {
 		// The options object comes from the canvas's own realm: compare its content.
 		doc.getElementById(id).scrollIntoView = (options: unknown) => scrolled.push([id, JSON.parse(JSON.stringify(options))]);
 	}
@@ -4534,7 +4545,7 @@ test("T1/S1: the minimap follows the view for every kind of pan, a resize and a 
 	canvas.windowEvent("resize");
 	assert.equal(miniBlocks(canvas).length, 4);
 	near(miniBox(miniBlocks(canvas)[3]), [162.8, 14.4, 35.2, 24]);
-	assert.match(miniMap(canvas).getAttribute("aria-label")!, /among 3 artboards/);
+	assert.match(miniMap(canvas).getAttribute("aria-label")!, /among 3 directions/);
 });
 
 test("T1/S1: M toggles the minimap with the other single keys' rules", async () => {
@@ -4621,7 +4632,7 @@ test("T1/S1: the minimap is hidden when there is nothing to show", async () => {
 test("T1/S1: the map carries an accessible name with the artboard count, blocks are not focusable and the artboard list stays the keyboard path", async () => {
 	const canvas = await minimapCanvas();
 	const map = miniMap(canvas);
-	assert.match(map.getAttribute("aria-label")!, /^Position of the visible area among 2 artboards\. Click or drag to move the view; use the artboard list with the keyboard\.$/);
+	assert.match(map.getAttribute("aria-label")!, /^Position of the visible area among 2 directions\. Click or drag to move the view; use the direction list with the keyboard\.$/);
 	for (const block of miniBlocks(canvas)) {
 		assert.equal(block.getAttribute("tabindex"), null);
 		assert.notEqual(block.localName, "button");
@@ -4639,7 +4650,7 @@ test("T1/S1: the label says 1 artboard in the singular", async () => {
 	const canvas = await loadRail(300, { "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "", artboards: [{ file: "01-a.html", title: "First", tradeoff: "", width: 400, height: 300 }] } });
 	layoutWorld(canvas, [[0, 0, 400, 300]]);
 	canvas.windowEvent("resize");
-	assert.match(miniMap(canvas).getAttribute("aria-label")!, /among 1 artboard\./);
+	assert.match(miniMap(canvas).getAttribute("aria-label")!, /among 1 direction\./);
 });
 
 test("T1/S1: a ResizeObserver on the viewport redraws the minimap too", async () => {
@@ -5526,7 +5537,7 @@ test("S1/S2: choosing a language applies at once, saves the choice and leaves th
 	assert.equal(canvas.document.getElementById("gd-panel-toggle").title, "Panel de revisión (])");
 	assert.equal(canvas.document.getElementById("gd-zoom-out").getAttribute("aria-label"), "Alejar");
 	assert.equal(canvas.document.getElementById("gd-send-all").textContent, "Enviar todo (0)");
-	assert.equal(canvas.document.getElementById("gd-nav-title").textContent, "Artboards · 2");
+	assert.equal(canvas.document.getElementById("gd-nav-title").textContent, "Propuestas · 2");
 	assert.ok(staticText(canvas).includes("Mostrar u ocultar el minimapa"), "the shortcuts dialog follows");
 	assert.deepEqual(canvas.saved(), [[LANG_KEY, "es"]]);
 	assert.deepEqual(canvas.frames(), frames, "the same iframes");
@@ -5683,7 +5694,7 @@ test("S2: switching language re-renders what is already on screen: lists, badges
 	assert.equal(summary(), "1 comentario abierto · 1 resuelto");
 	assert.deepEqual(withClass(boardsOf(canvas)[0], "gd-handoff-badge").map((element) => element.textContent), ["Implementado ✓"]);
 	assert.equal(withClass(boardsOf(canvas)[0], "gd-compare-start")[0].textContent, "Comparar");
-	assert.equal(modeChip(canvas), "Haz clic en un elemento para comentar · Esc");
+	assert.equal(modeChip(canvas), "Haz clic en una propuesta para abrirla y comentar · Esc");
 	assert.equal(canvas.document.getElementById("gd-comment-list").children[0].children[0].children[0].children[2]?.textContent ?? "Esperando", "Esperando");
 	canvas.document.getElementById("gd-tool-navigate").dispatch("click");
 	click(canvas.boards[0].shield!, 200, 200);
@@ -5756,7 +5767,7 @@ test("S2: failures speak Spanish with their cause and way out, keep the raw code
 
 test("S2: empty states and status lines are Spanish, and the status follows a switch", async () => {
 	const none = await loadLang({ browser: "es", config: { slug: null }, replies: { "/t/api/designs": { designs: [] } } });
-	assert.equal(none.document.getElementById("gd-empty").textContent, "Aún no hay diseños. Ejecuta /gentle:design con un encargo para crear uno.");
+	assert.equal(none.document.getElementById("gd-empty").textContent, "Aún no hay diseños. Ejecuta /gentle:design con una petición para crear uno.");
 	chooseLang(none, "en");
 	assert.equal(none.document.getElementById("gd-empty").textContent, "No designs yet. Run /gentle:design with a brief to create one.");
 
@@ -5768,7 +5779,7 @@ test("S2: empty states and status lines are Spanish, and the status follows a sw
 	assert.equal(broken.document.getElementById("gd-empty").textContent, 'Design "alpha" cannot be shown: boom');
 
 	const brief = await loadLang({ browser: "es", replies: { "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "", artboards: [] } } });
-	assert.equal(brief.document.getElementById("gd-brief-text").textContent, "Aún no hay encargo escrito.");
+	assert.equal(brief.document.getElementById("gd-brief-text").textContent, "Aún no se ha escrito la petición original.");
 });
 
 test("S2: the focused artboard's size control, the artboard header and the mode chip are Spanish", async () => {
@@ -5827,7 +5838,7 @@ test("S2: the minimap, the checks and the inspector are Spanish; what is sent to
 	const [first] = canvas.boards;
 	layoutWorld(canvas as unknown as Canvas, [[0, 0, 400, 300], [480, 0, 400, 300]]);
 	canvas.windowEvent("resize");
-	assert.equal(miniMap(canvas as unknown as Canvas).getAttribute("aria-label"), "Posición del área visible entre 2 artboards. Haz clic o arrastra para mover la vista; usa la lista de artboards con el teclado.");
+	assert.equal(miniMap(canvas as unknown as Canvas).getAttribute("aria-label"), "Posición del área visible entre 2 propuestas. Haz clic o arrastra para mover la vista; usa la lista de propuestas con el teclado.");
 	assert.equal(miniBlocks(canvas as unknown as Canvas)[0].title, "01 · First");
 
 	report_(canvas as unknown as Canvas, first.frame, [finding(), finding({ check: "label", title: "Form field without a label", detail: 'The text field "Search" has no label. Add a <label for>, aria-label or aria-labelledby; a placeholder is not a label.', selector: "main > input", label: "input" })]);
@@ -5853,6 +5864,7 @@ test("S2: the minimap, the checks and the inspector are Spanish; what is sent to
 	// The inspector panel compares in Spanish, but its Ask the agent to fix text is for the agent: English.
 	chooseLang(canvas, "es");
 	canvas.document.getElementById("gd-comment").dispatch("click");
+	canvas.document.getElementById("gd-technical").dispatch("click");
 	tallViewport(canvas as unknown as Canvas);
 	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
 	inspect(canvas as unknown as Canvas, first.frame, { ...MEASURE, color: { r: 10, g: 20, b: 30, a: 1 } });
@@ -6087,7 +6099,7 @@ test("S2: the Spanish is neutral and professional: tú forms, no voseo", () => {
 	const voseo = /\b(vos|tenés|podés|querés|sabés|hacé|hacés|mirá|elegí|enviá|tocá|aprobá|fijate|andá|vení|decí|escribí|usá|abrí|cerrá|guardá|volvé|probá|revisá)\b/i;
 	for (const [key, text] of Object.entries(es)) assert.ok(!voseo.test(text), `${key}: voseo in "${text}"`);
 	const all = Object.values(es).join("\n");
-	for (const term of ["Comentar", "Ver todo", "Elegido", "Descartada", "En curso", "Implementado", "Enviar todo", "Acumular", "Encargo"]) assert.ok(all.includes(term), `the Spanish uses ${term}`);
+	for (const term of ["Comentar", "Ver todo", "Elegido", "Descartada", "En curso", "Implementado", "Enviar todo", "Guardar para enviar luego", "Petición original"]) assert.ok(all.includes(term), `the Spanish uses ${term}`);
 	assert.ok(/\bHaz clic\b/.test(all) && /\bEscribe\b/.test(all), "imperatives are tú forms");
 });
 
@@ -6320,6 +6332,7 @@ test("S2: after a switch nothing of the old language is left in focus mode with 
 			canvas.message(frame.contentWindow, { type: "gd:overflow", overflow: true, width: Number(frame.style.width.replace("px", "")), scrollWidth: 2000 });
 		}
 		canvas.document.getElementById("gd-comment").dispatch("click");
+		canvas.document.getElementById("gd-technical").dispatch("click");
 		first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
 		inspect(canvas as unknown as Canvas, sizeSections(canvas as unknown as Canvas).length ? { contentWindow: iframeOf(sizeSections(canvas as unknown as Canvas)[2]).contentWindow } : first.frame, { ...MEASURE, color: { r: 10, g: 20, b: 30, a: 1 } });
 		chooseLang(canvas, to);
@@ -7118,11 +7131,11 @@ test("canvas-mix S2: a pick gets a pin of its own color on its artboard, beside 
 
 test("canvas-mix S2: the Mix tab sits before Brief with its count and lists the picks grouped by artboard, each removable", async () => {
 	const canvas = await loadMix();
-	const tabs = ["gd-filter-open", "gd-filter-resolved", "gd-tab-history", "gd-tab-checks", "gd-tab-mix", "gd-tab-brief"];
+	const tabs = ["gd-tab-comments", "gd-tab-history", "gd-tab-checks", "gd-tab-mix", "gd-tab-brief"];
 	const selected = () => tabs.map((id) => canvas.document.getElementById(id).getAttribute("aria-selected"));
 	assert.equal(mixEl(canvas, "gd-mix").hidden, true);
 	openMixTab(canvas);
-	assert.deepEqual(selected(), ["false", "false", "false", "false", "true", "false"]);
+	assert.deepEqual(selected(), ["false", "false", "false", "true", "false"]);
 	assert.equal(mixEl(canvas, "gd-mix").hidden, false);
 	assert.equal(canvas.document.getElementById("gd-comment-list").hidden, true);
 	assert.equal(canvas.document.getElementById("gd-panel-empty").hidden, true);
@@ -7139,6 +7152,8 @@ test("canvas-mix S2: the Mix tab sits before Brief with its count and lists the 
 	addToMix(canvas, 1, { selector: ".chart", excerpt: "Weekly" }, "el gráfico semanal");
 	addToMix(canvas, 0, { selector: "body > header", excerpt: "Acme" }, "la cabecera");
 	addToMix(canvas, 0, { selector: "aside" });
+	// canvas-ux-quick-wins S2: the selectors show with Technical details on.
+	canvas.document.getElementById("gd-technical").dispatch("click");
 	assert.equal(mixEl(canvas, "gd-mix-empty").hidden, true);
 	assert.deepEqual(mixGroups(canvas).map((group) => texts(group, "gd-mix-group-title")[0]), ["01 · First", "02 · Second"], "grouped in artboard order");
 	assert.deepEqual(mixItems(canvas).map((item) => [texts(item, "gd-mix-number")[0], texts(item, "gd-mix-excerpt")[0] ?? "", texts(item, "gd-mix-selector")[0], texts(item, "gd-mix-note")[0] ?? ""]), [
@@ -7305,7 +7320,7 @@ test("canvas-mix S6: the mix speaks Spanish with tú forms, and a switch leaves 
 
 test("canvas-mix S6: index.html carries the Mix tab, the popover action and the tray; canvas.css styles them with tokens, focus rings and no motion", () => {
 	const html = read("index.html");
-	assert.equal([...html.matchAll(/role="tab"/g)].length, 6);
+	assert.equal([...html.matchAll(/role="tab"/g)].length, 5);
 	assert.ok(html.indexOf('id="gd-tab-mix"') > html.indexOf('id="gd-tab-checks"') && html.indexOf('id="gd-tab-mix"') < html.indexOf('id="gd-tab-brief"'), "Mix sits between Checks and Brief");
 	assert.match(html, /<button type="button" role="tab" id="gd-tab-mix" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.mix">Mix<\/span> <span id="gd-count-mix" class="gd-count">0<\/span><\/button>/);
 	const actions = html.slice(html.indexOf('class="gd-popover-actions"'), html.indexOf("</form>", html.indexOf('class="gd-popover-actions"')));
@@ -7341,7 +7356,7 @@ test("canvas-mix S6: the docs and the README describe Mix", () => {
 // ---- canvas-mix discoverability: the first pick shows the Mix tab, the popover links to it, the placeholder says what it is ----
 
 const panelShown = (canvas: MixCanvas) => !canvas.document.getElementById("gd-panel").hidden;
-const selectedTab = (canvas: MixCanvas) => ["gd-filter-open", "gd-filter-resolved", "gd-tab-history", "gd-tab-checks", "gd-tab-mix", "gd-tab-brief"].filter((id) => canvas.document.getElementById(id).getAttribute("aria-selected") === "true");
+const selectedTab = (canvas: MixCanvas) => ["gd-tab-comments", "gd-tab-history", "gd-tab-checks", "gd-tab-mix", "gd-tab-brief"].filter((id) => canvas.document.getElementById(id).getAttribute("aria-selected") === "true");
 
 test("canvas-mix discoverability: the first pick opens the review panel on the Mix tab; a refused pick and later picks leave the tab alone", async () => {
 	const canvas = await loadMix();
@@ -7350,7 +7365,7 @@ test("canvas-mix discoverability: the first pick opens the review panel on the M
 	// Refused: nothing joins the mix, so nothing moves.
 	addToMix(canvas, 0, { selector: "#cta" }, "x".repeat(2001));
 	assert.equal(panelShown(canvas), false);
-	assert.deepEqual(selectedTab(canvas), ["gd-filter-open"]);
+	assert.deepEqual(selectedTab(canvas), ["gd-tab-comments"]);
 
 	addToMix(canvas, 0, { selector: "body > header" });
 	assert.equal(panelShown(canvas), true, "the first pick opens the panel");
@@ -7363,7 +7378,7 @@ test("canvas-mix discoverability: the first pick opens the review panel on the M
 	// The person moves on: a later pick does not take the tab back, nor reopen the panel.
 	canvas.document.getElementById("gd-filter-open").dispatch("click");
 	addToMix(canvas, 1, { selector: ".chart" });
-	assert.deepEqual(selectedTab(canvas), ["gd-filter-open"]);
+	assert.deepEqual(selectedTab(canvas), ["gd-tab-comments"]);
 	canvas.document.getElementById("gd-panel-toggle").dispatch("click");
 	addToMix(canvas, 1, { selector: "aside" });
 	assert.equal(panelShown(canvas), false);
@@ -7467,4 +7482,302 @@ test("canvas-mix discoverability: the docs describe the count, Show mix, the fir
 	const variant = docs.split("\n").find((line) => line.includes("**Try another direction from this…** opens"))!;
 	assert.ok(variant.includes("**Designing the new direction…**"), "the another-direction placeholder sentence mentions its status");
 	assert.match(variant, /reduced motion/);
+});
+
+// ---- canvas-ux-quick-wins T1: comment inside a direction (S1), technical details on request (S2) ----
+
+const TECHNICAL_KEY = "gentle-design:technical";
+
+/** The canvas with a working (or a throwing) localStorage; `stored` seeds it. index.html's static text is hydrated. */
+async function loadUx(options: { stored?: Record<string, string>; broken?: boolean; replies?: Record<string, unknown>; browser?: string } = {}) {
+	const data = new Map<string, string>(Object.entries(options.stored ?? {}));
+	const localStorage = options.broken
+		? { getItem() { throw new Error("denied"); }, setItem() { throw new Error("denied"); } }
+		: { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, String(value)); } };
+	const navigator = options.browser ? { language: options.browser, languages: [options.browser] } : undefined;
+	const canvas = await loadCanvas(300, { [TOKENS_URL]: TOKEN_SET, ...options.replies }, {}, { localStorage, ...(navigator ? { navigator } : {}) }, { hydrate: true });
+	canvas.document.getElementById("gd-popover").hidden = true;
+	return { ...canvas, data };
+}
+type UxCanvas = Awaited<ReturnType<typeof loadUx>>;
+
+const hintOf = (shield: FakeElement) => withClass(shield, "gd-shield-hint")[0];
+const technicalButton = (canvas: Canvas) => canvas.document.getElementById("gd-technical");
+
+test("canvas-ux S1: in Comment mode a click on a direction in the overview opens it in focus; Comment mode stays on and the next click picks", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 100, width: 200, height: 150 };
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	click(first.shield!, 150, 130);
+	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit", "the click opened the direction in focus");
+	assert.equal(first.shield!.hidden, true);
+	assert.equal(pressed(canvas, "gd-comment"), "true", "Comment mode stays on");
+	assert.ok(!first.frame.contentWindow!.posted.some((message) => message.type === "gd:pick-at"), "no tiny element was picked");
+	assert.deepEqual(first.frame.contentWindow!.posted.filter((message) => message.type === "gd:mode").at(-1), { type: "gd:mode", enabled: true });
+	// The next click, now inside the direction at full size, picks an element as before.
+	canvas.message(first.frame.contentWindow, { type: "gd:pick", selector: "#cta", excerpt: "Buy", rect: { x: 30, y: 40, width: 60, height: 20 } });
+	assert.equal(canvas.document.getElementById("gd-popover").hidden, false);
+	assert.equal(canvas.document.getElementById("gd-popover-target").textContent, "01-a.html · #cta");
+	// The keyboard path is the same: Enter on another direction's shield opens it, Comment mode still on.
+	canvas.document.getElementById("gd-back").dispatch("click");
+	canvas.boards[1].shield!.dispatch("keydown", { key: "Enter" });
+	assert.equal(canvas.navMode.textContent, "Using: Second · Shift+Esc to exit");
+	assert.equal(pressed(canvas, "gd-comment"), "true");
+});
+
+test("canvas-ux S1: hovering a direction in the overview in Comment mode outlines and measures nothing; the shield hint names what a click does", async () => {
+	const canvas = await loadUx();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 100, width: 200, height: 150 };
+	assert.equal(hintOf(first.shield!).textContent, "Click to use this design");
+	assert.equal(first.shield!.getAttribute("aria-label"), "Use First");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	const before = first.frame.contentWindow!.posted.length;
+	first.shield!.dispatch("pointermove", { pointerId: 1, clientX: 150, clientY: 130 });
+	assert.deepEqual(first.frame.contentWindow!.posted.slice(before), [], "no hover is routed to the artboard: no element box, no inspector");
+	assert.equal(hintOf(first.shield!).textContent, "Click to open and comment");
+	assert.equal(first.shield!.getAttribute("aria-label"), "Open First to comment");
+	assert.equal(canvas.navMode.textContent, "Click a direction to open it and comment · Esc");
+	canvas.document.getElementById("gd-tool-navigate").dispatch("click");
+	assert.equal(hintOf(first.shield!).textContent, "Click to use this design");
+	assert.equal(first.shield!.getAttribute("aria-label"), "Use First");
+	// The same in Spanish, following a switch.
+	chooseLang(canvas as unknown as LangCanvas, "es");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	assert.equal(hintOf(first.shield!).textContent, "Haz clic para abrirla y comentar");
+	assert.equal(first.shield!.getAttribute("aria-label"), "Abrir First para comentar");
+	assert.equal(canvas.navMode.textContent, "Haz clic en una propuesta para abrirla y comentar · Esc");
+	// canvas.css keeps the hint visible in Comment mode and shows the shield's hover like Navigate.
+	const css = read("canvas.css");
+	assert.ok(!/\.gd-commenting \.gd-shield-hint\s*{\s*display:\s*none/.test(css), "the hint is not hidden in Comment mode");
+	assert.ok(!/\.gd-commenting \.gd-shield:hover\s*{[^}]*background:\s*transparent/.test(css), "the hover is not cleared in Comment mode");
+});
+
+test("canvas-ux S2: Technical details is off by default: no inspector panel on hover and no selector chips on comment, resolved, check and mix cards", async () => {
+	const picks = { version: 1, picks: [{ id: "p1", file: "01-a.html", selector: "main > .card", excerpt: "Card", note: "", used: false }] };
+	const canvas = await loadUx({ stored: { [MIX_KEY]: JSON.stringify(picks) }, replies: commentsDoc(comment("a1", "01-a.html"), comment("a2", "01-a.html", "resolved")) });
+	const [first] = canvas.boards;
+	const list = canvas.document.getElementById("gd-comment-list");
+	assert.equal(technicalButton(canvas).getAttribute("aria-pressed"), "false");
+	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a1"]);
+	assert.deepEqual(texts(list, "gd-comment-selector"), [], "no selector on an open comment");
+	canvas.document.getElementById("gd-filter-resolved").dispatch("click");
+	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a2"]);
+	assert.deepEqual(texts(list, "gd-comment-selector"), [], "no selector on a resolved comment");
+	report_(canvas, first.frame, [finding()]);
+	openChecks(canvas);
+	assert.equal(checkCards(canvas).length, 1);
+	assert.deepEqual(texts(checkCards(canvas)[0], "gd-check-selector"), [], "no selector on a check card");
+	assert.deepEqual(texts(checkCards(canvas)[0], "gd-check-title"), ["Low contrast"]);
+	canvas.document.getElementById("gd-tab-mix").dispatch("click");
+	const mixCard = withClass(canvas.document.getElementById("gd-mix-groups"), "gd-mix-item")[0];
+	assert.deepEqual(texts(mixCard, "gd-mix-selector"), [], "no selector on a mix card");
+	assert.deepEqual(texts(mixCard, "gd-mix-excerpt"), ["“Card”"], "the excerpt stays");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	inspect(canvas, first.frame);
+	assert.equal(panelOf(canvas).hidden, true, "no token inspector on hover");
+	assert.equal(canvas.data.has(TECHNICAL_KEY), false, "nothing is written until it is switched");
+});
+
+test("canvas-ux S2: the Technical details toggle applies at once, both ways, and is saved in the browser", async () => {
+	const canvas = await loadUx({ replies: commentsDoc(comment("a1", "01-a.html")) });
+	const [first] = canvas.boards;
+	const list = canvas.document.getElementById("gd-comment-list");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	technicalButton(canvas).dispatch("click");
+	assert.equal(technicalButton(canvas).getAttribute("aria-pressed"), "true");
+	assert.equal(canvas.data.get(TECHNICAL_KEY), "on");
+	assert.deepEqual(texts(list, "gd-comment-selector"), ["main > .a1"], "the open list shows selectors at once");
+	report_(canvas, first.frame, [finding()]);
+	openChecks(canvas);
+	assert.deepEqual(texts(checkCards(canvas)[0], "gd-check-selector"), ["main > p.or"]);
+	inspect(canvas, first.frame);
+	assert.equal(panelOf(canvas).hidden, false, "the token inspector shows on hover");
+	technicalButton(canvas).dispatch("click");
+	assert.equal(technicalButton(canvas).getAttribute("aria-pressed"), "false");
+	assert.equal(canvas.data.get(TECHNICAL_KEY), "off");
+	assert.equal(panelOf(canvas).hidden, true, "switching off closes the open panel");
+	assert.deepEqual(texts(checkCards(canvas)[0], "gd-check-selector"), [], "and takes the selectors away at once");
+	canvas.document.getElementById("gd-filter-open").dispatch("click");
+	assert.deepEqual(texts(list, "gd-comment-selector"), []);
+	inspect(canvas, first.frame);
+	assert.equal(panelOf(canvas).hidden, true);
+
+	const stored = await loadUx({ stored: { [TECHNICAL_KEY]: "on" }, replies: commentsDoc(comment("a1", "01-a.html")) });
+	assert.equal(technicalButton(stored).getAttribute("aria-pressed"), "true", "a saved choice is kept across reloads");
+	assert.deepEqual(texts(stored.document.getElementById("gd-comment-list"), "gd-comment-selector"), ["main > .a1"]);
+	const odd = await loadUx({ stored: { [TECHNICAL_KEY]: "yes" } });
+	assert.equal(technicalButton(odd).getAttribute("aria-pressed"), "false", "an unknown value means off");
+	const broken = await loadUx({ broken: true, replies: commentsDoc(comment("a1", "01-a.html")) });
+	assert.equal(technicalButton(broken).getAttribute("aria-pressed"), "false", "storage that throws means off");
+	technicalButton(broken).dispatch("click");
+	assert.equal(technicalButton(broken).getAttribute("aria-pressed"), "true", "and the toggle still works for this page");
+	assert.deepEqual(texts(broken.document.getElementById("gd-comment-list"), "gd-comment-selector"), ["main > .a1"]);
+});
+
+test("canvas-ux S2: the toggle is a named, pressed button in the top bar with an icon and a label in both languages", async () => {
+	const html = read("index.html");
+	const bar = html.slice(html.indexOf('<header class="gd-bar"'), html.indexOf("</header>"));
+	const button = /<button type="button" id="gd-technical"([^>]*)>([^]*?)<\/button>/.exec(bar);
+	assert.ok(button, "the toggle is a button in the top bar");
+	assert.match(button![1], /aria-pressed="false"/);
+	assert.match(button![2], /<svg class="gd-i[^"]*" aria-hidden="true"><use href="#i-[a-z-]+"\/><\/svg>/);
+	assert.match(button![2], /<span data-i18n="technical.label">Technical details<\/span>/);
+	const { en, es } = loadCatalog();
+	assert.equal(en["technical.label"], "Technical details");
+	assert.equal(es["technical.label"], "Detalles técnicos");
+	assert.match(button![1], /title="Selectors and the token inspector" data-i18n-title="technical.title"/);
+	const canvas = await loadUx({ browser: "es-ES" });
+	assert.equal(technicalButton(canvas).title, "Selectores e inspector de tokens");
+	assert.ok(canvas.document.querySelectorAll("[data-i18n]").some((element) => element.getAttribute("data-i18n") === "technical.label" && element.textContent === "Detalles técnicos"));
+	assert.match(read("canvas.css"), /\.gd-technical\[aria-pressed="true"\][^{]*{[^}]*var\(--accent/);
+});
+
+// ---- canvas-ux-quick-wins T2: plain wording (S3), one Comments tab with a filter (S4) ----
+
+const tabIds = ["gd-tab-comments", "gd-tab-history", "gd-tab-checks", "gd-tab-mix", "gd-tab-brief"];
+const selectedTabs = (canvas: Canvas) => tabIds.filter((id) => canvas.document.getElementById(id).getAttribute("aria-selected") === "true");
+const filterState = (canvas: Canvas) => ["gd-filter-open", "gd-filter-resolved"].map((id) => `${canvas.document.getElementById(id).textContent}=${canvas.document.getElementById(id).getAttribute("aria-pressed")}`);
+const pendingLine = (canvas: Canvas) => canvas.document.getElementById("gd-send-pending");
+
+test("canvas-ux S3: plain words: Accessible ✓, Original request, Save to send later and Directions, in English and Spanish", async () => {
+	const { en, es } = loadCatalog();
+	const words: Array<[string, string, string]> = [
+		["a11y.ok", "Accessible ✓", "Accesible ✓"],
+		["tab.brief", "Original request", "Petición original"],
+		["panel.collect", "Save to send later", "Guardar para enviar luego"],
+		["nav.title", "Directions · {count}", "Propuestas · {count}"],
+		["viewport.label", "Directions", "Propuestas"],
+		["rail.list", "Direction list", "Lista de propuestas"],
+		["panel.footIntro", "Your comments go to the agent so it changes the design", "Tus comentarios se envían al agente para que cambie el diseño"],
+	];
+	for (const [key, english, spanish] of words) {
+		assert.equal(en[key], english, key);
+		assert.equal(es[key], spanish, key);
+	}
+	for (const old of ["A11y", "Encargo", "encargo", "Acumular", "Artboards ·"]) assert.ok(!Object.values(es).some((text) => text.includes(old)), `no Spanish text says ${old}`);
+	for (const old of ["A11y", "Collect", "Artboards ·"]) assert.ok(!Object.values(en).some((text) => text.includes(old)), `no English text says ${old}`);
+
+	const canvas = await loadUx();
+	const [first] = canvas.boards;
+	report_(canvas, first.frame, []);
+	assert.equal(withClass(canvas.document.getElementById("gd-nav-list"), "gd-nav-a11y")[0].textContent, "Accessible ✓");
+	assert.equal(canvas.document.getElementById("gd-nav-title").textContent, "Directions · 2");
+	const staticTexts = canvas.document.querySelectorAll("[data-i18n]").map((element) => element.textContent);
+	for (const text of ["Original request", "Save to send later", "Your comments go to the agent so it changes the design"]) assert.ok(staticTexts.includes(text), text);
+	chooseLang(canvas as unknown as LangCanvas, "es");
+	assert.equal(withClass(canvas.document.getElementById("gd-nav-list"), "gd-nav-a11y")[0].textContent, "Accesible ✓");
+	assert.equal(canvas.document.getElementById("gd-nav-title").textContent, "Propuestas · 2");
+	const spanish = canvas.document.querySelectorAll("[data-i18n]").map((element) => element.textContent);
+	for (const text of ["Petición original", "Guardar para enviar luego", "Tus comentarios se envían al agente para que cambie el diseño"]) assert.ok(spanish.includes(text), text);
+	canvas.document.getElementById("gd-tab-brief").dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-brief-text").textContent, "Aún no se ha escrito la petición original.");
+});
+
+test("canvas-ux S3: the footer says where comments go and how many wait to be sent, plural-safe and hidden at 0", async () => {
+	const sent = "2026-10-26T10:00:00.000Z";
+	const canvas = await loadUx({ replies: commentsDoc(comment("a1", "01-a.html"), comment("a2", "01-a.html"), comment("a3", "01-a.html", "open", { sentAt: sent }), comment("a4", "01-a.html", "resolved")) });
+	assert.equal(canvas.document.getElementById("gd-send-intro").hidden, false);
+	assert.equal(canvas.document.getElementById("gd-send-intro").textContent, "Your comments go to the agent so it changes the design");
+	assert.equal(pendingLine(canvas).hidden, false);
+	assert.equal(pendingLine(canvas).textContent, "2 waiting to be sent", "open and unsent only");
+	await setComments(canvas, comment("a1", "01-a.html"), comment("a2", "01-a.html", "open", { sentAt: sent }));
+	assert.equal(pendingLine(canvas).textContent, "1 waiting to be sent");
+	chooseLang(canvas as unknown as LangCanvas, "es");
+	assert.equal(pendingLine(canvas).textContent, "1 pendiente de enviar");
+	await setComments(canvas, comment("a1", "01-a.html"), comment("a2", "01-a.html"));
+	assert.equal(pendingLine(canvas).textContent, "2 pendientes de enviar");
+	await setComments(canvas, comment("a1", "01-a.html", "open", { sentAt: sent }));
+	assert.equal(pendingLine(canvas).hidden, true, "nothing waiting, nothing said");
+	const html = read("index.html");
+	const foot = html.slice(html.indexOf('<div class="gd-side-foot">'), html.indexOf("</aside>", html.indexOf('<div class="gd-side-foot">')));
+	assert.match(foot, /<p id="gd-send-intro" class="gd-send-intro" data-i18n="panel.footIntro">Your comments go to the agent so it changes the design<\/p>/);
+	assert.match(foot, /<p id="gd-send-pending" class="gd-send-pending" role="status" aria-live="polite" hidden><\/p>/);
+	assert.ok(foot.indexOf("gd-send-intro") < foot.indexOf("gd-sendmode"), "the sentence leads the footer");
+});
+
+test("canvas-ux S4: one Comments tab counts the open comments, with an Open / Resolved filter, Open by default", async () => {
+	const canvas = await loadUx({ replies: commentsDoc(comment("a1", "01-a.html"), comment("a2", "01-a.html", "resolved"), comment("a3", "02-b.html")) });
+	const doc = canvas.document;
+	const list = doc.getElementById("gd-comment-list");
+	assert.deepEqual(selectedTabs(canvas), ["gd-tab-comments"]);
+	assert.equal(doc.getElementById("gd-count-open").textContent, "2", "the tab counts open comments");
+	assert.equal(doc.getElementById("gd-comment-filter").hidden, false);
+	assert.deepEqual(filterState(canvas), ["Open (2)=true", "Resolved (1)=false"]);
+	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a1", "Text of a3"]);
+	doc.getElementById("gd-filter-resolved").dispatch("click");
+	assert.deepEqual(filterState(canvas), ["Open (2)=false", "Resolved (1)=true"]);
+	assert.deepEqual(selectedTabs(canvas), ["gd-tab-comments"], "the filter is not a tab");
+	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a2"]);
+	// Reopen works from the filter as it did from the Resolved tab.
+	findAll(list, (element) => element.localName === "button" && element.textContent === "Reopen")[0].dispatch("click");
+	await flush();
+	assert.deepEqual(canvas.posts.filter((post) => post.url.endsWith("/comments/a2/status")).map((post) => post.body), [{ status: "open" }]);
+	await setComments(canvas, comment("a1", "01-a.html"), comment("a2", "01-a.html"));
+	assert.deepEqual(filterState(canvas), ["Open (2)=false", "Resolved (0)=true"]);
+	assert.equal(doc.getElementById("gd-panel-empty").hidden, false);
+	assert.equal(doc.getElementById("gd-panel-empty").textContent, "No resolved comments.");
+	doc.getElementById("gd-filter-open").dispatch("click");
+	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a1", "Text of a2"]);
+	// The filter belongs to the Comments tab only.
+	doc.getElementById("gd-tab-history").dispatch("click");
+	assert.equal(doc.getElementById("gd-comment-filter").hidden, true);
+	// Spanish, live.
+	doc.getElementById("gd-tab-comments").dispatch("click");
+	chooseLang(canvas as unknown as LangCanvas, "es");
+	assert.deepEqual(filterState(canvas), ["Abiertos (2)=true", "Resueltos (0)=false"]);
+	assert.equal(doc.getElementById("gd-comment-filter").getAttribute("aria-label"), "Mostrar comentarios");
+	const html = read("index.html");
+	assert.equal([...html.matchAll(/role="tab"/g)].length, 5, "five tabs: Comments, History, Checks, Mix, Original request");
+	assert.ok(!/id="gd-count-resolved"/.test(html), "no Resolved tab count");
+	assert.match(html, /<button type="button" role="tab" id="gd-tab-comments"[^>]*aria-selected="true"[^>]*><span data-i18n="tab.comments">Comments<\/span> <span id="gd-count-open" class="gd-count">0<\/span><\/button>/);
+	assert.match(html, /<div id="gd-comment-filter" class="gd-devices gd-comment-filter" role="group" aria-label="Show comments" data-i18n-aria-label="filter.label">\s*<button type="button" id="gd-filter-open" class="gd-size-button" aria-pressed="true"[^>]*>[^<]*<\/button>\s*<button type="button" id="gd-filter-resolved" class="gd-size-button" aria-pressed="false"[^>]*>[^<]*<\/button>\s*<\/div>/);
+});
+
+test("canvas-ux S4: a pin opens the Comments tab with its comment's filter and focuses its card; arrow keys move over five tabs", async () => {
+	const canvas = await loadUx({ replies: commentsDoc(comment("a1", "01-a.html"), comment("a2", "01-a.html", "resolved")) });
+	const doc = canvas.document;
+	const [first] = canvas.boards;
+	canvas.message(first.frame.contentWindow, { type: "gd:pin-rects", rects: [{ id: "a1", rect: { x: 10, y: 10, width: 20, height: 20 } }, { id: "a2", rect: { x: 50, y: 50, width: 20, height: 20 } }] });
+	const pin = (id: string) => withClass(first.wrapper, "gd-pin").find((element) => element.dataset.id === id)!;
+	doc.getElementById("gd-tab-checks").dispatch("click");
+	pin("a2").dispatch("click");
+	assert.deepEqual(selectedTabs(canvas), ["gd-tab-comments"]);
+	assert.deepEqual(filterState(canvas), ["Open (1)=false", "Resolved (1)=true"]);
+	const list = doc.getElementById("gd-comment-list");
+	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a2"]);
+	assert.ok(list.children[0].contains(doc.activeElement), "keyboard focus is on its card");
+	pin("a1").dispatch("click");
+	assert.deepEqual(filterState(canvas), ["Open (1)=true", "Resolved (1)=false"]);
+	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a1"]);
+
+	const tablist = doc.getElementById("gd-tabs");
+	tablist.dispatch("keydown", { key: "ArrowRight" });
+	assert.deepEqual(selectedTabs(canvas), ["gd-tab-history"], "Comments is followed by History");
+	tablist.dispatch("keydown", { key: "End" });
+	assert.deepEqual(selectedTabs(canvas), ["gd-tab-brief"]);
+	tablist.dispatch("keydown", { key: "ArrowRight" });
+	assert.deepEqual(selectedTabs(canvas), ["gd-tab-comments"], "and it wraps around");
+	assert.equal(doc.activeElement, doc.getElementById("gd-tab-comments"));
+	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-labelledby"), "gd-tab-comments");
+	assert.equal(doc.getElementById("gd-tab-comments").getAttribute("tabindex"), "0");
+});
+
+test("canvas-ux S5: the docs describe commenting inside a direction and the Technical details toggle", () => {
+	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
+	const section = docs.slice(docs.indexOf("### Gentle Design"));
+	for (const part of ["\"Click to open and comment\"", "**Click a direction to open it and comment · Esc**", "**Technical details**", "`gentle-design:technical`", "Comment mode still on"]) assert.ok(section.includes(part), `docs mention ${part}`);
+	assert.ok(!section.includes("**Click an element to comment · Esc**"), "the old chip text is gone");
+	assert.ok(!section.includes("a click picks an element instead of entering focus mode"), "the old overview behavior is gone");
+});
+
+test("canvas-ux S5: the docs and the README use the plain words, the footer sentence and the one Comments tab", () => {
+	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
+	const section = docs.slice(docs.indexOf("### Gentle Design"));
+	for (const part of ["**Original request**", "**Save to send later**", "`Accessible ✓`", "**Directions · N**", "**Open (N)**", "**Resolved (N)**", "\"Your comments go to the agent so it changes the design\"", "**N waiting to be sent**"]) assert.ok(section.includes(part), `docs mention ${part}`);
+	for (const old of ["**Collect**", "A11y ✓", "**Resolved**, **History**", "Resolved tab", "Comments and Resolved tabs", "**Brief** tabs"]) assert.ok(!section.includes(old), `docs no longer say ${old}`);
+	const readme = readFileSync(fileURLToPath(new URL("../README.md", import.meta.url)), "utf8");
+	const row = readme.split("\n").find((line) => line.startsWith("| Gentle Design |"))!;
+	for (const part of ["opens it in focus", "Technical details", "Original request", "Save to send later", "Open / Resolved"]) assert.ok(row.includes(part), `the README row mentions ${part}`);
 });
