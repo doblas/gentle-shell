@@ -11,6 +11,7 @@
 // those values with the project's design tokens and shows them next to the artboard.
 // After the page loads it also runs a few accessibility checks (gd:checks): text contrast, target size,
 // images without alt, unlabeled form fields and skipped heading levels. They are heuristics, not an audit.
+// A finding whose element is out of sight (hidden or off-screen) says so, so the canvas draws no mark for it.
 (() => {
 	"use strict";
 
@@ -296,8 +297,38 @@
 		return clip(text, 40);
 	}
 
+	/**
+	 * Out of sight though it is on the page: about no size, cut away by a clip or by an ancestor that clips, or outside the
+	 * page where no scroll reaches it (a skip link before it gets focus). Below the fold is not out of sight: it scrolls into view.
+	 */
+	function isOutOfSight(element) {
+		const rect = element.getBoundingClientRect();
+		if (rect.width < 2 || rect.height < 2) return true;
+		const style = getComputedStyle(element);
+		const clip = /^rect\(([^)]*)\)$/.exec(String(style.clip || "").trim());
+		if (clip) {
+			const [top, right, bottom, left] = clip[1].split(/[\s,]+/).map((value) => Number.parseFloat(value));
+			if (bottom <= top || right <= left) return true;
+		}
+		if (/^inset\(\s*(50|100)%/.test(String(style.clipPath || "").trim())) return true;
+		const x = rect.left + (window.scrollX || 0);
+		const y = rect.top + (window.scrollY || 0);
+		const pageWidth = document.documentElement.scrollWidth;
+		if (x + rect.width <= 0 || y + rect.height <= 0 || (Number.isFinite(pageWidth) && x >= pageWidth)) return true;
+		for (let node = element.parentElement; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
+			const parent = getComputedStyle(node);
+			if (![parent.overflow, parent.overflowX, parent.overflowY].some((value) => value === "hidden" || value === "clip")) continue;
+			const box = node.getBoundingClientRect();
+			if (rect.left >= box.left + box.width || rect.left + rect.width <= box.left || rect.top >= box.top + box.height || rect.top + rect.height <= box.top) return true;
+		}
+		return false;
+	}
+
+	/** One finding; `hidden: true` only when its element is out of sight, so a visible finding reads as it always did. */
 	function issue(check, severity, title, detail, element) {
-		return { check, severity, title, detail, selector: cssSelector(element), label: labelOf(element), rect: boxOf(element) };
+		const found = { check, severity, title, detail, selector: cssSelector(element), label: labelOf(element), rect: boxOf(element) };
+		if (isOutOfSight(element)) found.hidden = true;
+		return found;
 	}
 
 	function isInteractive(element) {

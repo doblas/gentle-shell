@@ -357,6 +357,7 @@
 			"checks.showAria": "Show {title} on {label} in {name}",
 			"checks.fix": "Ask the agent to fix",
 			"checks.fixAria": "Ask the agent to fix {title} on {label}",
+			"checks.hidden": "This element is hidden or off-screen; it appears when it receives focus",
 			"check.name.contrast": "Text contrast",
 			"check.name.target": "Target size",
 			"check.name.alt": "Images have alt text",
@@ -747,6 +748,7 @@
 			"checks.showAria": "Mostrar {title} en {label} de {name}",
 			"checks.fix": "Pedir al agente que lo corrija",
 			"checks.fixAria": "Pedir al agente que corrija {title} en {label}",
+			"checks.hidden": "Este elemento está oculto o fuera de pantalla; aparece al recibir foco",
 			"check.name.contrast": "Contraste del texto",
 			"check.name.target": "Tamaño de los objetivos táctiles",
 			"check.name.alt": "Imágenes con texto alternativo",
@@ -1144,6 +1146,8 @@
 		historyFocus: null,
 		// The project's design tokens (design/system.md), for the inspector: [{ name, value, section, group }].
 		tokens: [],
+		// The ring Show draws around a finding's element: { board, issue, ring, label, card }, or null. One at a time.
+		mark: null,
 		// The element the inspector panel shows: { surface, measure, flags, text }, and what keeps the panel open.
 		inspect: null,
 		inspectGen: 0,
@@ -1502,6 +1506,19 @@
 	els.viewport.addEventListener("pointercancel", endDrag);
 	els.viewport.addEventListener("pointerleave", () => setHoverBoard(null));
 
+	// A still click on the canvas (its background, an artboard, a header; also in focus mode) clears a check's ring; a drag keeps it.
+	let markPress = null;
+	els.viewport.addEventListener("pointerdown", (event) => {
+		const target = event.target;
+		const onCanvas = target === els.viewport || target === els.world || target.closest(".gd-shield") || target.closest(".gd-artboard-label");
+		markPress = state.mark && event.button === 0 && onCanvas && !target.closest("button") ? { id: event.pointerId, x: event.clientX, y: event.clientY } : null;
+	});
+	els.viewport.addEventListener("pointerup", (event) => {
+		const press = markPress;
+		markPress = null;
+		if (press && press.id === event.pointerId && Math.abs(event.clientX - press.x) <= CLICK_SLOP && Math.abs(event.clientY - press.y) <= CLICK_SLOP) clearMark();
+	});
+
 	els.viewport.addEventListener("keydown", (event) => {
 		if (event.target !== els.viewport || state.focus) return;
 		const step = event.shiftKey ? 200 : 50;
@@ -1724,6 +1741,7 @@
 		state.placeholder = null;
 		els.world.replaceChildren();
 		state.boards = [];
+		clearMark();
 		els.railSystem.disabled = !state.systemBoard;
 		renderHandoffViews();
 		renderMinimap();
@@ -1873,6 +1891,8 @@
 	/** A frame (the board's own or a size frame) finished loading: it knows nothing yet, so tell it the state. */
 	function surfaceLoaded(surface) {
 		surface.rects = null;
+		// A check's ring belongs to the page it was measured in.
+		if (state.mark && state.mark.board === ownerOf(surface)) clearMark();
 		// A reloaded artboard is checked again: its old result no longer describes it.
 		if (surface === ownerOf(surface) && !surface.system && surface.checks) {
 			surface.checks = null;
@@ -2022,6 +2042,8 @@
 		const board = state.focus;
 		if (!board) return;
 		closePopover();
+		// Another size is another layout: the ring would be measured in the wrong one.
+		clearMark();
 		const control = board.sizeControl;
 		control.input.removeAttribute("aria-invalid");
 		control.error.hidden = true;
@@ -2687,6 +2709,7 @@
 		if (state.focus) renderSizeControl(state.focus);
 		renderCompareText();
 		renderVersionText();
+		renderMark();
 		if (state.inspect && !els.inspector.hidden) showInspector(state.inspect.surface, state.inspect.measure);
 	}
 
@@ -3530,6 +3553,7 @@
 		const boards = allBoards();
 		closeMenu(false);
 		els.world.replaceChildren(...boards.map((board) => board.wrapper), ...(state.placeholder ? [state.placeholder] : []));
+		if (state.mark && !boards.includes(state.mark.board)) clearMark();
 		if (state.focus && !boards.includes(state.focus)) exitFocus();
 		else applyFocusState();
 	}
@@ -4139,7 +4163,8 @@
 			const label = boundedText(raw.label, 80);
 			const rect = raw.rect && typeof raw.rect === "object" ? raw.rect : null;
 			if (!title || detail === null || !selector || label === null || !rect || !["x", "y", "width", "height"].every((key) => isFiniteNumber(rect[key]))) return null;
-			issues.push({ check: raw.check, severity: raw.severity, title, detail, selector, label, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } });
+			// Only `hidden: true` means out of sight; an older inspector leaves it out, and that reads as visible.
+			issues.push({ check: raw.check, severity: raw.severity, title, detail, selector, label, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, hidden: raw.hidden === true });
 		}
 		return { checks, issues };
 	}
@@ -4209,10 +4234,17 @@
 		return group;
 	}
 
+	let hiddenNotes = 0;
+
 	function checkCard(board, issue) {
 		const fail = issue.severity === "fail";
 		const card = document.createElement("article");
 		card.className = `gd-check ${fail ? "gd-check-fail" : "gd-check-advice"}`;
+		// A re-render (another tab and back, a language switch) keeps the card of the ring linked to it.
+		if (isMarked(board, issue)) {
+			state.mark.card = card;
+			setCardMarked(card, true);
+		}
 		const body = document.createElement("div");
 		body.className = "gd-check-body";
 		const words = issueWords(issue);
@@ -4236,7 +4268,7 @@
 		show.className = "gd-check-show gd-small";
 		show.setAttribute("aria-label", t("checks.showAria", { title: words.title, label: issue.label, name: `${String(board.number).padStart(2, "0")} ${board.artboard.title}` }));
 		show.append(icon("i-target", "gd-i gd-i-s"), chip("", t("checks.show")));
-		show.addEventListener("click", () => showIssue(board, issue));
+		show.addEventListener("click", () => showIssue(board, issue, card));
 		const fix = document.createElement("button");
 		fix.type = "button";
 		fix.className = "gd-check-fix gd-small";
@@ -4244,30 +4276,127 @@
 		fix.append(chip("", t("checks.fix")));
 		fix.addEventListener("click", () => askAboutIssue(board, issue));
 		actions.append(show, fix);
-		body.append(heading, detail, selector, actions);
+		body.append(heading, detail, selector);
+		// Show cannot point at what is out of sight: the card says why nothing is marked.
+		if (issue.hidden) {
+			const note = chip("gd-check-hidden", t("checks.hidden"));
+			note.id = `gd-check-hidden-${++hiddenNotes}`;
+			show.setAttribute("aria-describedby", note.id);
+			body.append(note);
+		}
+		body.append(actions);
 		card.append(icon("i-alert", "gd-i gd-i-s gd-check-icon"), body);
 		return card;
 	}
 
-	/** Brings an issue's artboard into view: another artboard's focus ends, and with none focused the canvas centers the element. */
-	function revealIssue(board, issue) {
+	// Under SHOW_ZOOM, Show zooms in to it, or less when the element would not fit in SHOW_ROOM of the view at that zoom.
+	const SHOW_ZOOM = 1;
+	const SHOW_ROOM = 0.8;
+
+	/**
+	 * Brings a rect of an artboard (its CSS px) into view: another artboard's focus ends, and with none focused the canvas
+	 * centers the rect. With zoomIn, a canvas under SHOW_ZOOM first zooms in about the rect; it never zooms out.
+	 */
+	function revealIssue(board, rect, zoomIn = false) {
 		if (state.focus && state.focus !== board) exitFocus();
 		if (state.focus) return;
 		const viewport = els.viewport.getBoundingClientRect();
 		const frame = board.frame.getBoundingClientRect();
 		const scale = frame.width / board.viewWidth || 1;
-		const x = frame.left + (issue.rect.x + issue.rect.width / 2) * scale;
-		const y = frame.top + (issue.rect.y + issue.rect.height / 2) * scale;
+		const x = frame.left + (rect.x + rect.width / 2) * scale;
+		const y = frame.top + (rect.y + rect.height / 2) * scale;
+		if (zoomIn && state.zoom < SHOW_ZOOM) {
+			const clear = Math.min(SHOW_ZOOM, (viewport.width * SHOW_ROOM) / rect.width, (viewport.height * SHOW_ROOM) / rect.height);
+			// Zooming about the rect's center keeps it at (x, y), so the pan below still centers it.
+			zoomAt(Math.max(state.zoom, clear), x - viewport.left, y - viewport.top);
+		}
 		panBy(viewport.left + viewport.width / 2 - x, viewport.top + viewport.height / 2 - y);
 	}
 
-	function showIssue(board, issue) {
-		revealIssue(board, issue);
+	/** Show: the canvas zooms to the element and rings it; an element out of sight gets no ring, and its artboard is centered instead. */
+	function showIssue(board, issue, card) {
+		if (issue.hidden) {
+			clearMark();
+			revealIssue(board, { x: 0, y: 0, width: board.viewWidth, height: board.viewHeight });
+		} else {
+			revealIssue(board, issue.rect, true);
+			placeMark(board, issue, card);
+		}
 		for (const surface of surfacesOf(board)) surface.frame.contentWindow?.postMessage({ type: "gd:highlight", selector: issue.selector }, "*");
 	}
 
+	// ---- the ring of Show ----
+	// Drawn by the canvas, never by the artboard's page: a box in the transformed world like the pins, so it follows zoom and
+	// pan, with its stroke, label and smallest size kept on screen by --gd-inv-zoom (canvas.css). Esc, a still click on the
+	// canvas, another Show, a reload of its artboard, another size or another design clear it.
+
+	function isMarked(board, issue) {
+		return Boolean(state.mark) && state.mark.board === board && state.mark.issue === issue;
+	}
+
+	function setCardMarked(card, marked) {
+		if (!card) return;
+		card.classList.toggle("gd-check-active", marked);
+		if (marked) card.setAttribute("aria-current", "true");
+		else card.removeAttribute("aria-current");
+	}
+
+	/** The frame the checks ran in: the artboard's own, or in All sizes its Desktop frame (the manifest size). */
+	function markHost(board) {
+		return board.sizeFrames.length > 0 ? board.sizeFrames[board.sizeFrames.length - 1].stage : board.frame.parentElement;
+	}
+
+	function placeMark(board, issue, card) {
+		clearMark();
+		const ring = document.createElement("div");
+		ring.className = `gd-check-mark ${issue.severity === "fail" ? "gd-check-mark-fail" : "gd-check-mark-advice"}`;
+		// The card is the accessible path (aria-current); the ring is only drawn.
+		ring.setAttribute("aria-hidden", "true");
+		const label = chip("gd-check-mark-label", "");
+		ring.append(label);
+		state.mark = { board, issue, ring, label, card };
+		renderMark();
+		markHost(board).append(ring);
+		setCardMarked(card, true);
+	}
+
+	/** The ring at its finding's rect, centered (artboard CSS px), with the check's title in the current language. */
+	function renderMark() {
+		const mark = state.mark;
+		if (!mark) return;
+		const { rect } = mark.issue;
+		mark.ring.style.left = `${rect.x + rect.width / 2}px`;
+		mark.ring.style.top = `${rect.y + rect.height / 2}px`;
+		mark.ring.style.setProperty("--gd-mark-w", `${rect.width}px`);
+		mark.ring.style.setProperty("--gd-mark-h", `${rect.height}px`);
+		mark.label.textContent = issueWords(mark.issue).title;
+	}
+
+	function clearMark() {
+		const mark = state.mark;
+		if (!mark) return;
+		state.mark = null;
+		mark.ring.remove();
+		setCardMarked(mark.card, false);
+	}
+
+	/** A new report of the ringed artboard (after a resize): the ring moves to the same finding (check, kind, element), or goes. */
+	function followMark(board) {
+		const mark = state.mark;
+		if (!mark || mark.board !== board) return;
+		const same = board.checks.issues.find((issue) => issue.check === mark.issue.check && issue.severity === mark.issue.severity && issue.selector === mark.issue.selector);
+		if (!same || same.hidden) {
+			clearMark();
+			return;
+		}
+		mark.issue = same;
+		renderMark();
+	}
+
 	function askAboutIssue(board, issue) {
-		revealIssue(board, issue);
+		// Asking about another finding moves the canvas away from the ring.
+		if (!isMarked(board, issue)) clearMark();
+		revealIssue(board, issue.rect);
 		for (const surface of surfacesOf(board)) surface.frame.contentWindow?.postMessage({ type: "gd:highlight", selector: issue.selector }, "*");
 		const fail = issue.severity === "fail";
 		const text = fail
@@ -5325,6 +5454,10 @@
 			if (!state.focus) return;
 			event.preventDefault();
 			exitFocus();
+		} else if (state.mark && els.popover.hidden && !state.compare && !els.shortcuts.hasAttribute("open") && !els.variantDialog.hasAttribute("open")) {
+			// A check's ring goes first; the next Esc leaves comment mode as before.
+			event.preventDefault();
+			clearMark();
 		} else if (state.commenting && els.popover.hidden && event.target === document.body) setCommenting(false);
 	});
 
@@ -5417,10 +5550,12 @@
 			const result = readChecks(data);
 			if (!result) return;
 			board.checks = result;
+			followMark(board);
 			renderChecks();
 			renderNav();
 		} else if (data.type === "gd:escape") {
 			if (!els.popover.hidden) closePopover();
+			else if (state.mark) clearMark();
 			else if (state.commenting) setCommenting(false);
 		} else if (data.type === "gd:exit-focus") {
 			// Only the focused artboard may end its own focus mode.

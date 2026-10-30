@@ -2880,7 +2880,7 @@ test("S2/S3: the panel is in index.html and canvas.css with tokens only, focus r
 
 // Accessibility checks (T3): the inspector checks the page after load; the canvas shows the results.
 
-type PageSpec = { tag: string; attrs?: Record<string, string>; style?: Record<string, string>; size?: [number, number]; text?: string; kids?: PageSpec[] };
+type PageSpec = { tag: string; attrs?: Record<string, string>; style?: Record<string, string>; size?: [number, number]; at?: [number, number]; text?: string; kids?: PageSpec[] };
 
 /** A small page for the inspector: elements in document order, with computed styles and boxes. */
 function checkPage(specs: PageSpec[]) {
@@ -2902,7 +2902,8 @@ function checkPage(specs: PageSpec[]) {
 		node.index = all.length;
 		Object.defineProperty(node, "textContent", { get: () => node.childNodes.map((child: any) => child.textContent).join("") });
 		Object.defineProperty(node, "innerText", { get: () => node.textContent });
-		node.getBoundingClientRect = () => ({ left: 8, top: 8 + node.index * 30, width: node.size[0], height: node.size[1] });
+		// `at` places the box (left, top); without it the elements stack down the page.
+		node.getBoundingClientRect = () => ({ left: spec.at?.[0] ?? 8, top: spec.at?.[1] ?? 8 + node.index * 30, width: node.size[0], height: node.size[1] });
 		if (spec.text) node.childNodes.push({ nodeType: 3, textContent: spec.text });
 		for (const kid of spec.kids ?? []) {
 			const child = build(kid, node);
@@ -6659,4 +6660,361 @@ test("chosen-direction S5: the docs describe the stepper, the pulsing dot, the r
 	assert.match(section, /reduced motion/i);
 	assert.match(section, /\*\*Hide discarded \(N\)\*\*/);
 	assert.match(section, /\*\*Show discarded \(N\)\*\*/);
+});
+
+// ---- canvas-check-highlight: Show marks the element of a check on the canvas, zooms, and links the card ----
+
+const marks = (canvas: Canvas) => withClass(canvas.viewport, "gd-check-mark");
+const showCard = (canvas: Canvas, index: number) => withClass(checkCards(canvas)[index], "gd-check-show")[0].dispatch("click");
+const activeCards = (canvas: Canvas) => checkCards(canvas).map((card, index) => (card.classes.has("gd-check-active") ? index : -1)).filter((index) => index >= 0);
+const worldView = (canvas: Canvas) => {
+	const match = /^translate\((-?[\d.e+-]+)px, (-?[\d.e+-]+)px\) scale\(([\d.e+-]+)\)$/.exec(canvas.world.style.transform)!;
+	return { x: Number(match[1]), y: Number(match[2]), zoom: Number(match[3]) };
+};
+const advice = (extra: Record<string, unknown> = {}) => finding({ check: "target", severity: "advice", title: "Touch target under 44 px", detail: '"Pay" is 100 × 28 px; 44 × 44 px is recommended for touch.', selector: "#pay", label: "button#pay", rect: { x: 10, y: 250, width: 4, height: 2 }, ...extra });
+const markBox = (ring: FakeElement) => [ring.style.left, ring.style.top, ring.style["--gd-mark-w"], ring.style["--gd-mark-h"]];
+/** A still click (no movement) on the canvas at a point, from `target`. */
+const stillClick = (target: FakeElement) => click(target, 500, 400);
+
+test("check-highlight S1: Show draws one canvas ring over the element, at its rect, in the severity color, labeled with the check", async () => {
+	const canvas = await loadRail();
+	const [first, second] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	second.frame.rect = { left: 600, top: 120, width: 400, height: 300 };
+	report_(canvas, first.frame, [finding(), advice()]);
+	report_(canvas, second.frame, [finding({ selector: "#second" })]);
+	openChecks(canvas);
+	assert.deepEqual(marks(canvas), [], "nothing is marked before Show");
+	showCard(canvas, 0);
+	assert.equal(marks(canvas).length, 1);
+	const ring = marks(canvas)[0];
+	assert.equal(ring.parentElement, first.frame.parentElement, "drawn by the canvas beside the artboard's frame, in the transformed world");
+	assert.ok(canvas.world.contains(ring), "it follows zoom and pan with the artboard");
+	assert.equal(ring.getAttribute("aria-hidden"), "true", "the card is the accessible path; the ring is only drawn");
+	assert.ok(ring.classes.has("gd-check-mark-fail") && !ring.classes.has("gd-check-mark-advice"), "red for a problem");
+	assert.deepEqual(markBox(ring), ["130px", "50px", "200px", "20px"], "centered on the element's rect, in artboard CSS px");
+	assert.deepEqual(texts(ring, "gd-check-mark-label"), ["Low contrast"]);
+	assert.deepEqual(first.frame.contentWindow!.posted.at(-1), { type: "gd:highlight", selector: "main > p.or" }, "the page gets the same highlight as before, nothing else");
+	// Another Show replaces it: one mark at a time.
+	showCard(canvas, 1);
+	assert.equal(marks(canvas).length, 1);
+	const amber = marks(canvas)[0];
+	assert.ok(amber.classes.has("gd-check-mark-advice") && !amber.classes.has("gd-check-mark-fail"), "amber for advice");
+	assert.deepEqual(markBox(amber), ["12px", "251px", "4px", "2px"]);
+	assert.deepEqual(texts(amber, "gd-check-mark-label"), ["Touch target under 44 px"]);
+	// Zooming keeps the same ring in place in world coordinates.
+	canvas.document.getElementById("gd-zoom-in").dispatch("click");
+	assert.deepEqual(marks(canvas), [amber]);
+	assert.deepEqual(markBox(amber), ["12px", "251px", "4px", "2px"]);
+	// A finding of another artboard moves the ring there.
+	showCard(canvas, 2);
+	assert.equal(marks(canvas).length, 1);
+	assert.equal(marks(canvas)[0].parentElement, second.frame.parentElement);
+});
+
+test("check-highlight S1/S5: canvas.css keeps the ring a fixed size on screen with tokens, and animates it only with motion allowed", () => {
+	const css = read("canvas.css");
+	const rule = (selector: string) => css.match(new RegExp(`(?:^|\\n)${selector.replace(/[.-]/g, (char) => `\\${char}`)} \\{([^}]*)\\}`))?.[1] ?? "";
+	const mark = rule(".gd-check-mark");
+	assert.ok(mark, ".gd-check-mark is styled");
+	assert.match(mark, /pointer-events:\s*none/);
+	assert.match(mark, /border:\s*calc\(2px \* var\(--gd-inv-zoom, 1\)\) solid var\(--gd-mark-color\)/, "the stroke keeps its screen width at any zoom");
+	assert.match(mark, /width:\s*max\(calc\(var\(--gd-mark-w\)[^;]*calc\(\d+px \* var\(--gd-inv-zoom, 1\)\)\)/, "a minimum on-screen size, so a tiny element stays visible");
+	assert.match(mark, /height:\s*max\(calc\(var\(--gd-mark-h\)[^;]*calc\(\d+px \* var\(--gd-inv-zoom, 1\)\)\)/);
+	assert.match(mark, /--gd-mark-color:\s*var\(--warning\)/, "amber for advice");
+	assert.match(rule(".gd-check-mark-fail"), /--gd-mark-color:\s*var\(--error\)/, "red for a problem");
+	assert.match(rule(".gd-check-mark-label"), /transform:\s*scale\(var\(--gd-inv-zoom, 1\)\)/, "the label keeps its screen size like the pins");
+	assert.match(rule(".gd-check-active"), /var\(--/, "the linked card is styled with tokens");
+	const motion = css.slice(css.indexOf("@media (prefers-reduced-motion: no-preference)"));
+	const block = motion.slice(0, motion.indexOf("\n}\n"));
+	assert.match(block, /\.gd-check-mark \{[^}]*animation:/, "the ring pulses only when motion is allowed");
+	assert.doesNotMatch(css.replace(block, ""), /\.gd-check-mark[^{]*\{[^}]*animation/, "and nowhere else");
+	assert.match(css, /\.gd-exporting \.gd-check-mark/, "an export never includes the ring");
+});
+
+test("check-highlight S1: Esc clears the ring, after what already owns Esc; commenting and focus mode keep their Esc", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	report_(canvas, first.frame, [finding()]);
+	openChecks(canvas);
+	showCard(canvas, 0);
+	// Something that handled Esc first (the comment box, a menu, a confirm step) keeps the ring.
+	press(canvas, "Escape", { defaultPrevented: true });
+	assert.equal(marks(canvas).length, 1);
+	const event = press(canvas, "Escape");
+	assert.equal(event.defaultPrevented, true);
+	assert.deepEqual(marks(canvas), []);
+	assert.deepEqual(activeCards(canvas), []);
+	// In comment mode the first Esc clears the ring, the next one leaves comment mode, as before.
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	showCard(canvas, 0);
+	press(canvas, "Escape");
+	assert.deepEqual(marks(canvas), []);
+	assert.equal(pressed(canvas, "gd-comment"), "true");
+	press(canvas, "Escape");
+	assert.equal(pressed(canvas, "gd-comment"), "false");
+	// Esc forwarded by the artboard while commenting does the same.
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	showCard(canvas, 0);
+	canvas.message(first.frame.contentWindow, { type: "gd:escape" });
+	assert.deepEqual(marks(canvas), []);
+	assert.equal(pressed(canvas, "gd-comment"), "true");
+	canvas.message(first.frame.contentWindow, { type: "gd:escape" });
+	assert.equal(pressed(canvas, "gd-comment"), "false");
+	// A dialog open over the canvas keeps its own Esc.
+	showCard(canvas, 0);
+	canvas.document.getElementById("gd-shortcuts").setAttribute("open", "");
+	press(canvas, "Escape");
+	assert.equal(marks(canvas).length, 1);
+	canvas.document.getElementById("gd-shortcuts").removeAttribute("open");
+	// Focus mode: the ring is drawn on the focused artboard and Shift+Esc still leaves focus mode.
+	navItems(canvas)[0].dispatch("click");
+	showCard(canvas, 0);
+	assert.equal(marks(canvas).length, 1);
+	assert.equal(marks(canvas)[0].parentElement, first.frame.parentElement);
+	press(canvas, "Escape", { shiftKey: true });
+	assert.doesNotMatch(canvas.navMode.textContent, /^Using:/);
+});
+
+test("check-highlight S1: a still click on the canvas clears the ring; a drag pans and keeps it", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	report_(canvas, first.frame, [finding()]);
+	openChecks(canvas);
+	showCard(canvas, 0);
+	canvas.viewport.dispatch("pointerdown", { button: 0, pointerId: 1, clientX: 500, clientY: 400 });
+	canvas.viewport.dispatch("pointermove", { pointerId: 1, clientX: 560, clientY: 430 });
+	canvas.viewport.dispatch("pointerup", { button: 0, pointerId: 1, clientX: 560, clientY: 430 });
+	assert.equal(marks(canvas).length, 1, "a drag is a pan, not a click");
+	stillClick(canvas.viewport);
+	assert.deepEqual(marks(canvas), []);
+	assert.deepEqual(activeCards(canvas), []);
+	// A click on an artboard (its shield) is a click on the canvas too.
+	showCard(canvas, 0);
+	stillClick(canvas.boards[1].shield!);
+	assert.deepEqual(marks(canvas), []);
+});
+
+test("check-highlight S1: the ring goes when its artboard reloads or the design changes, and follows a new report of the same finding", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	report_(canvas, first.frame, [finding(), advice()]);
+	openChecks(canvas);
+	showCard(canvas, 0);
+	// A resize re-reports: the same finding (same check, kind and element) keeps the ring at its new rect, and its card stays linked.
+	report_(canvas, first.frame, [advice(), finding({ rect: { x: 0, y: 0, width: 50, height: 10 } })]);
+	assert.equal(marks(canvas).length, 1);
+	assert.deepEqual(markBox(marks(canvas)[0]), ["25px", "5px", "50px", "10px"]);
+	assert.deepEqual(activeCards(canvas), [1]);
+	// A report without it drops the ring.
+	report_(canvas, first.frame, [advice()]);
+	assert.deepEqual(marks(canvas), []);
+	assert.deepEqual(activeCards(canvas), []);
+	// A reload drops it.
+	report_(canvas, first.frame, [finding()]);
+	showCard(canvas, 0);
+	first.frame.dispatch("load");
+	assert.deepEqual(marks(canvas), []);
+	// Another design drops it.
+	report_(canvas, first.frame, [finding()]);
+	showCard(canvas, 0);
+	assert.equal(marks(canvas).length, 1);
+	await canvas.serverEvent("show", { slug: "beta" });
+	assert.deepEqual(marks(canvas), []);
+});
+
+test("check-highlight S2: under 100% Show zooms in about the element and centers it; it never zooms out", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	report_(canvas, first.frame, [finding(), finding({ selector: "#hero", rect: { x: 0, y: 0, width: 1000, height: 100 } }), finding({ selector: "#page", rect: { x: 0, y: 0, width: 2000, height: 100 } })]);
+	openChecks(canvas);
+	const zoomOut = () => canvas.document.getElementById("gd-zoom-out").dispatch("click");
+	/** Show at the current zoom, with the frame where that zoom puts it; returns the view before and after. */
+	const showAt = (index: number) => {
+		const before = worldView(canvas);
+		first.frame.rect = { left: 100, top: 120, width: 400 * before.zoom, height: 300 * before.zoom };
+		showCard(canvas, index);
+		return { before, after: worldView(canvas) };
+	};
+	/** Where the element's center lands in the viewport (1000 × 700, 50 px down the page) after Show. */
+	const landed = ({ before, after }: ReturnType<typeof showAt>, rect: { x: number; y: number; width: number; height: number }) => {
+		const worldX = (100 + (rect.x + rect.width / 2) * before.zoom - before.x) / before.zoom;
+		const worldY = (120 - 50 + (rect.y + rect.height / 2) * before.zoom - before.y) / before.zoom;
+		return [after.x + worldX * after.zoom, after.y + worldY * after.zoom];
+	};
+	zoomOut(); zoomOut(); zoomOut();
+	assert.ok(Math.abs(worldView(canvas).zoom - 0.512) < 1e-9);
+	const small = showAt(0);
+	assert.equal(small.after.zoom, 1, "a small element: up to 100%");
+	near(landed(small, finding().rect), [500, 350]);
+	assert.equal(canvas.zoomLevel.textContent, "100%");
+	// A wide element gets the zoom at which it fills most of the view, still a zoom in.
+	zoomOut(); zoomOut(); zoomOut();
+	const wide = showAt(1);
+	assert.ok(Math.abs(wide.after.zoom - 0.8) < 1e-9, `0.8, got ${wide.after.zoom}`);
+	near(landed(wide, { x: 0, y: 0, width: 1000, height: 100 }), [500, 350]);
+	// Wider than that at the current zoom: the zoom stays; it never zooms out.
+	zoomOut(); zoomOut();
+	const zoom = worldView(canvas).zoom;
+	const huge = showAt(2);
+	assert.equal(huge.after.zoom, zoom);
+	// At 100% or more the zoom stays.
+	canvas.document.getElementById("gd-zoom-in").dispatch("click");
+	canvas.document.getElementById("gd-zoom-in").dispatch("click");
+	canvas.document.getElementById("gd-zoom-in").dispatch("click");
+	canvas.document.getElementById("gd-zoom-in").dispatch("click");
+	const above = worldView(canvas).zoom;
+	assert.ok(above > 1);
+	assert.equal(showAt(0).after.zoom, above, "Show never zooms out");
+	// Ask the agent to fix only pans, as before.
+	zoomOut(); zoomOut(); zoomOut(); zoomOut(); zoomOut();
+	const asked = worldView(canvas).zoom;
+	withClass(checkCards(canvas)[0], "gd-check-fix")[0].dispatch("click");
+	assert.equal(worldView(canvas).zoom, asked);
+});
+
+test("check-highlight S2: in focus mode Show keeps the artboard where it is and adds the ring; in All sizes the ring is on the Desktop frame", async () => {
+	const canvas = await loadRail(300, wideAlpha);
+	const [first] = canvas.boards;
+	report_(canvas, first.frame, [finding()]);
+	navItems(canvas)[0].dispatch("click");
+	openChecks(canvas);
+	const transform = canvas.world.style.transform;
+	showCard(canvas, 0);
+	assert.equal(canvas.world.style.transform, transform, "no zoom and no pan while focused");
+	assert.equal(marks(canvas).length, 1);
+	assert.equal(marks(canvas)[0].parentElement, first.frame.parentElement);
+	// Picking a size changes the frame the ring was measured in: it goes.
+	sizeButton(canvas, "all").dispatch("click");
+	assert.deepEqual(marks(canvas), []);
+	showCard(canvas, 0);
+	const desktop = sizeSections(canvas).at(-1)!;
+	assert.equal(marks(canvas).length, 1);
+	assert.ok(desktop.contains(marks(canvas)[0]), "the Desktop frame is the size the checks ran at");
+	assert.equal(marks(canvas)[0].parentElement, iframeOf(desktop).parentElement);
+});
+
+test("check-highlight S3: the card being shown is marked current until the ring goes, across re-renders", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	report_(canvas, first.frame, [finding(), advice(), finding({ selector: "#third" })]);
+	openChecks(canvas);
+	assert.deepEqual(activeCards(canvas), []);
+	showCard(canvas, 1);
+	assert.deepEqual(activeCards(canvas), [1]);
+	assert.deepEqual(checkCards(canvas).map((card) => card.getAttribute("aria-current")), [null, "true", null]);
+	showCard(canvas, 0);
+	assert.deepEqual(activeCards(canvas), [0]);
+	assert.deepEqual(checkCards(canvas).map((card) => card.getAttribute("aria-current")), ["true", null, null]);
+	// The panel re-renders (another tab and back): the same card stays linked to the ring.
+	canvas.document.getElementById("gd-filter-open").dispatch("click");
+	openChecks(canvas);
+	assert.deepEqual(activeCards(canvas), [0]);
+	assert.equal(checkCards(canvas)[0].getAttribute("aria-current"), "true");
+	// Ask the agent to fix on the shown finding keeps the ring; on another finding it clears it.
+	withClass(checkCards(canvas)[0], "gd-check-fix")[0].dispatch("click");
+	assert.equal(marks(canvas).length, 1);
+	canvas.document.getElementById("gd-popover-cancel").dispatch("click");
+	withClass(checkCards(canvas)[2], "gd-check-fix")[0].dispatch("click");
+	assert.deepEqual(marks(canvas), []);
+	assert.deepEqual(activeCards(canvas), []);
+	assert.deepEqual(checkCards(canvas).map((card) => card.getAttribute("aria-current")), [null, null, null]);
+});
+
+test("check-highlight S4: the inspector flags a finding whose element is hidden or off-screen, and leaves the flag out otherwise", () => {
+	const page = checkPage([
+		{ tag: "a", attrs: { id: "skip", href: "#main" }, text: "Skip to content", size: [120, 20], style: { display: "block" }, at: [-9999, 8] },
+		{ tag: "a", attrs: { id: "above", href: "#top" }, text: "Back up", size: [120, 20], style: { display: "block" }, at: [8, -200] },
+		{ tag: "button", attrs: { id: "clipped" }, text: "Go", size: [20, 20], style: { clip: "rect(0px, 0px, 0px, 0px)" } },
+		{ tag: "button", attrs: { id: "inset" }, text: "Go", size: [20, 20], style: { clipPath: "inset(50%)" } },
+		{ tag: "img", attrs: { id: "dot", src: "dot.png" }, size: [0, 0] },
+		{ tag: "button", attrs: { id: "speck" }, text: "Go", size: [1, 1] },
+		{ tag: "div", style: { overflowX: "hidden", overflowY: "hidden" }, size: [100, 100], at: [0, 0], kids: [{ tag: "button", attrs: { id: "cut" }, text: "Go", size: [20, 20], at: [300, 0] }] },
+		{ tag: "div", style: { overflowX: "visible", overflowY: "visible" }, size: [100, 100], at: [0, 0], kids: [{ tag: "button", attrs: { id: "spills" }, text: "Go", size: [20, 20], at: [300, 0] }] },
+		{ tag: "button", attrs: { id: "tiny" }, text: "Go", size: [20, 20] },
+		{ tag: "button", attrs: { id: "below" }, text: "Go", size: [20, 20], at: [8, 5000] },
+	]);
+	const report = page.run();
+	const flags = (selector: string) => report.issues.filter((issue) => issue.selector === selector).map((issue) => ("hidden" in issue ? issue.hidden : "absent"));
+	for (const selector of ["#skip", "#above", "#clipped", "#inset", "#dot", "#speck", "#cut"]) {
+		assert.ok(flags(selector).length > 0, `${selector} has a finding`);
+		assert.ok(flags(selector).every((flag) => flag === true), `${selector} is hidden or off-screen: ${flags(selector)}`);
+	}
+	for (const selector of ["#spills", "#tiny", "#below"]) {
+		assert.ok(flags(selector).length > 0, `${selector} has a finding`);
+		assert.ok(flags(selector).every((flag) => flag === "absent"), `${selector} is visible (below the fold can be scrolled to): no flag, as before`);
+	}
+});
+
+test("check-highlight S4: a hidden finding's card says so, Show draws no ring and does not zoom; a missing flag reads as visible", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	report_(canvas, first.frame, [
+		finding({ selector: "body > a", label: "a", hidden: true, rect: { x: -9999, y: 8, width: 120, height: 20 } }),
+		finding(),
+		finding({ selector: "#off", hidden: false }),
+		finding({ selector: "#odd", hidden: "yes" }),
+	]);
+	openChecks(canvas);
+	const cards = checkCards(canvas);
+	assert.deepEqual(cards.map((card) => texts(card, "gd-check-hidden")), [["This element is hidden or off-screen; it appears when it receives focus"], [], [], []]);
+	const note = withClass(cards[0], "gd-check-hidden")[0];
+	assert.ok(note.id, "the note has an id");
+	assert.equal(withClass(cards[0], "gd-check-show")[0].getAttribute("aria-describedby"), note.id, "Show is described by the note");
+	assert.equal(withClass(cards[1], "gd-check-show")[0].getAttribute("aria-describedby"), null);
+	// Show on the visible one first, then on the hidden one: the ring goes and none is drawn.
+	showCard(canvas, 1);
+	assert.equal(marks(canvas).length, 1);
+	canvas.document.getElementById("gd-zoom-out").dispatch("click");
+	const before = worldView(canvas);
+	first.frame.rect = { left: 100, top: 120, width: 400 * before.zoom, height: 300 * before.zoom };
+	showCard(canvas, 0);
+	assert.deepEqual(marks(canvas), []);
+	assert.deepEqual(activeCards(canvas), []);
+	assert.deepEqual(first.frame.contentWindow!.posted.at(-1), { type: "gd:highlight", selector: "body > a" }, "the page still gets the highlight");
+	const after = worldView(canvas);
+	assert.equal(after.zoom, before.zoom, "nothing to zoom to");
+	// It centers the artboard, not a point thousands of px away.
+	near([after.x - before.x, after.y - before.y], [500 - (100 + 200 * before.zoom), 400 - (120 + 150 * before.zoom)]);
+	// hidden: false and a malformed flag draw the ring like a finding without the flag.
+	showCard(canvas, 2);
+	assert.equal(marks(canvas).length, 1);
+	showCard(canvas, 3);
+	assert.equal(marks(canvas).length, 1);
+});
+
+test("check-highlight S5: the hidden note and the ring's label are Spanish, and follow a switch of language", async () => {
+	const canvas = await loadLang({ browser: "es" });
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	report_(canvas as unknown as Canvas, first.frame, [finding({ hidden: true, selector: "body > a" }), finding()]);
+	openChecks(canvas as unknown as Canvas);
+	const panel = checksPanel(canvas as unknown as Canvas);
+	assert.deepEqual(texts(panel, "gd-check-hidden"), ["Este elemento está oculto o fuera de pantalla; aparece al recibir foco"]);
+	showCard(canvas as unknown as Canvas, 1);
+	const ring = marks(canvas as unknown as Canvas)[0];
+	assert.deepEqual(texts(ring, "gd-check-mark-label"), ["Contraste bajo"]);
+	chooseLang(canvas, "en");
+	assert.deepEqual(texts(ring, "gd-check-mark-label"), ["Low contrast"]);
+	assert.deepEqual(texts(panel, "gd-check-hidden"), ["This element is hidden or off-screen; it appears when it receives focus"]);
+	assert.equal(activeCards(canvas as unknown as Canvas).length, 1, "the switch keeps the card linked");
+});
+
+test("check-highlight S5: the docs describe the ring, the zoom, the linked card and the hidden note", () => {
+	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
+	const line = docs.split("\n").find((candidate) => candidate.startsWith("- Accessibility checks:"))!;
+	assert.ok(line, "the Accessibility checks paragraph is there");
+	assert.match(line, /\*\*Show\*\*[^.]*ring/i);
+	assert.match(line, /amber[^.]*advice|advice[^.]*amber/i);
+	assert.match(line, /red[^.]*problem|problem[^.]*red/i);
+	assert.match(line, /100 %|100%/);
+	assert.match(line, /never zooms out/i);
+	assert.match(line, /`Esc`/);
+	assert.match(line, /This element is hidden or off-screen; it appears when it receives focus/);
+	assert.match(line, /reduced motion/i);
 });
