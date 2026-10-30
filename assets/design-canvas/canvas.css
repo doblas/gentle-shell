@@ -95,14 +95,14 @@ body {
 	flex: none;
 }
 
-/* Tool rail */
+/* Tool rail: few tools, each with a word under its icon (canvas-progressive S1) */
 .gd-rail {
 	grid-column: 1;
 	grid-row: 1 / 3;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 6px;
+	gap: 4px;
 	padding: 10px 0;
 	background: var(--bg-deep);
 	border-right: 1px solid var(--border);
@@ -122,27 +122,34 @@ body {
 
 .gd-rail .gd-tool {
 	position: relative;
-	width: 40px;
-	height: 40px;
-	padding: 0;
+	flex-direction: column;
+	gap: 2px;
+	width: 52px;
+	min-width: 52px;
+	min-height: 52px;
+	padding: 4px 0;
 	color: var(--text-muted);
 	border-color: transparent;
 }
 
+.gd-tool-label { font-size: 11px; line-height: 1.2; }
+
 .gd-rail .gd-tool:hover:not(:disabled) { color: var(--accent-soft); border-color: var(--border-soft); }
 
-.gd-rail .gd-tool[aria-pressed="true"] {
+.gd-rail .gd-tool[aria-pressed="true"], .gd-rail .gd-tool[aria-expanded="true"] {
 	background: var(--surface-2);
-	color: var(--accent);
+	color: var(--text);
 	border-color: var(--border);
 }
+
+.gd-rail .gd-tool[aria-pressed="true"] .gd-i { color: var(--accent); }
 
 .gd-rail .gd-tool[aria-pressed="true"]::before {
 	content: "";
 	position: absolute;
-	left: -10px;
-	top: 8px;
-	bottom: 8px;
+	left: -4px;
+	top: 10px;
+	bottom: 10px;
 	width: 3px;
 	border-radius: 0 3px 3px 0;
 	background: var(--accent);
@@ -172,7 +179,77 @@ body {
 
 .gd-spacer { flex: 1; }
 
-/* The chosen direction's status, after the breadcrumb (canvas-chosen-direction S1). */
+/* Step breadcrumb (canvas-progressive S2): 1 Compare · 2 Review · 3 Choose · 4 Implement, the current step filled. */
+.gd-steps { flex: none; }
+
+.gd-steps-list {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	margin: 0;
+	padding: 3px;
+	list-style: none;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-pill);
+}
+
+.gd-steps-item { display: flex; align-items: center; }
+.gd-steps-item + .gd-steps-item::before { content: "›"; padding: 0 2px; color: var(--text-muted); }
+
+.gd-steps-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	min-height: 28px;
+	padding: 0 10px;
+	border: 0;
+	border-radius: var(--radius-pill);
+	color: var(--text-muted);
+	font-size: 13px;
+	white-space: nowrap;
+}
+
+button.gd-steps-link:hover:not(:disabled) { color: var(--text); background: var(--wash); }
+.gd-steps-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gd-steps-num { font: 600 11px var(--font-mono); }
+.gd-steps-item[data-state="done"] .gd-steps-num { color: var(--success); }
+
+.gd-steps-link[aria-current="step"] {
+	background: var(--accent);
+	color: var(--bg);
+	font-weight: 600;
+}
+
+.gd-steps-link[aria-current="step"] .gd-steps-num, button.gd-steps-link[aria-current="step"]:hover:not(:disabled) { color: var(--bg); }
+button.gd-steps-link[aria-current="step"]:hover:not(:disabled) { background: var(--accent-strong); }
+
+/* Whether a Pi session receives what the canvas sends (canvas-progressive S3); the text says it, never the dot alone. */
+.gd-connection {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0;
+	padding: 2px 10px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-pill);
+	color: var(--text-muted);
+	font-size: 13px;
+	white-space: nowrap;
+}
+
+.gd-connection-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px var(--success-halo); }
+
+.gd-connection[data-state="off"] {
+	color: var(--warning);
+	border-color: var(--warning-line);
+	font-weight: 600;
+	cursor: help;
+}
+
+.gd-connection[data-state="off"] .gd-connection-dot { background: var(--warning); box-shadow: 0 0 0 3px var(--warning-halo); }
+
+/* The chosen direction's status, step 4's detail right after the steps (canvas-chosen-direction S1). */
 .gd-work {
 	display: flex;
 	align-items: center;
@@ -190,7 +267,6 @@ body {
 .gd-work-dot[data-status="queued"] { background: var(--warning); }
 .gd-work-dot[data-status="sent"], .gd-work-dot[data-status="in_progress"] { background: var(--info); }
 .gd-work-dot[data-status="implemented"] { background: var(--success); }
-.gd-work-lead { color: var(--text); font-weight: 600; }
 .gd-work-title { color: var(--accent); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .gd-work-state::before, .gd-work-note::before { content: "·"; margin-right: 8px; color: var(--text-faint); }
 .gd-work-note { min-width: 0; max-width: 40ch; overflow: hidden; text-overflow: ellipsis; }
@@ -2178,6 +2254,17 @@ kbd {
 }
 
 .gd-menu-separator { height: 1px; margin: 4px 2px; background: var(--border); }
+
+/* The single key that does the same as a menu item (More: Keyboard shortcuts, ?). */
+.gd-menu-kbd {
+	margin-left: auto;
+	padding: 2px 5px;
+	border: 1px solid var(--border-soft);
+	border-bottom-width: 2px;
+	border-radius: 4px;
+	color: var(--text-muted);
+	font: 11px/1 var(--font-mono);
+}
 
 /* "Try another direction from this…" */
 .gd-variant { width: min(420px, calc(100vw - 32px)); }

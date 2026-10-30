@@ -12,8 +12,9 @@
 // A minimap in the viewport's bottom right (M) shows every board and the visible area; clicking or dragging in it pans.
 // Every word it shows is in one catalog (English and Spanish, below); the language starts from the browser's and
 // a button in the top bar switches it live. Messages sent to the session are not text of the canvas and stay English.
-// A left tool rail (Navigate, Comment, Overview, artboard list, design system, shortcuts) and the
-// single-key shortcuts behind it; the mode chip in the viewport names the active mode.
+// A left tool rail of labeled tools (Move, Comment, Overview, List, and More: design system, shortcuts) and the
+// single-key shortcuts behind it; the mode chip in the viewport names the active mode. The top bar shows where the
+// review stands (1 Compare · 2 Review · 3 Choose · 4 Implement) and whether a Pi session is connected.
 // Handoffs (design/<slug>/handoffs.json) show live on each artboard's header: the
 // handoff state, the chosen artboard and its alternatives, and, once implemented
 // with a loopback previewUrl, a Compare view of the artboard next to the running app.
@@ -95,17 +96,27 @@
 			"lang.auto": "Match the browser",
 			"lang.note": "Saved in this browser. Comments you write stay in the language you type; messages to the agent stay in English.",
 			"rail.label": "Tools",
-			"rail.navigate": "Navigate",
-			"rail.navigate.title": "Navigate (V)",
+			"rail.navigate": "Move",
+			"rail.navigate.title": "Move around the canvas (V)",
 			"rail.comment": "Comment",
-			"rail.comment.title": "Comment (C)",
-			"rail.overview": "Overview: fit all directions",
-			"rail.overview.title": "Overview: fit all (F)",
-			"rail.list": "Direction list",
+			"rail.comment.title": "Comment on an element (C)",
+			"rail.overview": "Overview",
+			"rail.overview.title": "See all the directions (F)",
+			"rail.list": "List",
 			"rail.list.title": "Direction list ([)",
+			"rail.more": "More",
+			"rail.more.title": "More: design system and keyboard shortcuts",
 			"rail.system": "Design system board",
 			"rail.keys": "Keyboard shortcuts",
-			"rail.keys.title": "Keyboard shortcuts (?)",
+			"steps.label": "Steps",
+			"steps.compare": "Compare",
+			"steps.review": "Review",
+			"steps.choose": "Choose",
+			"steps.implement": "Implement",
+			"connection.on": "Connected",
+			"connection.onTitle": "Connected to the Pi session: your comments and requests reach the agent.",
+			"connection.off": "Not connected",
+			"connection.offTitle": "This canvas is not connected to a Pi session, so it cannot send comments or hand anything off. Open the canvas from your session with /gentle:design open {slug}.",
 			"bar.label": "Design canvas controls",
 			"bar.design": "Design",
 			"bar.feature": "Feature document",
@@ -136,7 +147,7 @@
 			"a11y.okTitle": "Automatic checks found no problems. They are heuristics, not a full audit.",
 			"a11y.failTitle": "Open the Checks tab to see them.",
 			"viewport.label": "Directions",
-			"mode.navigating": "Navigating",
+			"mode.navigating": "Moving around the canvas · wheel to zoom",
 			"mode.commenting": "Click a direction to open it and comment · Esc",
 			"mode.using": "Using: {title} · Shift+Esc to exit",
 			"back": "Back to canvas",
@@ -313,7 +324,6 @@
 			"handoff.implemented": "Implemented ✓",
 			"choice.chosen": "Chosen",
 			"choice.discarded": "Discarded",
-			"work.implementing": "Implementing",
 			"work.title": "“{title}”",
 			"work.since": "{state} since {time}",
 			"work.at": "at {time}",
@@ -457,7 +467,7 @@
 			"versions.labelCurrent": "v{n} · Current",
 			"versions.goneOld": "v{n} is no longer kept, so the comparison was closed.",
 			"versions.goneCurrent": "v{n} is now the current version, so the comparison was closed.",
-			"keys.navigate": "Navigate",
+			"keys.navigate": "Move around the canvas",
 			"keys.comment": "Comment on an element",
 			"keys.or": "or",
 			"keys.fit": "Fit all directions",
@@ -520,17 +530,27 @@
 			"lang.auto": "Igual que el navegador",
 			"lang.note": "Se guarda en este navegador. Los comentarios se quedan en el idioma en que los escribes; los mensajes al agente siguen en inglés.",
 			"rail.label": "Herramientas",
-			"rail.navigate": "Navegar",
-			"rail.navigate.title": "Navegar (V)",
+			"rail.navigate": "Mover",
+			"rail.navigate.title": "Mover por el lienzo (V)",
 			"rail.comment": "Comentar",
-			"rail.comment.title": "Comentar (C)",
-			"rail.overview": "Ver todo: ajustar todas las propuestas",
-			"rail.overview.title": "Ver todo: ajustar todo (F)",
-			"rail.list": "Lista de propuestas",
+			"rail.comment.title": "Comentar un elemento (C)",
+			"rail.overview": "Ver todo",
+			"rail.overview.title": "Ver todas las propuestas (F)",
+			"rail.list": "Lista",
 			"rail.list.title": "Lista de propuestas ([)",
-			"rail.system": "Tablero del design system",
+			"rail.more": "Más",
+			"rail.more.title": "Más: sistema de diseño y atajos de teclado",
+			"rail.system": "Sistema de diseño",
 			"rail.keys": "Atajos de teclado",
-			"rail.keys.title": "Atajos de teclado (?)",
+			"steps.label": "Pasos",
+			"steps.compare": "Comparar",
+			"steps.review": "Revisar",
+			"steps.choose": "Elegir",
+			"steps.implement": "Implementar",
+			"connection.on": "Conectado",
+			"connection.onTitle": "Conectado a la sesión de Pi: tus comentarios y peticiones llegan al agente.",
+			"connection.off": "Sin conexión",
+			"connection.offTitle": "Este canvas no está conectado a una sesión de Pi, así que no puede enviar comentarios ni entregar nada. Abre el canvas desde tu sesión con /gentle:design open {slug}.",
 			"bar.label": "Controles del canvas de diseño",
 			"bar.design": "Diseño",
 			"bar.feature": "Documento de la funcionalidad",
@@ -561,7 +581,7 @@
 			"a11y.okTitle": "Las comprobaciones automáticas no encontraron problemas. Son heurísticas, no una auditoría completa.",
 			"a11y.failTitle": "Abre la pestaña Comprobaciones para verlas.",
 			"viewport.label": "Propuestas",
-			"mode.navigating": "Navegando",
+			"mode.navigating": "Moviéndote por el lienzo · rueda para acercar",
 			"mode.commenting": "Haz clic en una propuesta para abrirla y comentar · Esc",
 			"mode.using": "Usando: {title} · Shift+Esc para salir",
 			"back": "Volver al canvas",
@@ -738,7 +758,6 @@
 			"handoff.implemented": "Implementado ✓",
 			"choice.chosen": "Elegido",
 			"choice.discarded": "Descartada",
-			"work.implementing": "Implementando",
 			"work.title": "«{title}»",
 			"work.since": "{state} desde {time}",
 			"work.at": "a las {time}",
@@ -882,7 +901,7 @@
 			"versions.labelCurrent": "v{n} · Actual",
 			"versions.goneOld": "v{n} ya no se conserva, así que se cerró la comparación.",
 			"versions.goneCurrent": "v{n} es ahora la versión actual, así que se cerró la comparación.",
-			"keys.navigate": "Navegar",
+			"keys.navigate": "Moverte por el lienzo",
 			"keys.comment": "Comentar un elemento",
 			"keys.or": "o",
 			"keys.fit": "Ajustar todas las propuestas",
@@ -1051,8 +1070,10 @@
 		toolNavigate: $("gd-tool-navigate"),
 		railFit: $("gd-rail-fit"),
 		navToggle: $("gd-nav-toggle"),
-		railSystem: $("gd-rail-system"),
-		shortcutsOpen: $("gd-shortcuts-open"),
+		railMore: $("gd-rail-more"),
+		steps: $("gd-steps"),
+		stepsList: $("gd-steps-list"),
+		connection: $("gd-connection"),
 		shortcuts: $("gd-shortcuts"),
 		shortcutsClose: $("gd-shortcuts-close"),
 		nav: $("gd-nav"),
@@ -1755,11 +1776,11 @@
 		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit]) control.disabled = Boolean(focused);
 		els.design.disabled = Boolean(focused) || state.designCount === 0;
 		els.back.hidden = !focused;
-		els.railSystem.disabled = !state.systemBoard;
 		els.compareApp.disabled = Boolean(state.compare);
 		renderNav();
 		renderHistory();
 		renderNavMode();
+		renderSteps();
 		renderMinimap();
 	}
 
@@ -1822,7 +1843,6 @@
 		els.world.replaceChildren();
 		state.boards = [];
 		clearMark();
-		els.railSystem.disabled = !state.systemBoard;
 		renderHandoffViews();
 		renderMinimap();
 		loc(els.empty, "text", key, params);
@@ -2537,6 +2557,17 @@
 		item.setAttribute("tabindex", "-1");
 		if (action.icon) item.append(icon(action.icon, "gd-i gd-i-s"));
 		item.append(chip("gd-menu-label", t(action.label)));
+		// A single-key shortcut that does the same, shown at the end of the item.
+		if (action.shortcut) {
+			item.setAttribute("aria-keyshortcuts", action.shortcut);
+			const key = document.createElement("kbd");
+			key.className = "gd-menu-kbd";
+			key.setAttribute("aria-hidden", "true");
+			key.textContent = action.shortcut;
+			item.append(key);
+		}
+		// Nothing to act on (no design system board): announced as unavailable, choosing it does nothing.
+		if (action.disabled) item.setAttribute("aria-disabled", "true");
 		if (action.off) {
 			// Like the disabled Implement this: a short visible line, the full way out in its tooltip and for screen readers.
 			item.setAttribute("aria-disabled", "true");
@@ -2551,24 +2582,31 @@
 		return item;
 	}
 
-	/** Puts `menu` (the artboard menu or the language menu) under `button`, inside the window. */
-	function placeMenu(button, menu) {
+	/**
+	 * Puts `menu` (an action menu or the language menu) under `button`, inside the window; `beside` puts it right of
+	 * the button instead (the rail's More, at the bottom left), bottom-aligned with it when there is no room below.
+	 */
+	function placeMenu(button, menu, beside = false) {
 		const rect = button.getBoundingClientRect();
 		// A fixed box without a width shrinks to the room right of its left edge: measure it where nothing narrows it.
 		menu.style.left = "0px";
 		const width = menu.offsetWidth;
 		const height = menu.offsetHeight;
-		const left = Math.max(0, Math.min(rect.left, window.innerWidth - width - 12));
-		let top = rect.bottom + 4;
-		if (top + height > window.innerHeight - 12) top = Math.max(0, rect.top - height - 4);
+		const left = Math.max(0, Math.min(beside ? rect.left + rect.width + 8 : rect.left, window.innerWidth - width - 12));
+		let top = beside ? rect.top : rect.bottom + 4;
+		if (top + height > window.innerHeight - 12) top = Math.max(0, beside ? rect.top + rect.height - height : rect.top - height - 4);
 		menu.style.left = `${left}px`;
 		menu.style.top = `${top}px`;
 	}
 
 	function openMenu(board, button, last) {
+		showMenu(button, menuActions(board), t("menu.aria", { title: board.artboard.title }), last);
+	}
+
+	/** Builds the shared menu (#gd-menu) from `actions` under `button`, named `label`, with focus on its first (or `last`) item. */
+	function showMenu(button, actions, label, last, beside = false) {
 		closeMenu(false);
 		closeLangMenu(false);
-		const actions = menuActions(board);
 		const nodes = [];
 		const items = [];
 		const byItem = new Map();
@@ -2585,12 +2623,12 @@
 			items.push(item);
 			nodes.push(item);
 		}
-		els.menu.setAttribute("aria-label", t("menu.aria", { title: board.artboard.title }));
+		els.menu.setAttribute("aria-label", label);
 		els.menu.replaceChildren(...nodes);
 		els.menu.hidden = false;
 		button.setAttribute("aria-expanded", "true");
-		state.menu = { board, button, items, byItem };
-		placeMenu(button, els.menu);
+		state.menu = { button, items, byItem };
+		placeMenu(button, els.menu, beside);
 		(last ? items[items.length - 1] : items[0]).focus();
 	}
 
@@ -2609,22 +2647,26 @@
 	function chooseMenuItem(item) {
 		const open = state.menu;
 		const action = open && open.byItem.get(item);
-		if (!action || action.off) return;
+		if (!action || action.off || action.disabled) return;
 		// Back on the button first: the action then moves focus where it needs it (the dialog, the confirm step).
 		closeMenu(true);
 		action.run(open.button);
 	}
 
 	function wireMenuButton(board) {
-		const button = board.menuButton;
+		wireMenu(board.menuButton, (last) => openMenu(board, board.menuButton, last));
+	}
+
+	/** A button that opens the shared menu: a click toggles it, the arrows open it on the first or the last item, Escape closes it. */
+	function wireMenu(button, open) {
 		button.addEventListener("click", () => {
 			if (state.menu && state.menu.button === button) closeMenu(true);
-			else openMenu(board, button, false);
+			else open(false);
 		});
 		button.addEventListener("keydown", (event) => {
 			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 				event.preventDefault();
-				openMenu(board, button, event.key === "ArrowUp");
+				open(event.key === "ArrowUp");
 			} else if (event.key === "Escape" && state.menu && state.menu.button === button) {
 				event.preventDefault();
 				event.stopPropagation();
@@ -2782,6 +2824,7 @@
 		refreshLoc();
 		if (state.systemBoard) Object.assign(state.systemBoard.artboard, { title: t("system.title"), tradeoff: t("system.tradeoff") });
 		renderNavMode();
+		renderConnection();
 		renderComments();
 		renderHandoffs();
 		renderBrief();
@@ -3089,6 +3132,7 @@
 	/** Everything outside the artboards that follows handoffs, boards and comments: navigator, Compare with app, timeline. */
 	function renderHandoffViews() {
 		renderMinimap();
+		renderSteps();
 		renderWork();
 		renderCompareApp();
 		renderTimeline();
@@ -3131,8 +3175,8 @@
 	}
 
 	/**
-	 * The top-bar status of the chosen direction: what is being built, its state since when, the agent's last note,
-	 * and Show to open it in focus mode. Implemented leaves comparing to the bar's Compare with app.
+	 * The top-bar status of the chosen direction, step 4's detail: what is being built, its state since when, the agent's
+	 * last note, and Show to open it in focus mode. Implemented leaves comparing to the bar's Compare with app.
 	 */
 	function renderWork() {
 		const board = chosenBoard();
@@ -3147,8 +3191,6 @@
 		const dot = chip("gd-work-dot", "");
 		dot.setAttribute("aria-hidden", "true");
 		dot.dataset.status = kind ?? "chosen";
-		const leadKey = !kind ? "choice.chosen" : kind === "implemented" ? "handoff.implemented" : "work.implementing";
-		const lead = chip("gd-work-lead", t(leadKey));
 		const title = chip("gd-work-title", t("work.title", { title: board.artboard.title }));
 		let stateText;
 		if (!kind) stateText = t("work.notSent");
@@ -3159,7 +3201,8 @@
 			const time = clockOrDate(kind === "in_progress" ? entry.startedAt ?? entry.sentAt : entry.sentAt);
 			stateText = time ? t("work.since", { state: t(`handoff.${kind}`), time }) : t(`handoff.${kind}`);
 		}
-		const parts = [dot, lead, title];
+		// Step 4 of the breadcrumb already says Implement, current or done: the status starts at the title.
+		const parts = [dot, title];
 		if (stateText) parts.push(chip("gd-work-state", stateText));
 		if (kind && typeof entry.note === "string" && entry.note) {
 			const note = chip("gd-work-note", entry.note);
@@ -3175,6 +3218,87 @@
 		parts.push(show);
 		els.work.replaceChildren(...parts);
 		if (hadFocus) show.focus();
+	}
+
+	// ---- step breadcrumb (canvas-progressive S2) -----------------------------------------
+	// 1 Compare · 2 Review · 3 Choose · 4 Implement after the design selector: where the review stands and what comes next.
+	// Compare goes to the overview and Review opens the chosen direction (or the first); Choose and Implement are not
+	// actions of their own. The top-bar status (#gd-work) right after it is step 4's detail.
+
+	const STEP_KEYS = ["steps.compare", "steps.review", "steps.choose", "steps.implement"];
+	let stepParts = null;
+
+	function createSteps() {
+		stepParts = STEP_KEYS.map((key, index) => {
+			const item = document.createElement("li");
+			item.className = "gd-steps-item";
+			const link = document.createElement(index < 2 ? "button" : "span");
+			link.className = "gd-steps-link";
+			if (index < 2) link.type = "button";
+			const label = chip("gd-steps-label", "");
+			// Never color alone: the state is also in words for assistive technology.
+			const words = chip("gd-visually-hidden gd-steps-state", "");
+			link.append(chip("gd-steps-num", String(index + 1)), label, words);
+			item.append(link);
+			return { item, link, label, words };
+		});
+		stepParts[0].link.addEventListener("click", () => {
+			exitCompare(false);
+			if (state.focus) exitFocus();
+			else fit();
+		});
+		stepParts[1].link.addEventListener("click", () => {
+			const board = chosenBoard() ?? state.boards[0];
+			if (!board) return;
+			exitCompare(false);
+			enterFocus(board);
+		});
+		els.stepsList.replaceChildren(...stepParts.map((part) => part.item));
+	}
+
+	/** The index of the current step: a handoff is at 4 (all done once implemented), focus on a direction at 2, else 1. */
+	function currentStep() {
+		const board = chosenBoard();
+		if (board) {
+			const entry = handoffOf(board).entry;
+			return entry && handoffKind(entry) === "implemented" ? STEP_KEYS.length : 3;
+		}
+		return state.focus && !state.focus.system ? 1 : 0;
+	}
+
+	function renderSteps() {
+		if (!stepParts) createSteps();
+		const at = currentStep();
+		stepParts.forEach(({ item, link, label, words }, index) => {
+			const status = index < at ? "done" : index === at ? "current" : "pending";
+			item.dataset.state = status;
+			if (status === "current") link.setAttribute("aria-current", "step");
+			else link.removeAttribute("aria-current");
+			label.textContent = t(STEP_KEYS[index]);
+			words.textContent = ` ${t(status === "done" ? "timeline.done" : status === "current" ? "timeline.current" : "timeline.pending")}`;
+		});
+		stepParts[1].link.disabled = state.boards.length === 0;
+	}
+
+	// ---- connection (canvas-progressive S3) ----------------------------------------------
+	// Connected while every delivery the page config names exists; otherwise Not connected in the warning style, with the
+	// way out (the S15 wording) in its tooltip and, for screen readers, in a visually hidden sentence.
+
+	let connectionParts = null;
+
+	function renderConnection() {
+		if (!connectionParts) {
+			const dot = chip("gd-connection-dot", "");
+			dot.setAttribute("aria-hidden", "true");
+			connectionParts = { label: chip("gd-connection-label", ""), hidden: chip("gd-visually-hidden", "") };
+			els.connection.replaceChildren(dot, connectionParts.label, connectionParts.hidden);
+		}
+		const online = Object.values(DELIVERY).every(Boolean);
+		els.connection.dataset.state = online ? "on" : "off";
+		connectionParts.label.textContent = t(online ? "connection.on" : "connection.off");
+		const sentence = online ? t("connection.onTitle") : t("connection.offTitle", { slug: state.slug ?? "<slug>" });
+		els.connection.title = sentence;
+		connectionParts.hidden.textContent = online ? "" : ` ${sentence}`;
 	}
 
 	/** Chosen, Sent to the session, In progress, Implemented: done, current or pending, with timestamps. */
@@ -3525,7 +3649,7 @@
 		els.viewport.inert = true;
 		els.panel.inert = true;
 		els.nav.inert = true;
-		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit, els.railSystem, els.design, els.compareApp]) control.disabled = true;
+		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit, els.design, els.compareApp]) control.disabled = true;
 		setCompareView(state.compareMode);
 		els.compareBack.focus();
 	}
@@ -3606,6 +3730,7 @@
 		}
 		if (slug !== state.slug) return;
 		closePopover();
+		renderConnection();
 		// A manifest change is the new artboard arriving (or any other edit): the placeholder has done its job.
 		state.placeholder = null;
 		state.manifest = manifest;
@@ -5635,7 +5760,16 @@
 	}
 
 	els.navToggle.addEventListener("click", () => setNav(els.nav.hidden));
-	els.railSystem.addEventListener("click", () => { if (state.systemBoard) enterFocus(state.systemBoard); });
+
+	/** What the rail's More offers: the design system board (when there is one, and not over Compare) and the keyboard shortcuts. */
+	function moreActions() {
+		return [
+			{ label: "rail.system", icon: "i-palette", disabled: !state.systemBoard || Boolean(state.compare), run: () => enterFocus(state.systemBoard) },
+			{ label: "rail.keys", icon: "i-keys", shortcut: "?", run: openShortcuts },
+		];
+	}
+
+	wireMenu(els.railMore, (last) => showMenu(els.railMore, moreActions(), t("rail.more"), last, true));
 
 	function openShortcuts() {
 		if (typeof els.shortcuts.showModal === "function") els.shortcuts.showModal();
@@ -5645,10 +5779,9 @@
 	function closeShortcuts() {
 		if (typeof els.shortcuts.close === "function") els.shortcuts.close();
 		else els.shortcuts.removeAttribute("open");
-		els.shortcutsOpen.focus();
+		els.railMore.focus();
 	}
 
-	els.shortcutsOpen.addEventListener("click", openShortcuts);
 	els.shortcutsClose.addEventListener("click", closeShortcuts);
 
 	function readRects(data) {

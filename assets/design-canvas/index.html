@@ -11,7 +11,7 @@
 </head>
 <body>
 	<svg class="gd-sprite" width="0" height="0" aria-hidden="true" focusable="false">
-		<symbol id="i-pointer" viewBox="0 0 24 24"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></symbol>
+		<symbol id="i-hand" viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0M14 10V4a2 2 0 0 0-4 0v2M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-6-2.4l-3.6-3.6a2 2 0 0 1 2.8-2.8L7 15"/></symbol>
 		<symbol id="i-comment" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
 		<symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
 		<symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
@@ -21,7 +21,6 @@
 		<symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></symbol>
 		<symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
 		<symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></symbol>
-		<symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
 		<symbol id="i-keys" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
 		<symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></symbol>
 		<symbol id="i-tablet" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M11 18h2"/></symbol>
@@ -39,13 +38,12 @@
 	</svg>
 	<nav class="gd-rail" aria-label="Tools" data-i18n-aria-label="rail.label">
 		<span class="gd-mark" aria-hidden="true"><svg class="gd-i gd-rose"><use href="#i-rose"/></svg></span>
-		<button type="button" id="gd-tool-navigate" class="gd-tool" aria-pressed="true" aria-label="Navigate" aria-keyshortcuts="V" title="Navigate (V)" data-i18n-aria-label="rail.navigate" data-i18n-title="rail.navigate.title"><svg class="gd-i"><use href="#i-pointer"/></svg></button>
-		<button type="button" id="gd-comment" class="gd-tool" aria-pressed="false" aria-label="Comment" aria-keyshortcuts="C" title="Comment (C)" data-i18n-aria-label="rail.comment" data-i18n-title="rail.comment.title"><svg class="gd-i"><use href="#i-comment"/></svg></button>
+		<button type="button" id="gd-tool-navigate" class="gd-tool" aria-pressed="true" aria-keyshortcuts="V" title="Move around the canvas (V)" data-i18n-title="rail.navigate.title"><svg class="gd-i" aria-hidden="true"><use href="#i-hand"/></svg><span class="gd-tool-label" data-i18n="rail.navigate">Move</span></button>
+		<button type="button" id="gd-comment" class="gd-tool" aria-pressed="false" aria-keyshortcuts="C" title="Comment on an element (C)" data-i18n-title="rail.comment.title"><svg class="gd-i" aria-hidden="true"><use href="#i-comment"/></svg><span class="gd-tool-label" data-i18n="rail.comment">Comment</span></button>
 		<span class="gd-sep" aria-hidden="true"></span>
-		<button type="button" id="gd-rail-fit" class="gd-tool" aria-label="Overview: fit all directions" aria-keyshortcuts="F" title="Overview: fit all (F)" data-i18n-aria-label="rail.overview" data-i18n-title="rail.overview.title"><svg class="gd-i"><use href="#i-grid"/></svg></button>
-		<button type="button" id="gd-nav-toggle" class="gd-tool" aria-pressed="true" aria-controls="gd-nav" aria-label="Direction list" aria-keyshortcuts="[" title="Direction list ([)" data-i18n-aria-label="rail.list" data-i18n-title="rail.list.title"><svg class="gd-i"><use href="#i-layers"/></svg></button>
-		<button type="button" id="gd-rail-system" class="gd-tool" aria-label="Design system board" title="Design system board" data-i18n-aria-label="rail.system" data-i18n-title="rail.system" disabled><svg class="gd-i"><use href="#i-palette"/></svg></button>
-		<button type="button" id="gd-shortcuts-open" class="gd-tool gd-bottom" aria-haspopup="dialog" aria-label="Keyboard shortcuts" aria-keyshortcuts="?" title="Keyboard shortcuts (?)" data-i18n-aria-label="rail.keys" data-i18n-title="rail.keys.title"><svg class="gd-i"><use href="#i-keys"/></svg></button>
+		<button type="button" id="gd-rail-fit" class="gd-tool" aria-keyshortcuts="F" title="See all the directions (F)" data-i18n-title="rail.overview.title"><svg class="gd-i" aria-hidden="true"><use href="#i-fit"/></svg><span class="gd-tool-label" data-i18n="rail.overview">Overview</span></button>
+		<button type="button" id="gd-nav-toggle" class="gd-tool" aria-pressed="true" aria-controls="gd-nav" aria-keyshortcuts="[" title="Direction list ([)" data-i18n-title="rail.list.title"><svg class="gd-i" aria-hidden="true"><use href="#i-layers"/></svg><span class="gd-tool-label" data-i18n="rail.list">List</span></button>
+		<button type="button" id="gd-rail-more" class="gd-tool gd-bottom" aria-haspopup="menu" aria-expanded="false" aria-controls="gd-menu" title="More: design system and keyboard shortcuts" data-i18n-title="rail.more.title"><svg class="gd-i" aria-hidden="true"><use href="#i-more"/></svg><span class="gd-tool-label" data-i18n="rail.more">More</span></button>
 	</nav>
 	<header class="gd-bar" role="toolbar" aria-label="Design canvas controls" data-i18n-aria-label="bar.label">
 		<div class="gd-crumbs">
@@ -58,6 +56,7 @@
 			<span id="gd-feature-sep" class="gd-crumb-sep" aria-hidden="true" hidden>/</span>
 			<code id="gd-feature" class="gd-feature" title="Feature document" data-i18n-title="bar.feature" hidden></code>
 		</div>
+		<nav id="gd-steps" class="gd-steps" aria-label="Steps" data-i18n-aria-label="steps.label"><ol id="gd-steps-list" class="gd-steps-list"></ol></nav>
 		<div id="gd-work" class="gd-work" role="status" aria-live="polite" hidden></div>
 		<span class="gd-spacer"></span>
 		<button type="button" id="gd-technical" class="gd-technical" aria-pressed="false" title="Selectors and the token inspector" data-i18n-title="technical.title"><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-code"/></svg><span data-i18n="technical.label">Technical details</span></button>
@@ -68,6 +67,7 @@
 			<button type="button" id="gd-zoom-in" aria-label="Zoom in" title="Zoom in (+)" data-i18n-aria-label="zoom.in" data-i18n-title="zoom.in.title"><svg class="gd-i"><use href="#i-plus"/></svg></button>
 			<button type="button" id="gd-fit" aria-label="Fit all" title="Fit all (0)" data-i18n-aria-label="zoom.fit" data-i18n-title="zoom.fit.title"><svg class="gd-i"><use href="#i-fit"/></svg></button>
 		</div>
+		<p id="gd-connection" class="gd-connection"></p>
 		<button type="button" id="gd-compare-app" class="gd-secondary" hidden><svg class="gd-i"><use href="#i-compare"/></svg><span data-i18n="bar.compareApp">Compare with app</span></button>
 		<button type="button" id="gd-panel-toggle" class="gd-toggle" aria-pressed="true" aria-controls="gd-panel" aria-keyshortcuts="]" title="Review panel (])" data-i18n="tab.comments" data-i18n-title="panel.toggleTitle">Comments</button>
 		<p id="gd-status" class="gd-status" role="status" aria-live="polite"></p>
@@ -98,7 +98,7 @@
 				<h2 id="gd-minimap-title" class="gd-minimap-title"><span data-i18n="minimap.title">Minimap</span><kbd aria-hidden="true">M</kbd></h2>
 				<div id="gd-minimap-map" class="gd-minimap-map" role="img" aria-label="Position of the visible area among the directions. Click or drag to move the view; use the direction list with the keyboard." data-i18n-aria-label="minimap.aria"><b id="gd-minimap-view" class="gd-minimap-view"></b></div>
 			</section>
-			<p id="gd-nav-mode" class="gd-nav-mode" role="status" aria-live="polite" data-i18n="mode.navigating">Navigating</p>
+			<p id="gd-nav-mode" class="gd-nav-mode" role="status" aria-live="polite" data-i18n="mode.navigating">Moving around the canvas · wheel to zoom</p>
 			<section id="gd-inspector" class="gd-inspector" aria-labelledby="gd-inspector-title" hidden>
 				<header class="gd-inspector-head">
 					<svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-target"/></svg>
@@ -237,7 +237,7 @@
 	<dialog id="gd-shortcuts" class="gd-dialog" aria-labelledby="gd-shortcuts-title">
 		<h2 id="gd-shortcuts-title" class="gd-dialog-title" data-i18n="rail.keys">Keyboard shortcuts</h2>
 		<dl class="gd-keys">
-			<dt><kbd>V</kbd></dt><dd data-i18n="keys.navigate">Navigate</dd>
+			<dt><kbd>V</kbd></dt><dd data-i18n="keys.navigate">Move around the canvas</dd>
 			<dt><kbd>C</kbd></dt><dd data-i18n="keys.comment">Comment on an element</dd>
 			<dt><kbd>F</kbd> <span data-i18n="keys.or">or</span> <kbd>0</kbd></dt><dd data-i18n="keys.fit">Fit all directions</dd>
 			<dt><kbd>+</kbd> <kbd>-</kbd></dt><dd data-i18n="keys.zoom">Zoom in and out</dd>
