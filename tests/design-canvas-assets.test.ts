@@ -7066,7 +7066,7 @@ test("canvas-mix S1: the comment popover's Add to the mix keeps the artboard, se
 	addToMix(canvas, 0, { selector: "body > header", excerpt: "Acme" }, "  me gusta la cabecera  ");
 	assert.deepEqual(pickFields(storedPicks(canvas)), [{ file: "01-a.html", selector: "body > header", excerpt: "Acme", note: "me gusta la cabecera", used: false }]);
 	assert.equal(canvas.posts.length, 0, "a pick is not sent to the server");
-	assert.equal(canvas.document.getElementById("gd-popover-message").textContent, "Added to the mix");
+	assert.equal(canvas.document.getElementById("gd-popover-message").textContent, "Added to the mix (1)");
 	assert.equal(canvas.document.getElementById("gd-popover-text").value, "", "the field is cleared");
 	assert.equal(mixEl(canvas, "gd-count-mix").textContent, "1");
 	// The note is optional; an element of another artboard joins the same mix.
@@ -7184,7 +7184,7 @@ test("canvas-mix S2: a malformed store is ignored, and storage that throws keeps
 	const canvas = await loadMix({ broken: true });
 	addToMix(canvas, 0, { selector: "header" });
 	assert.equal(mixEl(canvas, "gd-count-mix").textContent, "1", "the canvas keeps working");
-	assert.equal(canvas.document.getElementById("gd-popover-message").textContent, "Added to the mix");
+	assert.equal(canvas.document.getElementById("gd-popover-message").textContent, "Added to the mix (1)");
 });
 
 test("canvas-mix S3: Structure from lists every artboard, defaults to the one with most picks (the first on a tie), and keeps a choice", async () => {
@@ -7277,7 +7277,8 @@ test("canvas-mix S4: Create is disabled with a reason without picks or without m
 test("canvas-mix S6: the mix speaks Spanish with tú forms, and a switch leaves nothing of the old language in the tab", async () => {
 	const canvas = await loadMix({ browser: "es-ES", hydrate: true });
 	addToMix(canvas, 0, { selector: "header" }, "la cabecera");
-	assert.equal(canvas.document.getElementById("gd-popover-message").textContent, "Añadido a la mezcla");
+	assert.equal(canvas.document.getElementById("gd-popover-message").textContent, "Añadido a la mezcla (1)");
+	assert.equal(canvas.document.getElementById("gd-popover-show-mix").textContent, "Ver mezcla");
 	// Like a sent comment's line, it is news that closes with the popover.
 	canvas.document.getElementById("gd-popover-cancel").dispatch("click");
 	openMixTab(canvas);
@@ -7335,4 +7336,135 @@ test("canvas-mix S6: the docs and the README describe Mix", () => {
 	const readme = readFileSync(fileURLToPath(new URL("../README.md", import.meta.url)), "utf8");
 	const row = readme.split("\n").find((line) => line.startsWith("| Gentle Design |"))!;
 	assert.match(row, /Mix/);
+});
+
+// ---- canvas-mix discoverability: the first pick shows the Mix tab, the popover links to it, the placeholder says what it is ----
+
+const panelShown = (canvas: MixCanvas) => !canvas.document.getElementById("gd-panel").hidden;
+const selectedTab = (canvas: MixCanvas) => ["gd-filter-open", "gd-filter-resolved", "gd-tab-history", "gd-tab-checks", "gd-tab-mix", "gd-tab-brief"].filter((id) => canvas.document.getElementById(id).getAttribute("aria-selected") === "true");
+
+test("canvas-mix discoverability: the first pick opens the review panel on the Mix tab; a refused pick and later picks leave the tab alone", async () => {
+	const canvas = await loadMix();
+	canvas.document.getElementById("gd-panel-toggle").dispatch("click");
+	assert.equal(panelShown(canvas), false, "the panel starts hidden here");
+	// Refused: nothing joins the mix, so nothing moves.
+	addToMix(canvas, 0, { selector: "#cta" }, "x".repeat(2001));
+	assert.equal(panelShown(canvas), false);
+	assert.deepEqual(selectedTab(canvas), ["gd-filter-open"]);
+
+	addToMix(canvas, 0, { selector: "body > header" });
+	assert.equal(panelShown(canvas), true, "the first pick opens the panel");
+	assert.equal(canvas.document.getElementById("gd-panel-toggle").getAttribute("aria-pressed"), "true");
+	assert.deepEqual(selectedTab(canvas), ["gd-tab-mix"]);
+	assert.equal(mixEl(canvas, "gd-mix").hidden, false);
+	assert.equal(mixItems(canvas).length, 1);
+	assert.notEqual(canvas.document.activeElement, mixEl(canvas, "gd-tab-mix"), "keyboard focus stays where it was");
+
+	// The person moves on: a later pick does not take the tab back, nor reopen the panel.
+	canvas.document.getElementById("gd-filter-open").dispatch("click");
+	addToMix(canvas, 1, { selector: ".chart" });
+	assert.deepEqual(selectedTab(canvas), ["gd-filter-open"]);
+	canvas.document.getElementById("gd-panel-toggle").dispatch("click");
+	addToMix(canvas, 1, { selector: "aside" });
+	assert.equal(panelShown(canvas), false);
+	assert.equal(mixEl(canvas, "gd-count-mix").textContent, "3");
+});
+
+test("canvas-mix discoverability: after Add to the mix the popover says Added to the mix (N) with a Show mix button that opens the Mix tab and closes the popover", async () => {
+	const canvas = await loadMix();
+	const message = canvas.document.getElementById("gd-popover-message");
+	const show = canvas.document.getElementById("gd-popover-show-mix");
+	addToMix(canvas, 0, { selector: "body > header" });
+	assert.equal(message.textContent, "Added to the mix (1)");
+	assert.equal(show.hidden, false, "Show mix sits beside the message");
+	assert.equal(show.textContent, "Show mix");
+	assert.equal(canvas.document.getElementById("gd-popover").hidden, false, "the popover stays open so the button can be reached");
+	addToMix(canvas, 1, { selector: ".chart" });
+	assert.equal(message.textContent, "Added to the mix (2)");
+	addToMix(canvas, 1, { selector: ".chart" }, "only the colors");
+	assert.equal(message.textContent, "Added to the mix (2)", "updating a pick's note keeps the count");
+
+	// A new pick, or a refusal, takes the button away with the message.
+	canvas.message(canvas.boards[0].frame.contentWindow, { type: "gd:pick", selector: "nav", excerpt: "", rect: { x: 10, y: 20, width: 30, height: 40 } });
+	assert.equal(message.textContent, "");
+	assert.equal(show.hidden, true);
+	addToMix(canvas, 0, { selector: "nav" }, "x".repeat(2001));
+	assert.equal(show.hidden, true);
+	assert.equal(message.textContent, "Write a note of at most 2000 characters.");
+
+	// From another tab with the panel hidden, Show mix brings the Mix tab and closes the popover.
+	addToMix(canvas, 0, { selector: "nav" });
+	assert.equal(message.textContent, "Added to the mix (3)");
+	canvas.document.getElementById("gd-filter-open").dispatch("click");
+	canvas.document.getElementById("gd-panel-toggle").dispatch("click");
+	show.dispatch("click");
+	assert.equal(panelShown(canvas), true);
+	assert.deepEqual(selectedTab(canvas), ["gd-tab-mix"]);
+	assert.equal(canvas.document.getElementById("gd-popover").hidden, true);
+	assert.equal(canvas.document.activeElement, mixEl(canvas, "gd-tab-mix"), "keyboard focus lands on the Mix tab");
+	assert.equal(storedPicks(canvas).length, 3, "showing the mix changes nothing in it");
+
+	const { en, es } = loadCatalog();
+	assert.equal(en["mix.added"], "Added to the mix ({count})");
+	assert.equal(es["mix.added"], "Añadido a la mezcla ({count})");
+	assert.equal(en["mix.show"], "Show mix");
+	assert.equal(es["mix.show"], "Ver mezcla");
+	const html = read("index.html");
+	const actions = html.slice(html.indexOf('class="gd-popover-actions"'), html.indexOf("</form>", html.indexOf('class="gd-popover-actions"')));
+	assert.match(actions, /<span id="gd-popover-message"[^>]*><\/span>\s*<button type="button" id="gd-popover-show-mix" class="gd-popover-show-mix" data-i18n="mix.show" hidden>Show mix<\/button>/, "right after the message");
+});
+
+test("canvas-mix discoverability: a mix placeholder is a Combined direction, and every placeholder says inside its frame what is being designed", async () => {
+	const canvas = await loadMix({ replies: { [VARIANT_URL]: { ok: true, slug: "alpha", file: "01-a.html", queued: false } } });
+	addToMix(canvas, 0, { selector: "body > header" });
+	openMixTab(canvas);
+	mixEl(canvas, "gd-mix-create").dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	let [placeholder] = withClass(canvas.world, "gd-placeholder");
+	assert.equal(placeholder.getAttribute("aria-label"), "03 · Combined direction");
+	assert.deepEqual(texts(placeholder, "gd-artboard-title"), ["Combined direction"]);
+	assert.deepEqual(texts(placeholder, "gd-placeholder-state"), ["Designing…"], "the head keeps its status");
+	const frame = withClass(placeholder, "gd-placeholder-frame")[0];
+	assert.deepEqual(texts(frame, "gd-placeholder-status"), ["Designing the combined direction…"]);
+	assert.equal(frame.getAttribute("aria-hidden"), "true", "the head's status is the one announced");
+
+	// Another direction keeps its own title and says so in its frame.
+	await openVariant(canvas as unknown as Canvas, 0);
+	variantField(canvas as unknown as Canvas).value = "Calmer";
+	await submitVariant(canvas as unknown as Canvas);
+	[placeholder] = withClass(canvas.world, "gd-placeholder");
+	assert.equal(withClass(canvas.world, "gd-placeholder").length, 1);
+	assert.equal(placeholder.getAttribute("aria-label"), "03 · New direction");
+	assert.deepEqual(texts(placeholder, "gd-artboard-title"), ["New direction"]);
+	assert.deepEqual(texts(placeholder, "gd-placeholder-status"), ["Designing the new direction…"]);
+
+	const { en, es } = loadCatalog();
+	assert.equal(es["placeholder.mixTitle"], "Propuesta combinada");
+	assert.equal(es["placeholder.mixAria"], "{number} · Propuesta combinada");
+	assert.equal(es["placeholder.mixStatus"], "Diseñando la propuesta combinada…");
+	assert.equal(es["placeholder.status"], "Diseñando la nueva dirección…");
+	assert.equal(en["placeholder.mixTitle"], "Combined direction");
+
+	// Centered over the frame and kept at screen size at any zoom; it pulses only without reduced motion.
+	const css = read("canvas.css");
+	const start = css.indexOf(".gd-placeholder-status {");
+	assert.ok(start >= 0, ".gd-placeholder-status is styled");
+	const block = css.slice(start, css.indexOf("}", start) + 1);
+	assert.match(block, /position:\s*absolute/);
+	assert.match(block, /translate\(-50%,\s*-50%\)\s*scale\(var\(--gd-inv-zoom, 1\)\)/);
+	assert.match(block, /max-width:\s*calc\(\d+%\s*\/\s*var\(--gd-inv-zoom, 1\)\)/);
+	assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(block), "tokens only");
+	assert.ok(!/transition|animation/.test(block), "no motion outside the media query");
+	assert.match(css, /\.gd-placeholder-frame\s*{[^}]*position:\s*relative/);
+	const motion = css.slice(css.indexOf("@media (prefers-reduced-motion: no-preference) {"));
+	assert.match(motion.slice(0, motion.indexOf("\n}")), /\.gd-placeholder-status\s*{\s*animation:/);
+});
+
+test("canvas-mix discoverability: the docs describe the count, Show mix, the first pick's tab and the placeholders' titles and status", () => {
+	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
+	const mix = docs.split("\n").find((line) => line.startsWith("- Mix:"))!;
+	for (const part of ["**Added to the mix (N)**", "**Show mix**", "first pick", "**<NN> · Combined direction**", "**Designing the combined direction…**"]) assert.ok(mix.includes(part), `the Mix bullet mentions ${part}`);
+	const variant = docs.split("\n").find((line) => line.includes("**Try another direction from this…** opens"))!;
+	assert.ok(variant.includes("**Designing the new direction…**"), "the another-direction placeholder sentence mentions its status");
+	assert.match(variant, /reduced motion/);
 });

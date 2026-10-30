@@ -1690,18 +1690,53 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .gd-popover-actions {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	justify-content: flex-end;
 	gap: 8px;
 	margin-top: 8px;
 }
 
+.gd-popover-actions > button { flex: none; white-space: nowrap; }
+
+/* The message and Show mix take their own row above the buttons, so neither squeezes them. */
+.gd-popover-feedback {
+	display: flex;
+	flex: 1 1 100%;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 4px;
+}
+
+.gd-popover-feedback:has(> .gd-popover-message:empty):has(> .gd-popover-show-mix[hidden]) { display: none; }
+
 .gd-popover-message {
-	margin-right: auto;
 	color: var(--text-muted);
 }
 
 .gd-popover-message.gd-error, .gd-status.gd-error { color: var(--error); }
+
+/* "Added to the mix (N) · Show mix": a link-like button that follows the message. */
+.gd-popover-show-mix {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--accent);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.gd-popover-show-mix::before {
+	content: "· ";
+	content: "· " / "";
+	color: var(--text-muted);
+	display: inline-block;
+	margin-right: 4px;
+	text-decoration: none;
+}
+
+.gd-popover-show-mix:hover { color: var(--accent-strong); }
+.gd-popover-show-mix:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Compare (S15): the artboard and the running app side by side, over the canvas and the panel. */
 .gd-compare {
@@ -2173,6 +2208,7 @@ kbd {
 .gd-placeholder .gd-artboard-label { padding-bottom: 4px; }
 
 .gd-placeholder-frame {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	justify-content: center;
@@ -2185,6 +2221,25 @@ kbd {
 }
 
 .gd-placeholder-frame i { display: block; height: 14px; border-radius: 4px; background: var(--surface-2); }
+
+/* What is being designed, centered over the frame and kept at screen size like the pins, wrapped within the frame's on-screen width. */
+.gd-placeholder-status {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: max-content;
+	max-width: calc(90% / var(--gd-inv-zoom, 1));
+	padding: 6px 14px;
+	border: 1px solid var(--info-line);
+	border-radius: var(--radius-pill);
+	background: var(--surface);
+	box-shadow: var(--shadow-frame);
+	color: var(--info);
+	font-size: 14px;
+	font-weight: 600;
+	text-align: center;
+	transform: translate(-50%, -50%) scale(var(--gd-inv-zoom, 1));
+}
 
 .gd-placeholder-state {
 	display: inline-flex;
@@ -2206,12 +2261,19 @@ kbd {
 	.gd-handoff-badge[data-status="sent"]::before, .gd-handoff-badge[data-status="in_progress"]::before { animation: gd-pulse 1.6s var(--ease) infinite; }
 	.gd-work-dot[data-status="sent"], .gd-work-dot[data-status="in_progress"] { animation: gd-pulse 1.6s var(--ease) infinite; }
 	.gd-check-mark { animation: gd-mark-pulse 0.9s var(--ease) 2; }
+	.gd-placeholder-status { animation: gd-breathe 2s var(--ease) infinite; }
 }
 
 /* Show's ring draws the eye twice, then rests on its halo. */
 @keyframes gd-mark-pulse {
 	0%, 100% { box-shadow: 0 0 0 calc(4px * var(--gd-inv-zoom, 1)) var(--gd-mark-halo); }
 	50% { box-shadow: 0 0 0 calc(12px * var(--gd-inv-zoom, 1)) var(--gd-mark-halo); }
+}
+
+/* A placeholder's status breathes gently while the agent designs. */
+@keyframes gd-breathe {
+	0%, 100% { opacity: 1; }
+	50% { opacity: .6; }
 }
 
 /* The pulse of the dot that says work is under way. */

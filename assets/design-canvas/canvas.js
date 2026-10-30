@@ -272,7 +272,8 @@
 			"variant.mobile": "Mobile first",
 			"variant.calmer": "Calmer colors",
 			"mix.add": "Add to the mix",
-			"mix.added": "Added to the mix",
+			"mix.added": "Added to the mix ({count})",
+			"mix.show": "Show mix",
 			"mix.full": "The mix holds up to {max} picks. Remove one first.",
 			"mix.noteTooLong": "Write a note of at most {max} characters.",
 			"mix.empty": "Nothing in the mix yet. In Comment mode, click an element and choose Add to the mix: a container brings its whole section, an element only itself.",
@@ -290,6 +291,10 @@
 			"placeholder.title": "New direction",
 			"placeholder.aria": "{number} · New direction",
 			"placeholder.state": "Designing…",
+			"placeholder.status": "Designing the new direction…",
+			"placeholder.mixTitle": "Combined direction",
+			"placeholder.mixAria": "{number} · Combined direction",
+			"placeholder.mixStatus": "Designing the combined direction…",
 			"handoff.queued": "Queued",
 			"handoff.sent": "Implementing…",
 			"handoff.in_progress": "In progress",
@@ -683,7 +688,8 @@
 			"variant.mobile": "Primero móvil",
 			"variant.calmer": "Colores más calmados",
 			"mix.add": "Añadir a la mezcla",
-			"mix.added": "Añadido a la mezcla",
+			"mix.added": "Añadido a la mezcla ({count})",
+			"mix.show": "Ver mezcla",
 			"mix.full": "La mezcla admite hasta {max} selecciones. Quita una primero.",
 			"mix.noteTooLong": "Escribe una nota de {max} caracteres como máximo.",
 			"mix.empty": "Aún no hay nada en la mezcla. En el modo Comentar, haz clic en un elemento y elige Añadir a la mezcla: un contenedor aporta su sección entera; un elemento, solo a sí mismo.",
@@ -701,6 +707,10 @@
 			"placeholder.title": "Nueva dirección",
 			"placeholder.aria": "{number} · Nueva dirección",
 			"placeholder.state": "Diseñando…",
+			"placeholder.status": "Diseñando la nueva dirección…",
+			"placeholder.mixTitle": "Propuesta combinada",
+			"placeholder.mixAria": "{number} · Propuesta combinada",
+			"placeholder.mixStatus": "Diseñando la propuesta combinada…",
 			"handoff.queued": "En cola",
 			"handoff.sent": "Implementando…",
 			"handoff.in_progress": "En curso",
@@ -1057,6 +1067,7 @@
 		mixNote: $("gd-mix-note"),
 		mixClear: $("gd-mix-clear"),
 		mixAdd: $("gd-popover-mix"),
+		mixShow: $("gd-popover-show-mix"),
 		tabBrief: $("gd-tab-brief"),
 		countOpen: $("gd-count-open"),
 		countResolved: $("gd-count-resolved"),
@@ -1425,7 +1436,7 @@
 	}
 
 	function minimapTitle(entry) {
-		return entry.board ? `${entry.board.system ? "" : `${String(entry.board.number).padStart(2, "0")} · `}${titleOf(entry.board)}` : t("placeholder.title");
+		return entry.board ? `${entry.board.system ? "" : `${String(entry.board.number).padStart(2, "0")} · `}${titleOf(entry.board)}` : t((PLACEHOLDER_KEYS[entry.wrapper.dataset.kind] ?? PLACEHOLDER_KEYS.variant).title);
 	}
 
 	/** The world, the boards and the visible area, drawn small. Blocks are plain boxes: the artboard list stays the keyboard path. */
@@ -2874,16 +2885,27 @@
 		const title = board.artboard.title;
 		showToast(t(reply.body.queued === true ? "variant.queued" : "variant.sent", { title }), false);
 		// A design change while the request was in flight leaves nothing to wait for here.
-		if (board.slug === state.slug) showPlaceholder(board);
+		if (board.slug === state.slug) showPlaceholder(board, "variant");
 	});
 
-	/** The "<NN> · New direction" board, "Designing…", after the last artboard; the minimap draws it as a dashed block. */
-	function showPlaceholder(source) {
+	/** What a placeholder board is called and says, by the request that made it: another direction or a combined one. */
+	const PLACEHOLDER_KEYS = {
+		variant: { title: "placeholder.title", aria: "placeholder.aria", status: "placeholder.status" },
+		mix: { title: "placeholder.mixTitle", aria: "placeholder.mixAria", status: "placeholder.mixStatus" },
+	};
+
+	/**
+	 * The "<NN> · New direction" (or "Combined direction") board, "Designing…", after the last artboard, with what is being
+	 * designed centered in its frame at screen size; the minimap draws it as a dashed block.
+	 */
+	function showPlaceholder(source, kind) {
 		if (state.placeholder) state.placeholder.remove();
+		const keys = PLACEHOLDER_KEYS[kind];
 		const number = nextNumber();
 		const wrapper = document.createElement("section");
 		wrapper.className = "gd-artboard gd-placeholder";
-		loc(wrapper, "aria-label", "placeholder.aria", { number });
+		wrapper.dataset.kind = kind;
+		loc(wrapper, "aria-label", keys.aria, { number });
 		const label = document.createElement("div");
 		label.className = "gd-artboard-label";
 		const head = document.createElement("div");
@@ -2892,7 +2914,7 @@
 		num.setAttribute("aria-hidden", "true");
 		const title = document.createElement("h2");
 		title.className = "gd-artboard-title";
-		loc(title, "text", "placeholder.title");
+		loc(title, "text", keys.title);
 		const designing = chip("gd-placeholder-state", "");
 		loc(designing, "text", "placeholder.state");
 		designing.setAttribute("role", "status");
@@ -2910,6 +2932,10 @@
 			line.style.width = width;
 			frame.append(line);
 		}
+		// Visual only: the head's status is the one announced.
+		const status = chip("gd-placeholder-status", "");
+		loc(status, "text", keys.status);
+		frame.append(status);
 		box.append(frame);
 		wrapper.append(label, box);
 		state.placeholder = wrapper;
@@ -5361,10 +5387,15 @@
 		(next ? state.mixCards.get(next.id).remove : els.tabMix).focus();
 	}
 
+	/** The Mix tab in the review panel; the panel opens unless focus mode gave its room to the artboard and `always` is off. */
+	function showMixTab(always) {
+		if (els.panel.hidden && (always || !state.focus)) setPanel(true);
+		setTab("mix");
+	}
+
 	/** A pick's pin: the Mix tab, with keyboard focus on that pick. */
 	function showPick(id) {
-		if (els.panel.hidden && !state.focus) setPanel(true);
-		setTab("mix");
+		showMixTab(false);
 		state.mixCards.get(id)?.item.focus();
 	}
 
@@ -5474,7 +5505,7 @@
 		if (state.mix.slug === slug) mixChanged();
 		showToast(t(reply.body.queued === true ? "mix.queued" : "mix.sent", { title: board.artboard.title }), false);
 		// Like another direction: a placeholder shows where the new artboard will appear.
-		if (slug === state.slug) showPlaceholder(board);
+		if (slug === state.slug) showPlaceholder(board, "mix");
 	});
 
 	function setMode(mode) {
@@ -5659,6 +5690,7 @@
 		els.message.textContent = "";
 		els.message.title = "";
 		els.message.classList.remove("gd-error");
+		els.mixShow.hidden = true;
 		els.send.disabled = false;
 		els.popover.hidden = false;
 		// Beside the element in the frame it was picked in, which may be scaled (All sizes) or resized (a single size).
@@ -5688,6 +5720,7 @@
 	function shotError(message) {
 		els.message.textContent = message;
 		els.message.classList.add("gd-error");
+		els.mixShow.hidden = true;
 	}
 
 	/** Reads one image file into the popover; a later attach or a clear discards a read still running. */
@@ -5706,6 +5739,7 @@
 			els.shotAttach.hidden = true;
 			els.message.textContent = "";
 			els.message.classList.remove("gd-error");
+			els.mixShow.hidden = true;
 		});
 		reader.addEventListener("error", () => { if (token === state.shotToken) shotError(t("shot.read")); });
 		reader.readAsDataURL(file);
@@ -5798,6 +5832,7 @@
 			return;
 		}
 		els.send.disabled = true;
+		els.mixShow.hidden = true;
 		els.message.classList.remove("gd-error");
 		els.message.textContent = t("popover.sending");
 		const shot = state.shot;
@@ -5824,7 +5859,8 @@
 		state.closeTimer = setTimeout(closePopover, savedOnly ? 2500 : 1200);
 	});
 
-	// The popover's second action: the picked element joins the mix, with the field as its optional note.
+	// The popover's second action: the picked element joins the mix, with the field as its optional note. The first pick
+	// opens the Mix tab; after any pick the popover stays open with "Show mix" beside the count, so it can be reached.
 	els.mixAdd.addEventListener("click", () => {
 		const pick = state.pick;
 		if (!pick) return;
@@ -5833,15 +5869,25 @@
 			els.message.textContent = text;
 			els.message.title = "";
 			els.message.classList.add("gd-error");
+			els.mixShow.hidden = true;
 		};
 		if (note.length > LIMITS.comment) return refuse(t("mix.noteTooLong", { max: LIMITS.comment }));
+		const first = state.mix.picks.length === 0;
 		if (!addPick({ file: pick.board.artboard.file, selector: pick.selector, excerpt: pick.excerpt, note })) return refuse(t("mix.full", { max: LIMITS.mixPicks }));
 		els.text.value = "";
-		els.message.textContent = t("mix.added");
+		els.message.textContent = t("mix.added", { count: state.mix.picks.length });
 		els.message.title = "";
 		els.message.classList.remove("gd-error");
+		loc(els.mixShow, "text", "mix.show");
+		els.mixShow.hidden = false;
 		clearTimeout(state.closeTimer);
-		state.closeTimer = setTimeout(closePopover, 1200);
+		if (first) showMixTab(false);
+	});
+
+	els.mixShow.addEventListener("click", () => {
+		closePopover();
+		showMixTab(true);
+		els.tabMix.focus();
 	});
 
 	window.addEventListener("message", (event) => {
