@@ -13,9 +13,9 @@ Branch: `feat/canvas-ux-quick-wins` (from local `main` d0f62d289). Work-unit com
 
 ## Tasks
 
-- [x] T1 S1-S2, S5 — comment opens focus, technical details toggle. Route: gentle-ai-worker (context backstop). Commit:
-- [x] T2 S3-S5 — plain wording, footer sentence, one Comments tab. Route: same worker after T1. Commit:
-- [x] T3 — parent: suites, browser check, commits. Route: inline. Commit:
+- [x] T1 S1-S2, S5 — comment opens focus, technical details toggle. Route: gentle-ai-worker (context backstop). Commit: 9821caccd
+- [x] T2 S3-S5 — plain wording, footer sentence, one Comments tab. Route: same worker after T1. Commit: 9821caccd
+- [x] T3 — parent: suites, browser check, commits. Route: inline. Commit: 9821caccd
 
 ## Log
 
