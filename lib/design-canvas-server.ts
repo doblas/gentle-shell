@@ -73,8 +73,9 @@ const CANVAS_CSP = [
 	"style-src 'self'",
 	"img-src 'self' data:",
 	"connect-src 'self'",
-	// Compare (S15) frames the running app next to its artboard: loopback origins only.
-	`frame-src 'self' ${["http", "https"].flatMap((scheme) => ["localhost", "127.0.0.1", "[::1]"].map((host) => `${scheme}://${host}:*`)).join(" ")}`,
+	// Compare (S15) frames the running app next to its artboard: loopback origins only. No [::1]: CSP host sources
+	// have no IPv6 form, so browsers reject it (and log an error); Compare offers a new tab for such a preview.
+	`frame-src 'self' ${["http", "https"].flatMap((scheme) => ["localhost", "127.0.0.1"].map((host) => `${scheme}://${host}:*`)).join(" ")}`,
 	"base-uri 'none'",
 	"form-action 'none'",
 	"frame-ancestors 'none'",
