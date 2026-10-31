@@ -8764,3 +8764,16 @@ test("implement-part S3: canvas.css styles the parts list with tokens and the st
 	assert.match(html, /<section id="gd-parts-panel" class="gd-handoff-panel gd-parts-panel" aria-labelledby="gd-parts-title" hidden>\s*<h3 id="gd-parts-title" class="gd-handoff-title"><\/h3>\s*<ol id="gd-parts-list" class="gd-parts"><\/ol>\s*<\/section>/);
 	assert.ok(html.indexOf('id="gd-handoff-panel"') < html.indexOf('id="gd-parts-panel"'), "right after the handoff timeline");
 });
+
+test("implement-part S7: the docs, the README row and the skill describe Implement only this", () => {
+	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
+	const section = docs.slice(docs.indexOf("### Gentle Design"));
+	for (const part of ["**Implement only this**", "**Partial implementations**", "`design/<slug>/parts.json`", "`POST api/designs/<slug>/implement-part`", "`GET api/designs/<slug>/parts`", "does not choose", "`part`"]) assert.ok(section.includes(part), `docs mention ${part}`);
+	const readme = readFileSync(fileURLToPath(new URL("../README.md", import.meta.url)), "utf8");
+	const row = readme.split("\n").find((line) => line.startsWith("| Gentle Design |"))!;
+	assert.ok(row.includes("Implement only this"), "the README row mentions Implement only this");
+	const skill = readFileSync(fileURLToPath(new URL("../skills/design/SKILL.md", import.meta.url)), "utf8");
+	const gate = skill.split("\n").find((line) => line.startsWith("|") && line.includes('"Implement only one part of the design artboard …"'));
+	assert.ok(gate, "SKILL.md has a Decision Gates row for the part message");
+	for (const part of ['action "handoff"', "`part`", "only that element", "not choose"]) assert.ok(gate!.includes(part), `the row mentions ${part}`);
+});
