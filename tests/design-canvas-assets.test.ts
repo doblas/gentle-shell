@@ -246,8 +246,7 @@ async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknow
 		innerHeight: 800,
 		CSS: { escape: (value: string) => value },
 		history: { replaceState(_state: unknown, _title: string, url: string) { urls.push(url); } },
-		// canvas-progressive S6: the first-run guide counts as seen, so it never opens over the other tests.
-		localStorage: { getItem: (key: string) => (key === "gentle-design:guide" ? "done" : null), setItem() {} },
+		localStorage: { getItem: () => null, setItem() {} },
 		requestAnimationFrame: (callback: () => void) => { callback(); return 0; },
 		fetch: async (url: string, init?: { method?: string; body?: string }) => {
 			if (init?.method === "POST") posts.push({ url, body: JSON.parse(init.body ?? "null") });
@@ -4731,7 +4730,7 @@ test("T1/S1: canvas.css styles the minimap with tokens only, clear of the mode c
 
 const VARIANT_URL = "/t/api/designs/alpha/variant";
 const menuEl = (canvas: Canvas) => canvas.document.getElementById("gd-menu");
-const menuItems = (canvas: Canvas) => findAll(menuEl(canvas), (element) => element.getAttribute("role") === "menuitem");
+const menuItems = (canvas: Canvas) => findAll(menuEl(canvas), (element) => ["menuitem", "menuitemcheckbox"].includes(element.getAttribute("role")));
 const itemLabels = (canvas: Canvas) => menuItems(canvas).map((item) => texts(item, "gd-menu-label")[0]);
 const menuButtonOf = (wrapper: FakeElement) => withClass(wrapper, "gd-menu-button")[0];
 const keyOn = (target: FakeElement, key: string, init: Record<string, unknown> = {}) => target.dispatch("keydown", { key, shiftKey: false, ...init });
@@ -5466,8 +5465,8 @@ test("T2/S2/S3: canvas.css styles the menu, the dialog and the placeholder with 
 
 const LANG_KEY = "gentle-design:language";
 
-// `guide`: the first-run guide has not been seen yet, so it opens (canvas-progressive S6); otherwise it counts as seen.
-type LangOptions = { browser?: string | string[]; stored?: string | null; replies?: Record<string, unknown>; config?: Record<string, unknown>; extra?: Record<string, unknown>; script?: string; guide?: boolean };
+// `help`: the step-by-step help is on in this browser; otherwise it is off, as by default.
+type LangOptions = { browser?: string | string[]; stored?: string | null; replies?: Record<string, unknown>; config?: Record<string, unknown>; extra?: Record<string, unknown>; script?: string; help?: boolean };
 
 /** The canvas with index.html's static text hydrated, a browser language and a stored choice; `saved()` lists what it wrote. */
 async function loadLang(options: LangOptions = {}) {
@@ -5476,7 +5475,7 @@ async function loadLang(options: LangOptions = {}) {
 	const navigator = browser === undefined ? undefined : Array.isArray(browser) ? { language: browser[0], languages: browser } : { language: browser, languages: [browser] };
 	const context = {
 		...(navigator ? { navigator } : {}),
-		localStorage: { getItem: (key: string) => (key === LANG_KEY ? options.stored ?? null : key === "gentle-design:guide" && !options.guide ? "done" : null), setItem: (key: string, value: string) => { writes.push([key, value]); } },
+		localStorage: { getItem: (key: string) => (key === LANG_KEY ? options.stored ?? null : key === "gentle-design:help" && options.help ? "on" : null), setItem: (key: string, value: string) => { writes.push([key, value]); } },
 		...options.extra,
 	};
 	const canvas = await loadCanvas(300, options.replies ?? {}, options.config ?? {}, context, { hydrate: true, script: options.script });
@@ -7079,7 +7078,7 @@ type StoredPick = { id: string; file: string; selector: string; excerpt: string;
 
 /** The canvas with a working (or a throwing) localStorage; `stored` is what `gentle-design:mix:alpha` holds at start. */
 async function loadMix(options: { stored?: unknown; broken?: boolean; config?: Record<string, unknown>; replies?: Record<string, unknown>; hydrate?: boolean; browser?: string } = {}) {
-	const data = new Map<string, string>([["gentle-design:guide", "done"]]);
+	const data = new Map<string, string>();
 	if (options.stored !== undefined) data.set(MIX_KEY, typeof options.stored === "string" ? options.stored : JSON.stringify(options.stored));
 	const localStorage = options.broken
 		? { getItem() { throw new Error("denied"); }, setItem() { throw new Error("denied"); } }
@@ -7525,9 +7524,8 @@ test("canvas-mix discoverability: the docs describe the count, Show mix, the fir
 const TECHNICAL_KEY = "gentle-design:technical";
 
 /** The canvas with a working (or a throwing) localStorage; `stored` seeds it. index.html's static text is hydrated. */
-async function loadUx(options: { stored?: Record<string, string>; broken?: boolean; replies?: Record<string, unknown>; browser?: string; guide?: boolean } = {}) {
-	// `guide`: the first-run guide has not been seen yet (canvas-progressive S6); otherwise it counts as seen.
-	const data = new Map<string, string>(Object.entries({ ...(options.guide ? {} : { "gentle-design:guide": "done" }), ...options.stored }));
+async function loadUx(options: { stored?: Record<string, string>; broken?: boolean; replies?: Record<string, unknown>; browser?: string } = {}) {
+	const data = new Map<string, string>(Object.entries({ ...options.stored }));
 	const localStorage = options.broken
 		? { getItem() { throw new Error("denied"); }, setItem() { throw new Error("denied"); } }
 		: { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, String(value)); } };
@@ -7869,7 +7867,7 @@ test("progressive S1: the rail shows Move, Comment, Overview, List and More, eac
 	assert.match(read("canvas.css"), /\.gd-tool-label\s*{[^}]*font-size:\s*11px/);
 });
 
-test("progressive S1: More opens a menu with Design system, Keyboard shortcuts and See the guide (S6), with the artboard menu's keyboard behavior", async () => {
+test("progressive S1: More opens a menu with Design system, Keyboard shortcuts and Step-by-step help, with the artboard menu's keyboard behavior", async () => {
 	const canvas = await loadRail();
 	const more = moreButton(canvas);
 	const dialog = canvas.document.getElementById("gd-shortcuts");
@@ -7880,7 +7878,7 @@ test("progressive S1: More opens a menu with Design system, Keyboard shortcuts a
 	assert.equal(menuEl(canvas).hidden, false);
 	assert.equal(more.getAttribute("aria-expanded"), "true");
 	assert.equal(menuEl(canvas).getAttribute("aria-label"), "More");
-	assert.deepEqual(itemLabels(canvas), ["Design system board", "Keyboard shortcuts", "See the guide"]);
+	assert.deepEqual(itemLabels(canvas), ["Design system board", "Keyboard shortcuts", "Step-by-step help"]);
 	assert.equal(canvas.document.activeElement, items[0], "focus moves to the first item");
 	assert.equal(items[0].getAttribute("aria-disabled"), "true", "no design system board, nothing to show");
 	assert.equal(items[1].getAttribute("aria-keyshortcuts"), "?");
@@ -7930,7 +7928,7 @@ test("progressive S1: More and its items speak Spanish; the shortcut keys V, C, 
 	const c = canvas as unknown as Canvas;
 	openMore(c);
 	assert.equal(menuEl(c).getAttribute("aria-label"), "Más");
-	assert.deepEqual(itemLabels(c), ["Sistema de diseño", "Atajos de teclado", "Ver la guía"]);
+	assert.deepEqual(itemLabels(c), ["Sistema de diseño", "Atajos de teclado", "Ayuda paso a paso"]);
 	keyOn(menuItems(c)[0], "Escape");
 	Object.defineProperty(c.world, "offsetWidth", { value: 2000 });
 	Object.defineProperty(c.world, "offsetHeight", { value: 400 });
@@ -8278,9 +8276,10 @@ test("progressive S7 (T2): the docs describe Open, the review panel's tabs and M
 	for (const part of ["Open", "Quality", "Open / Resolved / All", "bottom of the review side"]) assert.ok(row.includes(part), `the README row mentions ${part}`);
 });
 
-// ---- canvas-progressive T3: the first-run guide (S6) ----
+// ---- step-by-step help (replaces the first-run guide of canvas-progressive S6) ----
+// Off by default. More turns it on (saved in this browser); while on, a card follows the step you are at.
 
-const GUIDE_KEY = "gentle-design:guide";
+const HELP_KEY = "gentle-design:help";
 const guideEl = (canvas: Canvas) => canvas.document.getElementById("gd-guide");
 const guideSpot = (canvas: Canvas) => canvas.document.getElementById("gd-guide-spot");
 const guideNext = (canvas: Canvas) => canvas.document.getElementById("gd-guide-next");
@@ -8292,93 +8291,163 @@ const guideView = (canvas: Canvas) => ({
 	next: canvas.document.getElementById("gd-guide-next-label").textContent,
 	target: guideEl(canvas).dataset.target,
 });
+const guideText = (canvas: Canvas) => canvas.document.getElementById("gd-guide-text").textContent;
 const spotBox = (canvas: Canvas) => ["left", "top", "width", "height"].map((key) => guideSpot(canvas).style[key]);
-const GUIDE_STEPS_EN = ["These are your directions", "Open them to review them", "Choose one and press Implement"];
+const helpItem = (canvas: Canvas) => itemNamed(canvas, "Step-by-step help");
+const STEPS_EN = ["Compare", "Review", "Choose", "Implement"];
+const stepsAt = (index: number, names = STEPS_EN) => names.map((name, at) => (at === index ? `${name} (current)` : name));
+const COMPARE_TEXT = "Under each title you see what each one does better and what it gives up. Press “Open” on the one you want to review.";
+const REVIEW_TEXT = "Press “Comment” and click whatever you want to change, or add it to the mix. When it convinces you, press “Implement this”.";
+const BUILDING_TEXT = "Step 4 at the top tells you how it is going. You can keep commenting meanwhile.";
+const DONE_TEXT = "If your app is running, “Compare with app” at the top shows the design next to it.";
 
-test("progressive S6: the first visit shows the guide: First time · 1 of 3, a title, one sentence, the three steps with the current one marked, Skip and Next", async () => {
-	const canvas = await loadUx({ guide: true });
+/** Turns the help on from the rail's More. */
+const turnOnHelp = (canvas: Canvas) => {
+	openMore(canvas);
+	helpItem(canvas).dispatch("click");
+};
+
+test("help S1: the help is off by default: no card on the canvas or inside a direction, and More offers Step-by-step help unchecked", async () => {
+	const canvas = await loadUx();
 	const c = canvas as unknown as Canvas;
-	assert.equal(guideEl(c).hidden, false);
-	assert.equal(guideSpot(c).hidden, false, "the spotlight points at the directions");
-	assert.deepEqual(guideView(c), { eyebrow: "First time · 1 of 3", title: "These are your directions", steps: [`${GUIDE_STEPS_EN[0]} (current)`, GUIDE_STEPS_EN[1], GUIDE_STEPS_EN[2]], next: "Next", target: "directions" });
-	assert.equal(c.document.getElementById("gd-guide-text").textContent, "The agent answered your request in several ways. Under each title you see what each one does better and what it gives up.");
-	assert.equal(guideSkip(c).textContent, "Skip the guide");
-	assert.equal(c.document.activeElement, guideNext(c), "focus moves into it");
-	assert.equal(canvas.data.get(GUIDE_KEY), undefined, "nothing saved until it is skipped or finished");
+	assert.equal(guideEl(c).hidden, true, "nothing opens by itself on a first visit");
+	assert.equal(guideSpot(c).hidden, true);
+	openButtonOf(boardsOf(c)[0]).dispatch("click");
+	assert.equal(guideEl(c).hidden, true, "nor inside a direction");
+	c.document.getElementById("gd-back").dispatch("click");
+	openMore(c);
+	assert.deepEqual(itemLabels(c), ["Design system board", "Keyboard shortcuts", "Step-by-step help"]);
+	assert.equal(helpItem(c).getAttribute("role"), "menuitemcheckbox", "a switch in the menu");
+	assert.equal(helpItem(c).getAttribute("aria-checked"), "false");
+	assert.equal(canvas.data.get(HELP_KEY), undefined, "nothing saved while it was never touched");
+	assert.equal(canvas.data.get("gentle-design:guide"), undefined, "the old first-run key is no longer written");
 	const html = read("index.html");
 	assert.match(html, /<section id="gd-guide" class="gd-guide" role="dialog" aria-modal="false" aria-labelledby="gd-guide-title" aria-describedby="gd-guide-text" hidden>/);
 	assert.match(html, /<div id="gd-guide-spot" class="gd-guide-spot" aria-hidden="true" hidden><\/div>/);
-	assert.match(html, /<ol id="gd-guide-steps" class="gd-guide-steps" aria-label="Guide steps" data-i18n-aria-label="guide.steps"><\/ol>/);
-	assert.match(html, /<button type="button" id="gd-guide-skip" class="gd-guide-skip" data-i18n="guide.skip">Skip the guide<\/button>/);
-	assert.match(html, /<button type="button" id="gd-guide-next" class="gd-primary"><span id="gd-guide-next-label" data-i18n="guide.next">Next<\/span>/);
+	assert.match(html, /<ol id="gd-guide-steps" class="gd-guide-steps" aria-label="Steps" data-i18n-aria-label="guide.steps"><\/ol>/);
+	assert.match(html, /<button type="button" id="gd-guide-skip" class="gd-guide-skip" data-i18n="guide.off">Turn off help<\/button>/);
+	assert.match(html, /<button type="button" id="gd-guide-next" class="gd-primary"><span id="gd-guide-next-label" data-i18n="guide.dismiss">Got it<\/span><\/button>/);
+	const { en, es } = loadCatalog();
+	assert.equal(en["rail.more.title"], "More: design system, keyboard shortcuts and step-by-step help");
+	assert.equal(es["rail.more.title"], "Más: sistema de diseño, atajos de teclado y ayuda paso a paso");
 });
 
-test("progressive S6: Next walks the steps and points at the directions, an Open button and step 4; Got it ends it, saves it and gives focus back", async () => {
-	const canvas = await loadUx({ guide: true });
+test("help S2: Step-by-step help turns it on: the card for the current step, the spotlight, focus on Got it, saved and checked; a later visit starts with it on", async () => {
+	const canvas = await loadUx();
 	const c = canvas as unknown as Canvas;
+	c.viewport.rect = { left: 0, top: 0, width: 1200, height: 800 };
 	c.document.getElementById("gd-world").rect = { left: 100, top: 120, width: 700, height: 300 };
-	openButtonOf(boardsOf(c)[0]).rect = { left: 300, top: 200, width: 60, height: 30 };
-	stepItems(c)[3].rect = { left: 500, top: 10, width: 120, height: 34 };
-	guideNext(c).dispatch("click");
-	assert.deepEqual(guideView(c), { eyebrow: "First time · 2 of 3", title: "Open them to review them", steps: [GUIDE_STEPS_EN[0], `${GUIDE_STEPS_EN[1]} (current)`, GUIDE_STEPS_EN[2]], next: "Next", target: "open" });
-	assert.deepEqual(spotBox(c), ["292px", "192px", "76px", "46px"], "the spotlight surrounds the first Open button");
-	assert.equal(c.document.getElementById("gd-guide-text").textContent, "Press “Open” on a direction to see it at full size, comment on it or mix it.");
-	assert.equal(c.document.activeElement, guideNext(c));
-	guideNext(c).dispatch("click");
-	assert.deepEqual(guideView(c), { eyebrow: "First time · 3 of 3", title: "Choose one and press Implement", steps: [GUIDE_STEPS_EN[0], GUIDE_STEPS_EN[1], `${GUIDE_STEPS_EN[2]} (current)`], next: "Got it", target: "implement" });
-	assert.deepEqual(spotBox(c), ["492px", "2px", "136px", "50px"], "and then step 4 of the breadcrumb");
-	assert.equal(c.document.getElementById("gd-guide-text").textContent, "Inside the direction you prefer, press “Implement this” and the agent builds it in your project. Step 4 at the top tells you how it is going.");
-	guideNext(c).dispatch("click");
-	assert.equal(guideEl(c).hidden, true);
-	assert.equal(guideSpot(c).hidden, true);
-	assert.equal(canvas.data.get(GUIDE_KEY), "done", "once per browser");
-	// Focus returns where it was when the guide opened: in a browser the page (then the canvas); the fake DOM's start leaves it on Comment.
-	assert.equal(c.document.activeElement, c.document.getElementById("gd-comment"), "focus returns where it was");
-	const again = await loadUx({ stored: { [GUIDE_KEY]: "done" } });
-	assert.equal(guideEl(again as unknown as Canvas).hidden, true, "a later visit does not show it");
+	turnOnHelp(c);
+	assert.equal(menuEl(c).hidden, true, "choosing it closes the menu");
+	assert.equal(guideEl(c).hidden, false);
+	assert.equal(guideSpot(c).hidden, false);
+	assert.deepEqual(guideView(c), { eyebrow: "Step-by-step help · 1 of 4", title: "These are your directions", steps: stepsAt(0), next: "Got it", target: "compare" });
+	assert.equal(guideText(c), COMPARE_TEXT);
+	assert.equal(guideSkip(c).textContent, "Turn off help");
+	assert.deepEqual(spotBox(c), ["92px", "112px", "716px", "316px"], "the spotlight surrounds the directions");
+	assert.equal(c.document.activeElement, guideNext(c), "focus moves into the card when you turn it on");
+	assert.equal(canvas.data.get(HELP_KEY), "on");
+	openMore(c);
+	assert.equal(helpItem(c).getAttribute("aria-checked"), "true");
+	keyOn(menuItems(c)[0], "Escape");
+
+	const again = await loadUx({ stored: { [HELP_KEY]: "on" } });
+	const a = again as unknown as Canvas;
+	assert.equal(guideEl(a).hidden, false, "it stays on in this browser");
+	assert.equal(guideView(a).target, "compare");
+	assert.notEqual(a.document.activeElement, guideNext(a), "shown by itself, it does not take the keyboard");
+	const off = await loadUx({ stored: { [HELP_KEY]: "off" } });
+	assert.equal(guideEl(off as unknown as Canvas).hidden, true);
 });
 
-test("progressive S6: Skip the guide and Esc end it and save it; unreadable storage never opens it on its own", async () => {
-	const skipped = await loadUx({ guide: true });
-	guideSkip(skipped as unknown as Canvas).dispatch("click");
-	assert.equal(guideEl(skipped as unknown as Canvas).hidden, true);
-	assert.equal(skipped.data.get(GUIDE_KEY), "done");
+test("help S3: the card follows the flow: Review inside a direction, Implement while the agent builds it, then Compare with app; the keyboard stays where it is", async () => {
+	const canvas = await loadUx({ stored: { [HELP_KEY]: "on" } });
+	const c = canvas as unknown as Canvas;
+	withClass(boardsOf(c)[0], "gd-implement")[0].rect = { left: 600, top: 60, width: 120, height: 32 };
+	openButtonOf(boardsOf(c)[0]).dispatch("click");
+	assert.equal(guideEl(c).hidden, false, "it shows inside a direction too");
+	assert.deepEqual(guideView(c), { eyebrow: "Step-by-step help · 2 of 4", title: "Review this direction", steps: stepsAt(1), next: "Got it", target: "review" });
+	assert.equal(guideText(c), REVIEW_TEXT);
+	assert.deepEqual(spotBox(c), ["592px", "52px", "136px", "48px"], "the spotlight surrounds Implement this");
+	assert.notEqual(c.document.activeElement, guideNext(c), "a new step never moves focus");
+	c.document.getElementById("gd-back").dispatch("click");
+	assert.equal(guideView(c).target, "compare", "back on the canvas, back to Compare");
 
-	const escaped = await loadUx({ guide: true });
-	const e = escaped as unknown as Canvas;
-	guideNext(e).dispatch("click");
-	// Esc from Next bubbles to the card; the fake DOM does not nest index.html, so it is sent to the card.
-	assert.equal(keyOn(guideEl(e), "Escape").defaultPrevented, true);
-	assert.equal(guideEl(e).hidden, true, "Esc skips from any step");
-	assert.equal(escaped.data.get(GUIDE_KEY), "done");
-	assert.equal(pressed(e, "gd-comment"), "false");
+	stepItems(c)[3].rect = { left: 500, top: 10, width: 120, height: 34 };
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", startedAt: todayAt(9, 48) } }));
+	assert.deepEqual(guideView(c), { eyebrow: "Step-by-step help · 4 of 4", title: "The agent is building it", steps: stepsAt(3), next: "Got it", target: "building" });
+	assert.equal(guideText(c), BUILDING_TEXT);
+	assert.deepEqual(spotBox(c), ["492px", "2px", "136px", "50px"], "the spotlight surrounds step 4");
 
-	const outside = await loadUx({ guide: true });
+	c.document.getElementById("gd-compare-app").rect = { left: 900, top: 10, width: 160, height: 34 };
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented", implementedAt: todayAt(10, 5), previewUrl: "http://127.0.0.1:5173/" } }));
+	assert.deepEqual(guideView(c), { eyebrow: "Step-by-step help · 4 of 4", title: "It is implemented", steps: stepsAt(3), next: "Got it", target: "done" });
+	assert.equal(guideText(c), DONE_TEXT);
+	assert.deepEqual(spotBox(c), ["892px", "2px", "176px", "50px"], "the spotlight surrounds Compare with app");
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented", implementedAt: todayAt(10, 5) } }));
+	assert.deepEqual(spotBox(c), ["492px", "2px", "136px", "50px"], "without a running app it points at step 4");
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.equal(guideView(c).target, "compare");
+
+	const system = await loadUx({ stored: { [HELP_KEY]: "on" }, replies: SYSTEM_REPLY });
+	const s = system as unknown as Canvas;
+	click(s.boards[0].shield!, 200, 200);
+	assert.equal(guideEl(s).hidden, true, "the design system board is not a step");
+});
+
+test("help S4: Got it and Esc hide the card until the step changes; Turn off help turns it off, saves it and gives focus back; More turns it off too", async () => {
+	const canvas = await loadUx();
+	const c = canvas as unknown as Canvas;
+	turnOnHelp(c);
+	guideNext(c).dispatch("click");
+	assert.equal(guideEl(c).hidden, true, "Got it hides this step's card");
+	assert.equal(guideSpot(c).hidden, true);
+	assert.equal(c.document.activeElement, moreButton(c), "focus returns where it was when the card took it");
+	assert.equal(canvas.data.get(HELP_KEY), "on", "the help stays on");
+	openButtonOf(boardsOf(c)[0]).dispatch("click");
+	assert.equal(guideView(c).target, "review", "the next step shows its card");
+	assert.equal(guideEl(c).hidden, false);
+	assert.equal(keyOn(guideEl(c), "Escape").defaultPrevented, true);
+	assert.equal(guideEl(c).hidden, true, "Esc does the same as Got it");
+	c.document.getElementById("gd-back").dispatch("click");
+	assert.equal(guideEl(c).hidden, false, "a new step brings it back");
+
+	guideSkip(c).dispatch("click");
+	assert.equal(guideEl(c).hidden, true);
+	assert.equal(canvas.data.get(HELP_KEY), "off");
+	openButtonOf(boardsOf(c)[0]).dispatch("click");
+	assert.equal(guideEl(c).hidden, true, "off stays off on the next step");
+	c.document.getElementById("gd-back").dispatch("click");
+	openMore(c);
+	assert.equal(helpItem(c).getAttribute("aria-checked"), "false");
+	helpItem(c).dispatch("click");
+	assert.equal(guideEl(c).hidden, false);
+	openMore(c);
+	helpItem(c).dispatch("click");
+	assert.equal(guideEl(c).hidden, true, "choosing it again turns it off");
+	assert.equal(canvas.data.get(HELP_KEY), "off");
+	assert.equal(c.document.activeElement, moreButton(c));
+
+	const outside = await loadUx({ stored: { [HELP_KEY]: "on" } });
 	const o = outside as unknown as Canvas;
 	o.document.getElementById("gd-comment").dispatch("click");
-	assert.equal(press(o, "Escape").defaultPrevented, true, "Esc anywhere on the page skips it first");
+	assert.equal(press(o, "Escape").defaultPrevented, true, "Esc anywhere on the page hides the card first");
 	assert.equal(guideEl(o).hidden, true);
 	assert.equal(pressed(o, "gd-comment"), "true", "and only that: Comment mode stays on");
 
 	const broken = await loadUx({ broken: true });
-	assert.equal(guideEl(broken as unknown as Canvas).hidden, true, "it cannot be remembered, so it does not open by itself");
+	const b = broken as unknown as Canvas;
+	assert.equal(guideEl(b).hidden, true, "unreadable storage starts with it off");
+	turnOnHelp(b);
+	assert.equal(guideEl(b).hidden, false, "it still turns on for this page");
 });
 
-test("progressive S6: the guide never shows over focus mode, a dialog, the comment box or a menu; it waits and comes back where it was", async () => {
-	const canvas = await loadUx({ guide: true });
+test("help S5: the card never shows over Compare, a dialog, the comment box or a menu; it waits and comes back", async () => {
+	const canvas = await loadUx({ stored: { [HELP_KEY]: "on" } });
 	const c = canvas as unknown as Canvas;
 	const dialog = c.document.getElementById("gd-shortcuts");
 	(dialog as any).showModal = () => dialog.setAttribute("open", "");
 	(dialog as any).close = () => dialog.removeAttribute("open");
-	guideNext(c).dispatch("click");
-	openButtonOf(boardsOf(c)[0]).dispatch("click");
-	assert.equal(guideEl(c).hidden, true, "not over focus mode");
-	assert.equal(guideSpot(c).hidden, true);
-	c.message(c.boards[0].frame.contentWindow, PICK);
-	assert.equal(c.document.getElementById("gd-popover").hidden, true, "Comment mode is off");
-	c.document.getElementById("gd-back").dispatch("click");
-	assert.equal(guideEl(c).hidden, false, "back on the canvas it shows again");
-	assert.equal(guideView(c).eyebrow, "First time · 2 of 3", "at the same step");
 	press(c, "?");
 	assert.equal(guideEl(c).hidden, true, "not over the shortcuts dialog");
 	c.document.getElementById("gd-shortcuts-close").dispatch("click");
@@ -8387,55 +8456,49 @@ test("progressive S6: the guide never shows over focus mode, a dialog, the comme
 	assert.equal(guideEl(c).hidden, true, "not over a menu");
 	keyOn(menuItems(c)[0], "Escape");
 	assert.equal(guideEl(c).hidden, false);
+	c.document.getElementById("gd-comment").dispatch("click");
+	click(c.boards[1].shield!, 200, 200);
+	c.message(c.boards[1].frame.contentWindow, PICK);
+	assert.equal(c.document.getElementById("gd-popover").hidden, false);
+	assert.equal(guideEl(c).hidden, true, "not over the comment box");
+	assert.equal(guideSpot(c).hidden, true);
 
-	const focused = await loadUx({ guide: true });
-	const f = focused as unknown as Canvas;
-	f.document.getElementById("gd-comment").dispatch("click");
-	click(f.boards[0].shield!, 200, 200);
-	f.message(f.boards[0].frame.contentWindow, PICK);
-	assert.equal(f.document.getElementById("gd-popover").hidden, false);
-	assert.equal(guideEl(f).hidden, true, "not over the comment box");
+	const fresh = await loadUx({ stored: { [HELP_KEY]: "on" } });
+	const f = fresh as unknown as Canvas;
+	await setHandoffs(fresh, handoffDoc("02-b.html", { "02-b.html": { status: "implemented", implementedAt: todayAt(10, 5), previewUrl: "http://127.0.0.1:5173/" } }));
+	assert.equal(guideView(f).target, "done");
+	f.document.getElementById("gd-compare-app").dispatch("click");
+	assert.equal(guideEl(f).hidden, true, "not over Compare");
 });
 
-test("progressive S6: See the guide in More shows it again from the first step, also from focus mode, and focus returns to More", async () => {
-	const canvas = await loadUx();
+test("help S6: the help speaks Spanish, with tú forms, and follows a switch while it shows", async () => {
+	const canvas = await loadLang({ browser: "es", help: true });
 	const c = canvas as unknown as Canvas;
-	assert.equal(guideEl(c).hidden, true);
-	openMore(c);
-	assert.deepEqual(itemLabels(c), ["Design system board", "Keyboard shortcuts", "See the guide"]);
-	itemNamed(c, "See the guide").dispatch("click");
-	assert.equal(guideEl(c).hidden, false);
-	assert.equal(guideView(c).eyebrow, "First time · 1 of 3");
-	assert.equal(c.document.activeElement, guideNext(c));
-	guideSkip(c).dispatch("click");
-	assert.equal(c.document.activeElement, moreButton(c), "focus returns to More");
-
+	const STEPS_ES = ["Comparar", "Revisar", "Elegir", "Implementar"];
+	assert.deepEqual(guideView(c), { eyebrow: "Ayuda paso a paso · 1 de 4", title: "Estas son tus propuestas", steps: stepsAt(0, STEPS_ES), next: "Entendido", target: "compare" });
+	assert.equal(guideText(c), "Debajo de cada título verás en qué gana y en qué cede. Pulsa «Abrir» en la que quieras revisar.");
+	assert.equal(guideSkip(c).textContent, "Apagar la ayuda");
 	openButtonOf(boardsOf(c)[0]).dispatch("click");
+	assert.equal(guideView(c).title, "Revisa esta propuesta");
+	assert.equal(guideText(c), "Pulsa «Comentar» y haz clic en lo que quieras cambiar, o añádelo a la mezcla. Cuando te convenza, pulsa «Implementar esto».");
+	c.document.getElementById("gd-back").dispatch("click");
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", startedAt: todayAt(9, 48) } }));
+	assert.equal(guideView(c).title, "El agente la está construyendo");
+	assert.equal(guideText(c), "El paso 4 de arriba te dice cómo va. Mientras tanto puedes seguir comentando.");
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented", implementedAt: todayAt(10, 5) } }));
+	assert.equal(guideView(c).title, "Ya está implementada");
+	assert.equal(guideText(c), "Si tu app está en marcha, «Comparar con la app» arriba te enseña el diseño a su lado.");
 	openMore(c);
-	itemNamed(c, "See the guide").dispatch("click");
-	assert.equal(c.navMode.textContent, NAV_CHIP, "it leaves focus mode to show the guide");
-	assert.equal(guideEl(c).hidden, false);
-	const { en, es } = loadCatalog();
-	assert.equal(en["rail.more.title"], "More: design system, keyboard shortcuts and the guide");
-	assert.equal(es["rail.more.title"], "Más: sistema de diseño, atajos de teclado y la guía");
-});
-
-test("progressive S6: the guide speaks Spanish, with tú forms, and follows a switch while it is open", async () => {
-	const canvas = await loadLang({ browser: "es", guide: true });
-	const c = canvas as unknown as Canvas;
-	assert.deepEqual(guideView(c), { eyebrow: "Primera vez · 1 de 3", title: "Estas son tus propuestas", steps: ["Estas son tus propuestas (current)", "Ábrelas para revisarlas", "Elige una y pulsa Implementar"], next: "Siguiente", target: "directions" });
-	assert.equal(c.document.getElementById("gd-guide-text").textContent, "El agente ha resuelto tu petición de varias formas. Debajo de cada título verás en qué gana y en qué cede.");
-	assert.equal(guideSkip(c).textContent, "Saltar la guía");
-	guideNext(c).dispatch("click");
-	assert.equal(c.document.getElementById("gd-guide-text").textContent, "Pulsa «Abrir» en una propuesta para verla a tamaño real, comentarla o mezclarla.");
-	guideNext(c).dispatch("click");
-	assert.equal(guideView(c).next, "Entendido");
-	assert.equal(c.document.getElementById("gd-guide-text").textContent, "Dentro de la propuesta que prefieras, pulsa «Implementar esto» y el agente la construirá en tu proyecto. El paso 4 de arriba te dirá cómo va.");
+	assert.deepEqual(itemLabels(c), ["Sistema de diseño", "Atajos de teclado", "Ayuda paso a paso"]);
+	keyOn(menuItems(c)[0], "Escape");
 	chooseLang(canvas, "en");
-	assert.deepEqual(guideView(c), { eyebrow: "First time · 3 of 3", title: "Choose one and press Implement", steps: [GUIDE_STEPS_EN[0], GUIDE_STEPS_EN[1], `${GUIDE_STEPS_EN[2]} (current)`], next: "Got it", target: "implement" });
-	assert.deepEqual(leftovers(canvas, "es"), [], "nothing Spanish is left in the guide");
-	const { es } = loadCatalog();
-	assert.equal(es["rail.guide"], "Ver la guía");
+	assert.deepEqual(guideView(c), { eyebrow: "Step-by-step help · 4 of 4", title: "It is implemented", steps: stepsAt(3), next: "Got it", target: "done" });
+	assert.deepEqual(leftovers(canvas, "es"), [], "nothing Spanish is left in the card");
+	const { en, es } = loadCatalog();
+	for (const gone of ["rail.guide", "guide.next", "guide.done", "guide.skip", "guide.open.title", "guide.implement.title"]) {
+		assert.equal(en[gone], undefined, `${gone} is gone`);
+		assert.equal(es[gone], undefined, `${gone} is gone in Spanish`);
+	}
 });
 
 test("progressive S6: canvas.css styles the guide with tokens, a visible focus ring, and moves it only when motion is allowed", () => {
@@ -8457,13 +8520,15 @@ test("progressive S6: canvas.css styles the guide with tokens, a visible focus r
 	assert.match(css, /@media \(prefers-reduced-motion: no-preference\)\s*{[^@]*\.gd-guide\s*{[^}]*animation:/);
 });
 
-test("progressive S7 (T3): the docs describe the first-run guide", () => {
+test("help S7: the docs describe the step-by-step help", () => {
 	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
 	const section = docs.slice(docs.indexOf("### Gentle Design"));
-	for (const part of ["**First time · 1 of 3**", "**Skip the guide**", "**Got it**", "**See the guide**", "`gentle-design:guide`", "These are your directions"]) assert.ok(section.includes(part), `docs mention ${part}`);
+	for (const part of ["**Step-by-step help**", "off by default", "**Step-by-step help · 1 of 4**", "**Got it**", "**Turn off help**", "`gentle-design:help`", "These are your directions", "Review this direction", "The agent is building it", "It is implemented"]) assert.ok(section.includes(part), `docs mention ${part}`);
+	assert.ok(!section.includes("First-run guide"), "the first-run guide is gone from the docs");
 	const readme = readFileSync(fileURLToPath(new URL("../README.md", import.meta.url)), "utf8");
 	const row = readme.split("\n").find((line) => line.startsWith("| Gentle Design |"))!;
-	assert.ok(row.includes("first-run guide"), "the README row mentions the first-run guide");
+	assert.ok(row.includes("step-by-step help, off by default"), "the README row mentions the step-by-step help");
+	assert.ok(!row.includes("first-run guide"));
 });
 
 // ---- canvas-progressive fix: every review tab stays in view in the default 360px panel

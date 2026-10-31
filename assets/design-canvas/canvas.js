@@ -37,8 +37,8 @@
 	const MODE_KEY = "gentle-design:send-mode";
 	// "on" shows the CSS selectors on cards and the token inspector; anything else (or nothing) is off.
 	const TECHNICAL_KEY = "gentle-design:technical";
-	// "done" once the first-run guide was skipped or finished in this browser; it then opens only from the rail's More.
-	const GUIDE_KEY = "gentle-design:guide";
+	// "on" while the step-by-step help is turned on in this browser (from the rail's More); anything else (or nothing) is off.
+	const HELP_KEY = "gentle-design:help";
 	// The picks of the mix, per design: `${MIX_KEY_PREFIX}<slug>`. A pick's pin id is `${MIX_PIN}<pick id>`, never a comment id.
 	const MIX_KEY_PREFIX = "gentle-design:mix:";
 	const MIX_PIN = "mix:";
@@ -108,21 +108,22 @@
 			"rail.list": "List",
 			"rail.list.title": "Direction list ([)",
 			"rail.more": "More",
-			"rail.more.title": "More: design system, keyboard shortcuts and the guide",
+			"rail.more.title": "More: design system, keyboard shortcuts and step-by-step help",
 			"rail.system": "Design system board",
 			"rail.keys": "Keyboard shortcuts",
-			"rail.guide": "See the guide",
-			"guide.eyebrow": "First time · {n} of {total}",
-			"guide.steps": "Guide steps",
+			"rail.help": "Step-by-step help",
+			"guide.eyebrow": "Step-by-step help · {n} of {total}",
+			"guide.steps": "Steps",
 			"guide.compare.title": "These are your directions",
-			"guide.compare.text": "The agent answered your request in several ways. Under each title you see what each one does better and what it gives up.",
-			"guide.open.title": "Open them to review them",
-			"guide.open.text": "Press “Open” on a direction to see it at full size, comment on it or mix it.",
-			"guide.implement.title": "Choose one and press Implement",
-			"guide.implement.text": "Inside the direction you prefer, press “Implement this” and the agent builds it in your project. Step 4 at the top tells you how it is going.",
-			"guide.skip": "Skip the guide",
-			"guide.next": "Next",
-			"guide.done": "Got it",
+			"guide.compare.text": "Under each title you see what each one does better and what it gives up. Press “Open” on the one you want to review.",
+			"guide.review.title": "Review this direction",
+			"guide.review.text": "Press “Comment” and click whatever you want to change, or add it to the mix. When it convinces you, press “Implement this”.",
+			"guide.building.title": "The agent is building it",
+			"guide.building.text": "Step 4 at the top tells you how it is going. You can keep commenting meanwhile.",
+			"guide.done.title": "It is implemented",
+			"guide.done.text": "If your app is running, “Compare with app” at the top shows the design next to it.",
+			"guide.off": "Turn off help",
+			"guide.dismiss": "Got it",
 			"steps.label": "Steps",
 			"steps.compare": "Compare",
 			"steps.review": "Review",
@@ -559,21 +560,22 @@
 			"rail.list": "Lista",
 			"rail.list.title": "Lista de propuestas ([)",
 			"rail.more": "Más",
-			"rail.more.title": "Más: sistema de diseño, atajos de teclado y la guía",
+			"rail.more.title": "Más: sistema de diseño, atajos de teclado y ayuda paso a paso",
 			"rail.system": "Sistema de diseño",
 			"rail.keys": "Atajos de teclado",
-			"rail.guide": "Ver la guía",
-			"guide.eyebrow": "Primera vez · {n} de {total}",
-			"guide.steps": "Pasos de la guía",
+			"rail.help": "Ayuda paso a paso",
+			"guide.eyebrow": "Ayuda paso a paso · {n} de {total}",
+			"guide.steps": "Pasos",
 			"guide.compare.title": "Estas son tus propuestas",
-			"guide.compare.text": "El agente ha resuelto tu petición de varias formas. Debajo de cada título verás en qué gana y en qué cede.",
-			"guide.open.title": "Ábrelas para revisarlas",
-			"guide.open.text": "Pulsa «Abrir» en una propuesta para verla a tamaño real, comentarla o mezclarla.",
-			"guide.implement.title": "Elige una y pulsa Implementar",
-			"guide.implement.text": "Dentro de la propuesta que prefieras, pulsa «Implementar esto» y el agente la construirá en tu proyecto. El paso 4 de arriba te dirá cómo va.",
-			"guide.skip": "Saltar la guía",
-			"guide.next": "Siguiente",
-			"guide.done": "Entendido",
+			"guide.compare.text": "Debajo de cada título verás en qué gana y en qué cede. Pulsa «Abrir» en la que quieras revisar.",
+			"guide.review.title": "Revisa esta propuesta",
+			"guide.review.text": "Pulsa «Comentar» y haz clic en lo que quieras cambiar, o añádelo a la mezcla. Cuando te convenza, pulsa «Implementar esto».",
+			"guide.building.title": "El agente la está construyendo",
+			"guide.building.text": "El paso 4 de arriba te dice cómo va. Mientras tanto puedes seguir comentando.",
+			"guide.done.title": "Ya está implementada",
+			"guide.done.text": "Si tu app está en marcha, «Comparar con la app» arriba te enseña el diseño a su lado.",
+			"guide.off": "Apagar la ayuda",
+			"guide.dismiss": "Entendido",
 			"steps.label": "Pasos",
 			"steps.compare": "Comparar",
 			"steps.review": "Revisar",
@@ -1279,9 +1281,9 @@
 		mode: storedMode(),
 		// Technical details: selectors on the cards and the token inspector, off unless switched on (TECHNICAL_KEY).
 		technical: storedTechnical(),
-		// The open first-run guide: { step, returnFocus }, or null; and whether it already opened on its own in this page.
-		guide: null,
-		guideStarted: false,
+		// The step-by-step help: on (saved in this browser), the step whose card was dismissed with Got it, and where focus
+		// was when the card took it (only when you turn it on).
+		help: { on: false, dismissed: null, returnFocus: null },
 		activeId: null,
 		designCount: 0,
 		// The minimap's switch (M); it also hides in focus mode, Compare and a version comparison.
@@ -2622,10 +2624,14 @@
 		const item = document.createElement("button");
 		item.type = "button";
 		item.className = "gd-menu-item";
-		item.setAttribute("role", "menuitem");
+		// A switch (the step-by-step help) is a checkable item: its state is announced and shown with a check at the end.
+		const checkable = typeof action.checked === "boolean";
+		item.setAttribute("role", checkable ? "menuitemcheckbox" : "menuitem");
+		if (checkable) item.setAttribute("aria-checked", String(action.checked));
 		item.setAttribute("tabindex", "-1");
 		if (action.icon) item.append(icon(action.icon, "gd-i gd-i-s"));
 		item.append(chip("gd-menu-label", t(action.label)));
+		if (checkable) item.append(icon("i-check", "gd-i gd-i-s gd-menu-check"));
 		if (typeof action.count === "number") item.append(chip("gd-count", String(action.count)));
 		// A single-key shortcut that does the same, shown at the end of the item.
 		if (action.shortcut) {
@@ -3216,6 +3222,8 @@
 		renderTimeline();
 		renderNav();
 		renderHistory();
+		// After Compare with app: the help points at it once it shows.
+		renderGuide(false);
 	}
 
 	function renderCompareApp() {
@@ -3379,91 +3387,103 @@
 		connectionParts.hidden.textContent = online ? "" : ` ${sentence}`;
 	}
 
-	// ---- first-run guide (canvas-progressive S6) -------------------------------------------
-	// Three short steps over the canvas: the directions, an Open button, and step 4 of the breadcrumb (Implement this is only
-	// inside a direction). It opens by itself once per browser (GUIDE_KEY), never over focus mode, Compare, the comment box,
-	// a dialog or a menu: it waits while one is open and comes back at the same step. Esc or Skip the guide ends it; the
-	// rail's More shows it again. A non-modal card: focus moves into it and returns where it was.
+	// ---- step-by-step help (replaces the canvas-progressive S6 first-run guide) ------------
+	// Off by default. More's Step-by-step help turns it on and saves it in this browser (HELP_KEY); while on, a non-modal
+	// card names the step you are at and what to do there, and changes with it: the directions, a direction in focus, the
+	// agent building the chosen one, and Compare with app once it is implemented. Got it (or Esc) hides the card until the
+	// step changes; Turn off help turns it off. It never shows over Compare, the comment box, a dialog or a menu: it waits
+	// while one is open and comes back. Only turning it on moves focus into the card; a new step never takes the keyboard.
 
-	const GUIDE_STEPS = [
-		{ name: "directions", title: "guide.compare.title", text: "guide.compare.text", target: () => els.world },
-		{ name: "open", title: "guide.open.title", text: "guide.open.text", target: () => state.boards[0]?.openButton ?? null },
-		{ name: "implement", title: "guide.implement.title", text: "guide.implement.text", target: () => (stepParts ? stepParts[3].item : null) },
-	];
+	const HELP_STEPS = {
+		compare: { title: "guide.compare.title", text: "guide.compare.text", target: () => els.world },
+		review: { title: "guide.review.title", text: "guide.review.text", target: () => state.focus?.implement?.root ?? null },
+		building: { title: "guide.building.title", text: "guide.building.text", target: () => (stepParts ? stepParts[3].item : null) },
+		done: { title: "guide.done.title", text: "guide.done.text", target: () => (els.compareApp.hidden ? (stepParts ? stepParts[3].item : null) : els.compareApp) },
+	};
 	// The room the spotlight leaves around its target, and between the target and the card (where its arrow is).
 	const GUIDE_PAD = 8;
 	const GUIDE_GAP = 16;
 
-	/** "done" (skipped or finished), "new", or "unknown" when storage cannot be read: then it never opens by itself. */
-	function storedGuide() {
+	/** True only when this browser saved the help as on; unreadable storage starts with it off. */
+	function storedHelp() {
 		try {
-			return localStorage.getItem(GUIDE_KEY) === "done" ? "done" : "new";
+			return localStorage.getItem(HELP_KEY) === "on";
 		} catch {
-			return "unknown";
+			return false;
 		}
+	}
+	state.help.on = storedHelp();
+
+	/** The step the help speaks about: the breadcrumb's (canvas-progressive S2), or null on the design system board or with no directions. */
+	function helpStep() {
+		if (state.boards.length === 0 || state.focus?.system) return null;
+		const board = chosenBoard();
+		if (board) {
+			const entry = handoffOf(board).entry;
+			return entry && handoffKind(entry) === "implemented" ? "done" : "building";
+		}
+		return state.focus ? "review" : "compare";
 	}
 
 	function guideBlocked() {
-		return Boolean(state.focus || state.compare || state.menu || state.langMenu || !els.popover.hidden || els.shortcuts.hasAttribute("open") || els.variantDialog.hasAttribute("open"));
+		return Boolean(state.compare || state.menu || state.langMenu || !els.popover.hidden || els.shortcuts.hasAttribute("open") || els.variantDialog.hasAttribute("open"));
 	}
 
-	/** Once the first design with directions is shown, the first visit of this browser gets the guide. */
-	function maybeStartGuide() {
-		if (state.guideStarted || state.boards.length === 0) return;
-		state.guideStarted = true;
-		if (storedGuide() === "new") openGuide(null);
+	/** Turns the help on (its card for the current step takes focus, coming back to `returnFocus`) or off, and saves it. */
+	function setHelp(on, returnFocus) {
+		state.help = { on, dismissed: null, returnFocus: on ? returnFocus ?? document.activeElement : null };
+		try { localStorage.setItem(HELP_KEY, on ? "on" : "off"); } catch { /* storage may be unavailable: on for this page only */ }
+		renderGuide(on);
 	}
 
-	function openGuide(returnFocus) {
-		state.guideStarted = true;
-		state.guide = { step: 0, returnFocus: returnFocus ?? document.activeElement };
-		renderGuide(true);
+	/** Got it and Esc: hides this step's card; the next step shows its own. */
+	function dismissGuide() {
+		state.help.dismissed = helpStep();
+		hideGuide();
 	}
 
-	function closeGuide() {
-		const guide = state.guide;
-		if (!guide) return;
-		state.guide = null;
-		try { localStorage.setItem(GUIDE_KEY, "done"); } catch { /* storage may be unavailable */ }
+	/** Gives focus back where it was when the card took it, when the keyboard was in the card. */
+	function hideGuide() {
 		const inside = els.guide.contains(document.activeElement) || document.activeElement === els.guideNext || document.activeElement === els.guideSkip;
+		const back = state.help.returnFocus && state.help.returnFocus !== document.body ? state.help.returnFocus : els.viewport;
+		state.help.returnFocus = null;
 		renderGuide(false);
-		const back = guide.returnFocus && guide.returnFocus !== document.body ? guide.returnFocus : els.viewport;
 		if (inside || document.activeElement === document.body) back.focus();
 	}
 
-	/** Shows the card and the spotlight at the current step, or hides them while something else is open; `moveFocus` puts the keyboard on Next. */
+	/** Shows the card and the spotlight for the current step, or hides them; `moveFocus` puts the keyboard on Got it. */
 	function renderGuide(moveFocus) {
-		const guide = state.guide;
-		const shown = Boolean(guide) && !guideBlocked();
+		const name = state.help.on ? helpStep() : null;
+		if (state.help.dismissed && state.help.dismissed !== name) state.help.dismissed = null;
+		const shown = Boolean(name) && state.help.dismissed !== name && !guideBlocked();
 		els.guide.hidden = !shown;
 		els.guideSpot.hidden = !shown;
 		if (!shown) return;
-		const step = GUIDE_STEPS[guide.step];
-		const last = guide.step === GUIDE_STEPS.length - 1;
-		loc(els.guideEyebrow, "text", "guide.eyebrow", { n: guide.step + 1, total: GUIDE_STEPS.length });
+		const step = HELP_STEPS[name];
+		const at = Math.min(currentStep(), STEP_KEYS.length - 1);
+		loc(els.guideEyebrow, "text", "guide.eyebrow", { n: at + 1, total: STEP_KEYS.length });
 		loc(els.guideTitle, "text", step.title);
 		loc(els.guideText, "text", step.text);
-		loc(els.guideNextLabel, "text", last ? "guide.done" : "guide.next");
-		els.guideSteps.replaceChildren(...GUIDE_STEPS.map((entry, index) => {
+		els.guideSteps.replaceChildren(...STEP_KEYS.map((key, index) => {
 			const item = document.createElement("li");
-			loc(item, "text", entry.title);
-			if (index === guide.step) item.setAttribute("aria-current", "step");
+			loc(item, "text", key);
+			if (index === at) item.setAttribute("aria-current", "step");
 			return item;
 		}));
-		els.guide.dataset.target = step.name;
+		els.guide.dataset.target = name;
 		placeGuide();
 		if (moveFocus) els.guideNext.focus();
 	}
 
 	/** The spotlight around the step's target (the directions are clipped to the viewport) and the card below it, above it, or inside the viewport. */
 	function placeGuide() {
-		const guide = state.guide;
-		if (!guide || els.guide.hidden) return;
+		const name = els.guide.hidden ? null : els.guide.dataset.target;
+		if (!name || !HELP_STEPS[name]) return;
 		const view = els.viewport.getBoundingClientRect();
-		const element = GUIDE_STEPS[guide.step].target();
+		const element = HELP_STEPS[name].target();
 		let rect = element ? element.getBoundingClientRect() : null;
 		if (!rect || (rect.width === 0 && rect.height === 0)) rect = view;
-		if (guide.step === 0) {
+		if (name === "compare") {
 			const left = Math.max(rect.left, view.left);
 			const top = Math.max(rect.top, view.top);
 			const right = Math.min(rect.left + rect.width, view.left + view.width);
@@ -3496,28 +3516,24 @@
 		els.guide.style.setProperty("--gd-guide-arrow", `${Math.max(20, Math.min(center - left, width - 20))}px`);
 	}
 
-	els.guideNext.addEventListener("click", () => {
-		const guide = state.guide;
-		if (!guide) return;
-		if (guide.step === GUIDE_STEPS.length - 1) {
-			closeGuide();
-			return;
-		}
-		guide.step += 1;
-		renderGuide(true);
+	els.guideNext.addEventListener("click", dismissGuide);
+	els.guideSkip.addEventListener("click", () => {
+		const back = state.help.returnFocus;
+		state.help = { on: false, dismissed: null, returnFocus: back };
+		try { localStorage.setItem(HELP_KEY, "off"); } catch { /* storage may be unavailable */ }
+		hideGuide();
 	});
-	els.guideSkip.addEventListener("click", closeGuide);
 	els.guide.addEventListener("keydown", (event) => {
 		if (event.key !== "Escape") return;
 		event.preventDefault();
 		event.stopPropagation();
-		closeGuide();
+		dismissGuide();
 	});
-	// Esc anywhere on the page skips the guide first, while it shows (it never shows over what else takes Esc).
+	// Esc anywhere on the page hides the card first, while it shows (it never shows over what else takes Esc).
 	document.addEventListener("keydown", (event) => {
-		if (event.defaultPrevented || event.key !== "Escape" || event.shiftKey || !state.guide || els.guide.hidden) return;
+		if (event.defaultPrevented || event.key !== "Escape" || event.shiftKey || els.guide.hidden) return;
 		event.preventDefault();
-		closeGuide();
+		dismissGuide();
 	});
 
 	/** Chosen, Sent to the session, In progress, Implemented: done, current or pending, with timestamps. */
@@ -3979,7 +3995,6 @@
 		await loadHandoffs();
 		await loadComments();
 		loadHistory().catch(() => {});
-		if (slug === state.slug) maybeStartGuide();
 	}
 
 	function reloadBoard(board) {
@@ -6008,13 +6023,12 @@
 
 	els.navToggle.addEventListener("click", () => setNav(els.nav.hidden));
 
-	/** What the rail's More offers: the design system board (when there is one, and not over Compare), the keyboard shortcuts and the guide. */
+	/** What the rail's More offers: the design system board (when there is one, and not over Compare), the keyboard shortcuts and the step-by-step help switch. */
 	function moreActions() {
 		return [
 			{ label: "rail.system", icon: "i-palette", disabled: !state.systemBoard || Boolean(state.compare), run: () => enterFocus(state.systemBoard) },
 			{ label: "rail.keys", icon: "i-keys", shortcut: "?", run: openShortcuts },
-			// The guide never shows over focus mode or Compare: leave them first.
-			{ label: "rail.guide", icon: "i-help", run: () => { exitCompare(false); exitFocus(); openGuide(els.railMore); } },
+			{ label: "rail.help", icon: "i-help", checked: state.help.on, run: () => setHelp(!state.help.on, els.railMore) },
 		];
 	}
 

@@ -2497,6 +2497,14 @@ kbd {
 
 .gd-lang-item[aria-checked="true"] .gd-lang-check { visibility: visible; }
 
+.gd-menu-check {
+	margin-left: auto;
+	color: var(--accent);
+	visibility: hidden;
+}
+
+.gd-menu-item[aria-checked="true"] .gd-menu-check { visibility: visible; }
+
 .gd-lang-note {
 	margin: 6px 10px 4px;
 	color: var(--text-muted);
@@ -2515,7 +2523,7 @@ kbd {
 	body.gd-printing .gd-print { position: static; visibility: visible; }
 }
 
-/* ---- first-run guide (canvas-progressive S6) ---- */
+/* ---- step-by-step help card (replaces the canvas-progressive S6 first-run guide) ---- */
 
 /* The spotlight: an accent ring around the step's target, the rest of the page under the scrim; clicks pass through. */
 .gd-guide-spot {
