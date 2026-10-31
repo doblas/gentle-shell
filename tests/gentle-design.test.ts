@@ -9,7 +9,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import gentleDesign, { DESIGN_COMMAND_NAME } from "../extensions/gentle-design.ts";
 import { formatDesignComment, formatDesignCommentBatch, startDesignCanvasServer, type DesignCanvasServer, type DesignCanvasServerOptions, type DesignComment } from "../lib/design-canvas-server.ts";
 import { createDesignHistoryStore } from "../lib/design-history.ts";
-import { designImplementMessage, designMixMessage, designVariantMessage } from "../lib/gentle-design.ts";
+import { designImplementMessage, designImplementPartMessage, designMixMessage, designVariantMessage } from "../lib/gentle-design.ts";
 import type { OpenInBrowserResult } from "../lib/design-open-browser.ts";
 import { __testing } from "../extensions/skill-registry.ts";
 
@@ -1543,7 +1543,7 @@ async function variantSession(t: { after(fn: () => unknown): void }, idle: boole
 test("integration: the canvas variant route sends the session one message and the page config advertises it", async (t) => {
 	const { cwd, sent, post, page } = await variantSession(t, true);
 	const config = JSON.parse(/<script id="gd-config" type="application\/json">([^<]*)<\/script>/.exec(page)![1]);
-	assert.deepEqual(config.delivery, { comment: true, batch: true, implement: true, variant: true, mix: true });
+	assert.deepEqual(config.delivery, { comment: true, batch: true, implement: true, variant: true, mix: true, part: true });
 	const reply = await post({ file: "01-split.html", instruction: "  More compact for phones\r\nand a calmer palette " });
 	assert.equal(reply.status, 202);
 	assert.deepEqual(JSON.parse(reply.body), { ok: true, slug: "login", file: "01-split.html", queued: false });
@@ -1704,4 +1704,143 @@ test("the gentle_design tool schema and description name the handoff action", ()
 test("the skill tells the agent to report handoff progress and to name the chosen artboard in the ODD Log", () => {
 	const source = readFileSync(SKILL_PATH, "utf8");
 	for (const part of ['action "handoff"', '"in_progress"', '"implemented"', "previewUrl", "chosen artboard"]) assert.ok(source.includes(part), `SKILL.md mentions ${part}`);
+});
+
+// ---- canvas-implement-part: "Implement only this" (S4-S6)
+
+const PART_TEXT = [
+	"Implement only one part of the design artboard design/login/02-card.html",
+	"",
+	"Artboard: design/login/02-card.html",
+	"Title: Centered card",
+	"Part id: abc123",
+	"Element: nav.side > ul",
+	'Excerpt: "Home Tours"',
+	"Note:",
+	"solo el menú",
+	"sin la cabecera",
+	"",
+	"Build only this element in the project's real stack, as the shared piece the app would reuse (a layout or component) when it has one. Use the artboard as the visual spec for it: map it to the project's existing components and styles, and do not copy the artboard HTML verbatim. Leave the rest of the artboard unbuilt: this does not choose a direction, and the other artboards stay open.",
+	"Take colors, typography, spacing, radius and shadows from design/system.md, the project's token source.",
+	'Report progress with the gentle_design tool: action "handoff", target "login/02-card.html", part "abc123", status "in_progress" when you start; status "implemented" when it is done, with a one-line note on where it lives in the project.',
+	"This design is not linked to an ODD feature document: size it under the project's ODD rules as usual.",
+	"This handoff itself commits nothing.",
+].join("\n");
+
+const partInput = {
+	slug: "login",
+	artboard: { file: "02-card.html", title: "Centered card" },
+	part: { id: "abc123", selector: "nav.side > ul", excerpt: "Home Tours", instruction: "solo el menú\nsin la cabecera" },
+	systemTokens: true,
+};
+
+test("implement-part S5: the message asks to build only that element, names it, keeps the directions open and says how to report", () => {
+	assert.equal(designImplementPartMessage(partInput), PART_TEXT);
+	const bare = designImplementPartMessage({ ...partInput, systemTokens: false, part: { id: "abc123", selector: "nav.side > ul", excerpt: "" }, feature: "odd/tasks/tours.md" });
+	assert.ok(bare.includes("Excerpt: (none)\nNote: (none)"), "no excerpt and no note");
+	assert.ok(!bare.includes("Take colors"), "no token line without design/system.md");
+	assert.ok(bare.includes("This design belongs to an ODD feature: track this part in odd/tasks/tours.md (add or reopen its task there and log this handoff)."));
+});
+
+async function partSession(t: { after(fn: () => unknown): void }, idle: boolean) {
+	const cwd = scratchCwd();
+	writeLinkedDesign(cwd, "login");
+	writeFileSync(join(cwd, "design", "system.md"), "# Tokens");
+	const { pi, sent, emit, command } = fakePi();
+	const opens: string[] = [];
+	gentleDesign(pi, { openBrowser: async (url) => { opens.push(url); return { opened: true }; } });
+	t.after(() => emit("session_shutdown", { type: "session_shutdown", reason: "quit" }));
+	const session = fakeContext(cwd, idle);
+	await command().handler("open login", session.ctx);
+	const url = new URL(opens[0]);
+	const token = url.pathname.split("/")[1];
+	const post = (body: unknown, headers: Record<string, string> = { Origin: url.origin }) => new Promise<{ status: number; body: string }>((resolve, reject) => {
+		const req = httpRequest({ host: "127.0.0.1", port: url.port, path: `/${token}/api/designs/login/implement-part`, method: "POST", headers: { "Content-Type": "application/json", ...headers } }, (res) => {
+			let text = "";
+			res.setEncoding("utf8");
+			res.on("data", (chunk: string) => { text += chunk; });
+			res.on("end", () => resolve({ status: res.statusCode ?? 0, body: text }));
+		});
+		req.on("error", reject);
+		req.end(JSON.stringify(body));
+	});
+	return { cwd, sent, session, post };
+}
+
+const PART_BODY = { file: "02-card.html", selector: "nav.side > ul", excerpt: "Home Tours", note: "solo el menú\r\nsin la cabecera " };
+const partsFile = (cwd: string) => JSON.parse(readFileSync(join(cwd, "design", "login", "parts.json"), "utf8"));
+
+test("implement-part integration: the canvas route records the part and sends the session exactly the part message, choosing nothing", async (t) => {
+	const { cwd, sent, post } = await partSession(t, true);
+	const reply = await post(PART_BODY);
+	assert.equal(reply.status, 202);
+	const { id, queued } = JSON.parse(reply.body);
+	assert.equal(queued, false);
+	assert.equal(partsFile(cwd).parts[0].id, id);
+	assert.equal(sent.length, 1, "exactly one message");
+	assert.equal(sent[0].content, PART_TEXT.replaceAll("abc123", id));
+	assert.equal(sent[0].options, undefined, "an idle agent runs it now");
+	assert.equal(existsSync(join(cwd, "design", "login", "handoffs.json")), false, "no direction is chosen");
+});
+
+test("implement-part integration: queued as a follow-up while the agent is busy; a refused request sends nothing and records nothing", async (t) => {
+	const busy = await partSession(t, false);
+	const reply = await busy.post(PART_BODY);
+	assert.equal(JSON.parse(reply.body).queued, true);
+	assert.deepEqual(busy.sent[0].options, { deliverAs: "followUp" });
+	assert.equal(partsFile(busy.cwd).parts[0].queued, true);
+
+	const idle = await partSession(t, true);
+	assert.equal((await idle.post({ ...PART_BODY, file: "nope.html" })).status, 400);
+	assert.equal((await idle.post({ ...PART_BODY, selector: "" })).status, 400);
+	assert.equal((await idle.post(PART_BODY, { Origin: "http://evil.example" })).status, 403);
+	assert.equal(idle.sent.length, 0);
+	assert.equal(existsSync(join(idle.cwd, "design", "login", "parts.json")), false);
+});
+
+test("implement-part S6: gentle_design handoff with a part moves that part, leaves handoffs.json alone, and refuses an unknown part or another artboard's", async () => {
+	const cwd = scratchCwd();
+	writeLinkedDesign(cwd, "login");
+	mkdirSync(join(cwd, "design", "login"), { recursive: true });
+	writeFileSync(join(cwd, "design", "login", "parts.json"), JSON.stringify({ version: 1, parts: [{ id: "abc123", file: "02-card.html", selector: "nav.side", excerpt: "Home", status: "sent", queued: false, sentAt: "2026-10-31T10:00:00.000Z", startedAt: null, implementedAt: null }] }));
+	const fake = fakePi();
+	gentleDesign(fake.pi, { startServer: unexpectedServer, openBrowser: unexpectedBrowser });
+	const run = designTool(fake);
+	const { ctx } = fakeContext(cwd);
+	const started = await run({ action: "handoff", target: "login/02-card.html", part: "abc123", status: "in_progress", note: "Sidebar first" }, ctx);
+	assert.equal(toolText(started), "Part abc123 of design/login/02-card.html (nav.side): in progress. No direction is chosen by it.");
+	const done = await run({ action: "handoff", target: "login/02-card.html", part: "abc123", status: "implemented", note: "src/layout/Sidebar.tsx" }, ctx);
+	assert.equal(toolText(done), "Part abc123 of design/login/02-card.html (nav.side): implemented. No direction is chosen by it.");
+	const part = partsFile(cwd).parts[0];
+	assert.equal(part.status, "implemented");
+	assert.equal(part.note, "src/layout/Sidebar.tsx");
+	assert.deepEqual(done.details, { target: "login/02-card.html", part });
+	assert.equal(existsSync(join(cwd, "design", "login", "handoffs.json")), false, "handoffs.json is untouched");
+	await assert.rejects(run({ action: "handoff", target: "login/02-card.html", part: "nope", status: "implemented" }, ctx), /No part "nope"/);
+	await assert.rejects(run({ action: "handoff", target: "login/01-split.html", part: "abc123", status: "implemented" }, ctx), /belongs to 02-card\.html/);
+	await assert.rejects(run({ action: "handoff", target: "login/02-card.html", part: "abc123" }, ctx), /status "in_progress" or "implemented"/);
+	assert.equal(fake.sent.length, 0, "the tool sends no user message");
+});
+
+test("implement-part S6: gentle_design list names each design's parts with their state; the schema has part", async () => {
+	const cwd = scratchCwd();
+	writeLinkedDesign(cwd, "login");
+	writeFileSync(join(cwd, "design", "login", "parts.json"), JSON.stringify({ version: 1, parts: [
+		{ id: "abc123", file: "02-card.html", selector: "nav.side", excerpt: "Home", status: "implemented", queued: false, sentAt: "2026-10-31T10:00:00.000Z", startedAt: "2026-10-31T10:01:00.000Z", implementedAt: "2026-10-31T10:02:00.000Z" },
+		{ id: "def456", file: "01-split.html", selector: "footer", excerpt: "", status: "sent", queued: true, sentAt: "2026-10-31T10:03:00.000Z", startedAt: null, implementedAt: null },
+	] }));
+	const fake = fakePi();
+	gentleDesign(fake.pi, fakeCanvas());
+	const run = designTool(fake);
+	const { ctx } = fakeContext(cwd);
+	const text = toolText(await run({ action: "list" }, ctx));
+	assert.ok(text.includes([
+		"- login: Login screen",
+		"  - 01-split.html: Split layout",
+		"  - 02-card.html: Centered card",
+		"  Parts handed off on their own (2): abc123 02-card.html nav.side (implemented); def456 01-split.html footer (sent, queued)",
+	].join("\n")), text);
+	const tool = fake.tool("gentle_design") as unknown as { description: string; parameters: { properties: Record<string, unknown> } };
+	assert.ok("part" in tool.parameters.properties, "the schema has part");
+	assert.ok(tool.description.includes("part"), "the description names part");
 });

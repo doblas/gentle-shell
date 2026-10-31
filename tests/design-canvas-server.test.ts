@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { TestContext } from "node:test";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { designCommentBatchContent, designCommentContent, formatDesignComment, formatDesignCommentBatch, startDesignCanvasServer, type DesignCanvasServerOptions, type DesignComment, type DesignMixRequest } from "../lib/design-canvas-server.ts";
+import { designCommentBatchContent, designCommentContent, formatDesignComment, formatDesignCommentBatch, startDesignCanvasServer, type DesignCanvasServerOptions, type DesignComment, type DesignImplementPartRequest, type DesignMixRequest } from "../lib/design-canvas-server.ts";
 
 const TOKEN = "test-token-0123456789abcdef";
 const ASSET_DIR = fileURLToPath(new URL("../assets/design-canvas/", import.meta.url));
@@ -74,13 +74,14 @@ function fixture(t: TestContext) {
 	return { root, outside };
 }
 
-async function start(t: TestContext, extra: { initialSlug?: string; onImplement?: DesignCanvasServerOptions["onImplement"]; onVariant?: DesignCanvasServerOptions["onVariant"]; onMix?: DesignCanvasServerOptions["onMix"] } = {}) {
+async function start(t: TestContext, extra: { initialSlug?: string; onImplement?: DesignCanvasServerOptions["onImplement"]; onVariant?: DesignCanvasServerOptions["onVariant"]; onMix?: DesignCanvasServerOptions["onMix"]; onImplementPart?: DesignCanvasServerOptions["onImplementPart"] } = {}) {
 	const { root } = fixture(t);
 	const comments: DesignComment[] = [];
 	const batches: DesignComment[][] = [];
 	const implements_: Array<{ slug: string; file: string }> = [];
 	const variants: Array<{ slug: string; file: string; instruction: string }> = [];
 	const mixes: DesignMixRequest[] = [];
+	const parts: DesignImplementPartRequest[] = [];
 	const server = await startDesignCanvasServer({
 		designRoot: root,
 		onComment: (comment) => { comments.push(comment); },
@@ -88,11 +89,12 @@ async function start(t: TestContext, extra: { initialSlug?: string; onImplement?
 		onImplement: (request) => { implements_.push(request); },
 		onVariant: (request) => { variants.push(request); },
 		onMix: (request) => { mixes.push(request); },
+		onImplementPart: (request) => { parts.push(request); },
 		randomToken: () => TOKEN,
 		...extra,
 	});
 	t.after(() => server.close());
-	return { server, root, comments, batches, implements: implements_, variants, mixes, port: server.port, base: `/${TOKEN}/` };
+	return { server, root, comments, batches, implements: implements_, variants, mixes, parts, port: server.port, base: `/${TOKEN}/` };
 }
 
 test("start returns a loopback URL with a random base64url token by default", async (t) => {
@@ -158,11 +160,11 @@ test("the canvas page carries a strict CSP and a JSON config, never inline code"
 	assert.ok(!csp.includes("unsafe-inline") && !csp.includes("unsafe-eval"));
 	const config = /<script id="gd-config" type="application\/json">([^<]*)<\/script>/.exec(page.body);
 	assert.ok(config, "config script present");
-	assert.deepEqual(JSON.parse(config[1]), { base, slug: null, delivery: { comment: true, batch: true, implement: true, variant: true, mix: true } });
+	assert.deepEqual(JSON.parse(config[1]), { base, slug: null, delivery: { comment: true, batch: true, implement: true, variant: true, mix: true, part: true } });
 	assert.ok(page.body.includes(`src="${base}assets/canvas.js"`));
 	const slugPage = await rawRequest(port, `${base}d/alpha/`);
 	assert.equal(slugPage.status, 200);
-	assert.deepEqual(JSON.parse(/<script id="gd-config" type="application\/json">([^<]*)<\/script>/.exec(slugPage.body)![1]), { base, slug: "alpha", delivery: { comment: true, batch: true, implement: true, variant: true, mix: true } });
+	assert.deepEqual(JSON.parse(/<script id="gd-config" type="application\/json">([^<]*)<\/script>/.exec(slugPage.body)![1]), { base, slug: "alpha", delivery: { comment: true, batch: true, implement: true, variant: true, mix: true, part: true } });
 	assert.equal((await rawRequest(port, `${base}d/Bad_Slug/`)).status, 404);
 	assert.equal((await rawRequest(port, `${base}d/alpha/extra`)).status, 404);
 	assert.equal((await rawRequest(port, base, { method: "POST" })).status, 405);
@@ -997,6 +999,97 @@ test("S4: mix answers queued from the delivery, 501 without onMix and 500 when i
 	assert.equal((await rawRequest(failing.port, `/${TOKEN}/api/designs`)).status, 200, "the server survives");
 });
 
+// canvas-implement-part S2, S4: "Implement only this" hands one element of an artboard to the session, recorded in
+// design/<slug>/parts.json before delivery; handoffs.json and the chosen artboard stay as they are.
+const PARTS = "api/designs/alpha/implement-part";
+const PARTS_LIST = "api/designs/alpha/parts";
+const SIDE = { file: "02-bare.html", selector: "  nav.side\n > ul ", excerpt: "  Home\n  Tours ", note: "  solo el menú\r\nsin la cabecera  " };
+
+test("implement-part S4: Implement only this records the part, delivers it once with its id, answers 202, and leaves handoffs.json alone", async (t) => {
+	const { port, root, parts } = await start(t);
+	const reply = await postJson(port, PARTS, SIDE);
+	assert.equal(reply.status, 202);
+	const body = JSON.parse(reply.body);
+	assert.deepEqual(Object.keys(body), ["ok", "id", "queued"]);
+	assert.equal(body.ok, true);
+	assert.equal(body.queued, false);
+	assert.match(body.id, /^[a-z0-9]{1,32}$/);
+	const onDisk = JSON.parse(readFileSync(join(root, "alpha", "parts.json"), "utf8"));
+	assert.equal(onDisk.parts.length, 1);
+	const [part] = onDisk.parts;
+	assert.deepEqual({ ...part, sentAt: "t" }, { id: body.id, file: "02-bare.html", selector: "nav.side > ul", excerpt: "Home Tours", instruction: "solo el menú\nsin la cabecera", status: "sent", queued: false, sentAt: "t", startedAt: null, implementedAt: null }, "selector and excerpt collapsed, the note trimmed with LF line ends");
+	assert.deepEqual(parts, [{ slug: "alpha", part }], "the session gets exactly the recorded part");
+	assert.equal(existsSync(join(root, "alpha", "handoffs.json")), false, "no direction is chosen");
+	const listed = await rawRequest(port, `/${TOKEN}/${PARTS_LIST}`);
+	assert.equal(listed.status, 200);
+	assert.deepEqual(JSON.parse(listed.body), onDisk);
+	const bare = await postJson(port, PARTS, { file: "01-hero.html", selector: "h1" });
+	assert.equal(bare.status, 202, "excerpt and note are optional");
+	assert.equal(JSON.parse(readFileSync(join(root, "alpha", "parts.json"), "utf8")).parts[1].instruction, undefined);
+});
+
+test("implement-part S4: the route refuses a file outside the manifest and bad fields, delivering and recording nothing", async (t) => {
+	const { port, root, parts } = await start(t);
+	const refused = async (body: unknown, status: number, error: string, label: string) => {
+		const reply = await postJson(port, PARTS, body);
+		assert.equal(reply.status, status, label);
+		assert.equal(JSON.parse(reply.body).error, error, label);
+	};
+	for (const file of ["sub/inner.html", "missing.html", "../beta/01-a.html", "alias.html", 7, "", undefined]) await refused({ ...SIDE, file }, 400, "invalid-file", `file ${String(file)}`);
+	for (const selector of ["", "   ", "s".repeat(501), 7, undefined]) await refused({ ...SIDE, selector }, 400, "invalid-selector", `selector ${String(selector).slice(0, 10)}`);
+	await refused({ ...SIDE, excerpt: 7 }, 400, "invalid-excerpt", "excerpt not text");
+	for (const note of ["n".repeat(2001), 7]) await refused({ ...SIDE, note }, 400, "invalid-note", `note ${String(note).slice(0, 10)}`);
+	assert.equal((await postJson(port, "api/designs/missing/implement-part", SIDE)).status, 404);
+	assert.equal((await postJson(port, "api/designs/Not_A_Slug/implement-part", SIDE)).status, 404);
+	assert.equal(parts.length, 0, "nothing refused reaches the session");
+	assert.equal(existsSync(join(root, "alpha", "parts.json")), false, "and nothing is recorded");
+	writeFileSync(join(root, "alpha", "parts.json"), "not json");
+	const broken = await postJson(port, PARTS, { file: "01-hero.html", selector: "h1" });
+	assert.equal(broken.status, 422);
+	assert.equal(JSON.parse(broken.body).error, "invalid-parts");
+	assert.equal(readFileSync(join(root, "alpha", "parts.json"), "utf8"), "not json", "a broken file is never overwritten");
+	assert.equal((await rawRequest(port, `/${TOKEN}/${PARTS_LIST}`)).status, 422);
+});
+
+test("implement-part S4: the route answers queued from the delivery, 501 without onImplementPart, and 500 when the delivery throws, taking the part back", async (t) => {
+	const { root } = fixture(t);
+	const request = { file: "01-hero.html", selector: "h1" };
+	const bare = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, randomToken: () => TOKEN });
+	t.after(() => bare.close());
+	const none = await postJson(bare.port, PARTS, request);
+	assert.equal(none.status, 501);
+	assert.deepEqual(JSON.parse(none.body), { error: "implement-part-unavailable" });
+	assert.equal(existsSync(join(root, "alpha", "parts.json")), false);
+
+	const queueing = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onImplementPart: () => ({ queued: true }), randomToken: () => TOKEN });
+	t.after(() => queueing.close());
+	const queued = await postJson(queueing.port, PARTS, request);
+	assert.equal(JSON.parse(queued.body).queued, true);
+	assert.equal(JSON.parse(readFileSync(join(root, "alpha", "parts.json"), "utf8")).parts[0].queued, true);
+
+	const failing = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onImplementPart: () => { throw new Error("session closed"); }, randomToken: () => TOKEN });
+	t.after(() => failing.close());
+	const reply = await postJson(failing.port, PARTS, request);
+	assert.equal(reply.status, 500);
+	assert.deepEqual(JSON.parse(reply.body), { error: "delivery-failed", slug: "alpha", file: "01-hero.html", reason: "session closed" });
+	assert.equal(JSON.parse(readFileSync(join(root, "alpha", "parts.json"), "utf8")).parts.length, 1, "the failed part is taken back, the queued one stays");
+});
+
+test("implement-part S4: the parts route keeps the Origin, content-type, JSON and method rules", async (t) => {
+	const { port, parts } = await start(t);
+	const path = `/${TOKEN}/${PARTS}`;
+	const body = JSON.stringify({ file: "01-hero.html", selector: "h1" });
+	const own = { Origin: `http://127.0.0.1:${port}`, "Content-Type": "application/json" };
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { "Content-Type": "application/json" }, body })).status, 403, "no Origin");
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { ...own, Origin: "http://evil.example" }, body })).status, 403);
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { ...own, "Content-Type": "text/plain" }, body })).status, 415);
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: own, body: "not json" })).status, 400);
+	assert.equal((await rawRequest(port, path, { method: "PUT", headers: own, body })).status, 405);
+	assert.equal((await rawRequest(port, path)).status, 405, "the list is read from api/designs/<slug>/parts");
+	assert.equal((await rawRequest(port, `/${TOKEN}/${PARTS_LIST}`, { method: "POST", headers: own, body })).status, 405, "and written only through implement-part");
+	assert.equal(parts.length, 0);
+});
+
 // S15: the canvas Implement route records the handoff in design/<slug>/handoffs.json.
 
 const handoffsOf = (root: string, slug = "alpha") => JSON.parse(readFileSync(join(root, slug, "handoffs.json"), "utf8"));
@@ -1340,7 +1433,7 @@ test("the page config tells the canvas which deliveries exist, and the 501 check
 
 	const bare = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, randomToken: () => TOKEN });
 	t.after(() => bare.close());
-	assert.deepEqual((await configOf(bare.port, TOKEN)).delivery, { comment: true, batch: false, implement: false, variant: false, mix: false });
+	assert.deepEqual((await configOf(bare.port, TOKEN)).delivery, { comment: true, batch: false, implement: false, variant: false, mix: false, part: false });
 	const batchOnly = await postJson(bare.port, "api/designs/alpha/comments/send-all", {});
 	// Nothing unsent: the batch capability is only checked when there is something to deliver.
 	assert.equal(batchOnly.status, 200);
@@ -1354,19 +1447,22 @@ test("the page config tells the canvas which deliveries exist, and the 501 check
 
 	const batch = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onComments: () => {}, randomToken: () => "b".repeat(32) });
 	t.after(() => batch.close());
-	assert.deepEqual((await configOf(batch.port, "b".repeat(32))).delivery, { comment: true, batch: true, implement: false, variant: false, mix: false });
+	assert.deepEqual((await configOf(batch.port, "b".repeat(32))).delivery, { comment: true, batch: true, implement: false, variant: false, mix: false, part: false });
 	const implement = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onImplement: () => ({ queued: false }), randomToken: () => "i".repeat(32) });
 	t.after(() => implement.close());
-	assert.deepEqual((await configOf(implement.port, "i".repeat(32))).delivery, { comment: true, batch: false, implement: true, variant: false, mix: false });
+	assert.deepEqual((await configOf(implement.port, "i".repeat(32))).delivery, { comment: true, batch: false, implement: true, variant: false, mix: false, part: false });
 	const variant = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onVariant: () => ({ queued: false }), randomToken: () => "v".repeat(32) });
 	t.after(() => variant.close());
-	assert.deepEqual((await configOf(variant.port, "v".repeat(32))).delivery, { comment: true, batch: false, implement: false, variant: true, mix: false });
+	assert.deepEqual((await configOf(variant.port, "v".repeat(32))).delivery, { comment: true, batch: false, implement: false, variant: true, mix: false, part: false });
 	const noVariant = await postJson(bare.port, "api/designs/alpha/variant", { file: "01-a.html", instruction: "Bolder" });
 	assert.equal(noVariant.status, 501);
 	assert.equal(JSON.parse(noVariant.body).error, "variant-unavailable");
 	const mix = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onMix: () => ({ queued: false }), randomToken: () => "m".repeat(32) });
 	t.after(() => mix.close());
-	assert.deepEqual((await configOf(mix.port, "m".repeat(32))).delivery, { comment: true, batch: false, implement: false, variant: false, mix: true });
+	assert.deepEqual((await configOf(mix.port, "m".repeat(32))).delivery, { comment: true, batch: false, implement: false, variant: false, mix: true, part: false });
+	const part = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onImplementPart: () => ({ queued: false }), randomToken: () => "p".repeat(32) });
+	t.after(() => part.close());
+	assert.deepEqual((await configOf(part.port, "p".repeat(32))).delivery, { comment: true, batch: false, implement: false, variant: false, mix: false, part: true });
 	const noMix = await postJson(bare.port, "api/designs/alpha/mix", { base: "01-hero.html", picks: [{ file: "01-hero.html", selector: "h1" }] });
 	assert.equal(noMix.status, 501);
 	assert.equal(JSON.parse(noMix.body).error, "mix-unavailable");
