@@ -8579,3 +8579,49 @@ test("board spacing: the header text never widens a direction, and a long tradeo
 	assert.equal(first.textContent, long);
 	assert.equal(first.title, long, "the full tradeoff is in the tooltip");
 });
+
+// ---- canvas polish (impeccable): the top bar never overlaps, the focused board is never dimmed, browser surfaces carry the palette
+
+test("polish F1: the top bar keeps its controls whole and lets the design name and the chosen status give way, narrowing in steps", () => {
+	const css = read("canvas.css");
+	assert.match(css, /\.gd-bar \{ container: gd-bar \/ inline-size; \}/, "the bar is a size container");
+	assert.match(css, /\.gd-bar > \.gd-steps, \.gd-bar > \.gd-lang-button, \.gd-bar > \.gd-zoom, \.gd-bar > \.gd-connection, \.gd-bar > \.gd-secondary, \.gd-bar > \.gd-toggle \{ flex: none; \}/, "controls never shrink under their text");
+	assert.match(css, /\.gd-field select \{ width: clamp\(16ch, 15vw, 28ch\); text-overflow: ellipsis; \}/, "the design name is cut with an ellipsis");
+	assert.match(css, /\.gd-work \{ flex: 0 1 auto; min-width: 9rem; overflow: hidden; \}/, "the status shrinks but keeps room for Show");
+	const block = (width: number) => {
+		const start = css.indexOf(`@container gd-bar (max-width: ${width}px) {`);
+		assert.ok(start >= 0, `a ${width}px step exists`);
+		return css.slice(start, css.indexOf("\n}", start));
+	};
+	assert.match(block(2100), /\.gd-work-note \{ display: none; \}/);
+	assert.match(block(1700), /\.gd-connection\[data-state="on"\] \.gd-connection-label,\s*#gd-compare-app > span \{ position: absolute;[^}]*clip-path: inset\(50%\)/, "Connected and Compare with app become icons, still named");
+	assert.ok(!/data-state="off"/.test(block(1700)), "Not connected keeps its words");
+	assert.match(block(1500), /\.gd-steps-link:not\(\[aria-current="step"\]\) \.gd-steps-label,\s*#gd-lang-code \{ position: absolute;/, "the steps keep their numbers, the current one its word");
+	assert.match(block(1400), /#gd-feature, #gd-feature-sep \{ display: none; \}/);
+	assert.match(block(1020), /\.gd-title, \.gd-field > \.gd-crumb-sep \{ position: absolute;/);
+	assert.match(read("index.html"), /<button type="button" id="gd-compare-app" class="gd-secondary" title="Compare with app" data-i18n-title="bar.compareApp" hidden>/, "as an icon, Compare with app keeps a tooltip");
+});
+
+test("polish F3/F6/F7/F8: the opened direction is never dimmed, the mode chip ellipsizes and avoids the minimap, browser surfaces carry the palette, the check count stays on one line", () => {
+	const css = read("canvas.css");
+	assert.match(css, /\n\.gd-focus-board\.gd-discarded \.gd-frame-box \{ opacity: 1; filter: none; \}/, "the direction you opened is shown as it is");
+	const navMode = css.slice(css.indexOf(".gd-nav-mode {"), css.indexOf("}", css.indexOf(".gd-nav-mode {")));
+	assert.match(navMode, /display: block;/, "a block, so the ellipsis applies to its text");
+	assert.match(navMode, /text-overflow: ellipsis;/);
+	assert.match(css, /@container gd-view \(max-width: 760px\) \{\s*\.gd-minimap:not\(\[hidden\]\) ~ \.gd-nav-mode \{ left: 16px; transform: none; max-width: calc\(100% - 270px\); \}/, "a narrow viewport moves the chip left of the minimap");
+	assert.match(css, /::selection \{ background: var\(--selection\); color: var\(--text\); \}/);
+	assert.match(css, /--selection: #f095c84d;/, "the wizard's selection color, as a token");
+	assert.match(css, /textarea, input \{ caret-color: var\(--accent\); \}/);
+	assert.match(css, /input\[type="checkbox"\], input\[type="radio"\], input\[type="range"\] \{ accent-color: var\(--accent\); \}/);
+	assert.match(css, /\* \{ scrollbar-width: thin; scrollbar-color: var\(--surface-2\) transparent; \}/);
+	assert.match(css, /\.gd-tabs \{[^}]*scrollbar-width: none;/, "the tab row still hides its scrollbar");
+	const summary = css.slice(css.indexOf(".gd-check-summary {"), css.indexOf("}", css.indexOf(".gd-check-summary {")));
+	assert.match(summary, /white-space: nowrap;/);
+});
+
+test("polish: the custom width field has a name, so the browser does not flag an anonymous form field", async () => {
+	const canvas = await loadRail();
+	const inputs = findAll(canvas.document.getElementById("gd-world"), (element) => element.localName === "input");
+	assert.ok(inputs.length > 0);
+	for (const input of inputs) assert.equal((input as FakeElement & { name?: string }).name, "gd-custom-width");
+});

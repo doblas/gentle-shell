@@ -2133,6 +2133,8 @@
 		custom.className = "gd-size-custom";
 		const input = document.createElement("input");
 		input.type = "number";
+		// A name keeps the browser from flagging an anonymous form field (one per artboard).
+		input.name = "gd-custom-width";
 		input.className = "gd-size-input";
 		loc(input, "aria-label", "size.customAria");
 		input.setAttribute("min", String(CUSTOM_WIDTH.min));

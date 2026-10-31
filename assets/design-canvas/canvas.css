@@ -44,6 +44,7 @@
 	--shadow-frame: 0 2px 16px #00000080;
 	--shadow-pop: 0 4px 16px #00000099;
 	--scrim: #000000b3;
+	--selection: #f095c84d;
 	--rail-width: 60px;
 	--bar-height: 56px;
 	--nav-width: 240px;
@@ -56,6 +57,12 @@
 * { box-sizing: border-box; }
 
 [hidden] { display: none !important; }
+
+/* The parts the browser draws carry the palette too: selection, caret, form controls and scrollbars. */
+::selection { background: var(--selection); color: var(--text); }
+textarea, input { caret-color: var(--accent); }
+input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color: var(--accent); }
+* { scrollbar-width: thin; scrollbar-color: var(--surface-2) transparent; }
 
 html, body {
 	margin: 0;
@@ -271,6 +278,48 @@ button.gd-steps-link[aria-current="step"]:hover:not(:disabled) { background: var
 .gd-work-state::before, .gd-work-note::before { content: "·"; margin-right: 8px; color: var(--text-faint); }
 .gd-work-note { min-width: 0; max-width: 40ch; overflow: hidden; text-overflow: ellipsis; }
 .gd-work-show { flex: none; min-height: 24px; padding: 0 10px; font-size: 12px; }
+
+/* The top bar never lets one item spill over the next: the controls keep their size, and the design name and the
+   chosen direction's status give way (cut with an ellipsis). As the bar narrows, a few words become icons; they stay
+   in the accessible name and the tooltip. A warning (Not connected) always keeps its words. */
+.gd-bar { container: gd-bar / inline-size; }
+.gd-bar > .gd-steps, .gd-bar > .gd-lang-button, .gd-bar > .gd-zoom, .gd-bar > .gd-connection, .gd-bar > .gd-secondary, .gd-bar > .gd-toggle { flex: none; }
+.gd-crumbs { flex: none; }
+.gd-field select { width: clamp(16ch, 15vw, 28ch); text-overflow: ellipsis; }
+/* The status shrinks (title, then state, cut with an ellipsis); Show never does. */
+.gd-work { flex: 0 1 auto; min-width: 9rem; overflow: hidden; }
+.gd-work-title { flex: 0 1 auto; min-width: 6ch; }
+.gd-work-state { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.gd-spacer { min-width: 0; }
+
+@container gd-bar (max-width: 2100px) {
+	.gd-work-note { display: none; }
+}
+
+@container gd-bar (max-width: 1700px) {
+	.gd-connection[data-state="on"] { padding: 2px 8px; }
+	.gd-connection[data-state="on"] .gd-connection-label,
+	#gd-compare-app > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+	#gd-compare-app { min-width: 36px; padding: 4px 8px; }
+	#gd-feature { max-width: 18ch; }
+}
+
+@container gd-bar (max-width: 1500px) {
+	.gd-work-state { display: none; }
+	.gd-steps-link:not([aria-current="step"]) .gd-steps-label,
+	#gd-lang-code { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+	.gd-steps-link:not([aria-current="step"]) { padding: 0 8px; }
+}
+
+@container gd-bar (max-width: 1400px) {
+	#gd-feature, #gd-feature-sep { display: none; }
+}
+
+@container gd-bar (max-width: 1020px) {
+	.gd-title, .gd-field > .gd-crumb-sep { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+	.gd-work-title { display: none; }
+	.gd-work { min-width: 0; }
+}
 
 /* Breadcrumb: Gentle Design / design / feature document */
 .gd-crumbs {
@@ -578,9 +627,7 @@ select {
 	left: 50%;
 	bottom: 20px;
 	z-index: 4;
-	display: inline-flex;
-	align-items: center;
-	gap: 8px;
+	display: block;
 	max-width: calc(100% - 32px);
 	margin: 0;
 	padding: 8px 14px;
@@ -599,9 +646,11 @@ select {
 
 .gd-nav-mode::before {
 	content: "";
-	flex: none;
+	display: inline-block;
 	width: 8px;
 	height: 8px;
+	margin-right: 8px;
+	vertical-align: 1px;
 	border-radius: 50%;
 	background: var(--text-muted);
 }
@@ -675,8 +724,13 @@ select {
 	pointer-events: none;
 }
 
-/* The centered mode chip gives way to the minimap (222 px wide, 16 px from the edge) while it shows. */
+/* The centered mode chip gives way to the minimap (222 px wide, 16 px from the edge) while it shows; when the viewport is
+   too narrow for both centered, the chip moves to the left edge. */
+.gd-viewport { container: gd-view / inline-size; }
 .gd-minimap:not([hidden]) ~ .gd-nav-mode { max-width: max(120px, calc(100% - 508px)); }
+@container gd-view (max-width: 760px) {
+	.gd-minimap:not([hidden]) ~ .gd-nav-mode { left: 16px; transform: none; max-width: calc(100% - 270px); }
+}
 
 /* In focus mode the Back to canvas button owns the bottom center. */
 .gd-focused .gd-nav-mode {
@@ -874,6 +928,8 @@ select {
 	filter: grayscale(.6);
 }
 .gd-discarded:hover .gd-frame-box, .gd-discarded:focus-within .gd-frame-box { opacity: 1; filter: none; }
+/* The direction you opened to review is shown as it is, discarded or not. */
+.gd-focus-board.gd-discarded .gd-frame-box { opacity: 1; filter: none; }
 .gd-implement-switch { color: var(--text-muted); border-color: var(--border); background: transparent; }
 
 .gd-artboard-frame {
@@ -1280,6 +1336,8 @@ select {
 .gd-check-heading { margin: 0; font-size: 13px; }
 
 .gd-check-summary {
+	flex: none;
+	white-space: nowrap;
 	padding: 0 8px;
 	border: 1px solid var(--warning-line);
 	border-radius: var(--radius-pill);
