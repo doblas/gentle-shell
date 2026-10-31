@@ -27,3 +27,4 @@ direction. Branch feat/canvas-implement-part (from feat/canvas-polish).
 - L3 (user, 2026-10-31): "si"
 - L4 (T2): the POST path is `implement-part` and the list is `GET parts`, because the server answers one method per route (405 otherwise); S4 updated.
 - L5 (T4 checks): 663/663 gentle-design tests, typecheck clean. Chrome at 1440: the button sent the element with its note, the stub session got exactly the recorded part, parts.json was written and no handoffs.json; simulated tool progress turned the card Sent -> In progress (with the note) -> Implemented live; Show opened the artboard and highlighted the element. A favicon.ico 404 is unrelated (pre-existing).
+- L6 (T4): full suite (npm test, GENTLE_SHELL_CONFIG_HOME unset) passed: 8212 pass, 0 fail, 75 skipped; provider-contract and runtime-harness stages passed.
