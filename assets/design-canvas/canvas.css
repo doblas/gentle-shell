@@ -1797,8 +1797,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .gd-comment-reply {
 	margin: 0 12px 4px;
 	padding: 8px 10px;
-	border-left: 2px solid var(--success);
-	border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+	border-radius: var(--radius-sm);
 	background: var(--wash);
 	font-size: 12px;
 	white-space: pre-wrap;
@@ -2186,8 +2185,7 @@ kbd {
 .gd-version-reply {
 	margin-top: 4px;
 	padding: 8px 10px;
-	border-left: 2px solid var(--success);
-	border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+	border-radius: var(--radius-sm);
 	background: var(--wash);
 	font-size: 12px;
 	overflow-wrap: anywhere;

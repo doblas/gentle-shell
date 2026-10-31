@@ -2328,7 +2328,9 @@ test("S5: the reply follows the comment when it is resolved with a note and disa
 
 test("S5: canvas.css styles the comment reply like the version reply, with tokens", () => {
 	const css = read("canvas.css");
-	assert.match(css, /\.gd-comment-reply\s*{[^}]*border-left:[^}]*var\(--success\)/);
+	// polish: a wash card with the green label, no colored side stripe (impeccable side-tab).
+	assert.match(css, /\.gd-comment-reply\s*{[^}]*border-radius:\s*var\(--radius-sm\)[^}]*background:\s*var\(--wash\)/);
+	assert.ok(!/\.gd-comment-reply\s*{[^}]*border-left/.test(css), "no side stripe");
 	assert.match(css, /\.gd-comment-reply-label\s*{[^}]*var\(--success\)/);
 	const block = css.match(/\.gd-comment-reply\s*{[^}]*}/)![0];
 	assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(block), "tokens only");
@@ -3954,7 +3956,8 @@ test("S2-S4: the History tab and the comparison are in index.html and canvas.css
 	assert.match(css, /\.gd-versions\s*{[^}]*position:\s*absolute[^}]*inset:\s*0[^}]*z-index:\s*4/);
 	assert.match(css, /\.gd-versions-handle:focus-visible/);
 	assert.match(css, /\.gd-version-current::before\s*{[^}]*var\(--accent\)/);
-	assert.match(css, /\.gd-version-reply\s*{[^}]*border-left:[^}]*var\(--success\)/);
+	assert.match(css, /\.gd-version-reply\s*{[^}]*background:\s*var\(--wash\)/);
+	assert.ok(!/\.gd-version-reply\s*{[^}]*border-left/.test(css), "no side stripe, like the comment reply");
 });
 
 test("S2: five tabs never squeeze their labels into each other and stay on one row: the tab row scrolls", () => {
