@@ -1620,6 +1620,50 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .gd-handoff-title { margin: 0 0 10px; font-size: 13px; }
 
+/* Partial implementations (canvas-implement-part S3): under the timeline, one card per part; the state is in words. */
+.gd-parts-panel { margin-top: 12px; }
+.gd-parts {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.gd-part {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 4px;
+	padding: 10px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	background: var(--surface-1);
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.gd-part-head { display: flex; align-items: center; gap: 8px; width: 100%; }
+.gd-part-title { flex: 1; min-width: 0; color: var(--text); font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gd-part-state {
+	flex: none;
+	padding: 0 8px;
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-pill);
+	color: var(--text-muted);
+	font-size: 11px;
+	font-weight: 600;
+	white-space: nowrap;
+}
+.gd-part[data-status="queued"] .gd-part-state { color: var(--warning); border-color: var(--warning-line); }
+.gd-part[data-status="in_progress"] .gd-part-state { color: var(--info); border-color: var(--info-line); }
+.gd-part[data-status="implemented"] .gd-part-state { color: var(--success); border-color: var(--success-line); }
+.gd-part-excerpt { color: var(--text); overflow-wrap: anywhere; }
+.gd-part-selector { font: 11px var(--font-mono); color: var(--accent-soft); overflow-wrap: anywhere; }
+.gd-part-note { overflow-wrap: anywhere; }
+.gd-part-show { margin-top: 2px; }
+
 .gd-timeline {
 	margin: 0;
 	padding: 0;

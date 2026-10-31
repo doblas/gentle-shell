@@ -71,7 +71,7 @@
 	const MIN_SIZES_SCALE = 0.05;
 	const TOAST_MS = 5000;
 	// What the server can deliver; an older page config without it means everything.
-	const DELIVERY = { comment: true, batch: true, implement: true, variant: true, mix: true, ...(config.delivery && typeof config.delivery === "object" ? config.delivery : {}) };
+	const DELIVERY = { comment: true, batch: true, implement: true, variant: true, mix: true, part: true, ...(config.delivery && typeof config.delivery === "object" ? config.delivery : {}) };
 	// Suggestions in the "another direction" dialog: each fills the field with its own label.
 	const VARIANT_SUGGESTIONS = ["variant.compact", "variant.bolder", "variant.mobile", "variant.calmer"];
 	// The review panel's tabs; History and Original request ("history", "brief") are views its More menu opens in the panel.
@@ -320,6 +320,22 @@
 			"mix.show": "Show mix",
 			"mix.full": "The mix holds up to {max} picks. Remove one first.",
 			"mix.noteTooLong": "Write a note of at most {max} characters.",
+			"part.add": "Implement only this",
+			"part.addTitle": "Build only this element in your app, without choosing this direction",
+			"part.noteTooLong": "The note can have at most {max} characters.",
+			"part.sent": "Sent: the session is building only this part of {title} now.",
+			"part.queued": "Queued: the session will build only this part of {title} after its current task.",
+			"parts.title": "Partial implementations · {count}",
+			"part.state.sent": "Sent",
+			"part.state.queued": "Queued",
+			"part.state.in_progress": "In progress",
+			"part.state.implemented": "Implemented ✓",
+			"part.time.sent": "Sent at {time}",
+			"part.time.queued": "Queued since {time}",
+			"part.time.in_progress": "In progress since {time}",
+			"part.time.implemented": "Implemented at {time}",
+			"part.show": "Show",
+			"part.showAria": "Show part {n} in {file}",
 			"mix.empty": "Nothing in the mix yet. In Comment mode, click an element and choose Add to the mix: a container brings its whole section, an element only itself.",
 			"mix.pinAria": "Mix pick {number}: {selector}",
 			"mix.used": "Used",
@@ -505,6 +521,9 @@
 			"reason.implement-unavailable": "This canvas is not connected to a Pi session, so it cannot hand the artboard off. Open the canvas from your session with /gentle:design open.",
 			"reason.variant-unavailable": "This canvas is not connected to a Pi session, so it cannot ask for another direction. Open the canvas from your session with /gentle:design open.",
 			"reason.mix-unavailable": "This canvas is not connected to a Pi session, so it cannot ask for a combined direction. Open the canvas from your session with /gentle:design open.",
+			"reason.implement-part-unavailable": "This canvas is not connected to a Pi session, so it cannot hand off a part. Open the canvas from your session with /gentle:design open.",
+			"reason.invalid-parts": "design/{slug}/parts.json cannot be read, so the part was not sent. Fix the file by hand; it is never overwritten.",
+			"reason.too-many-parts": "This design already keeps the most parts it can hold.",
 			"reason.invalid-base": "The base artboard is no longer in this design. Choose another one in Structure from and try again.",
 			"reason.invalid-instruction": "This request was rejected by the server. Write 1 to {max} characters and try again.",
 			"reason.delivery-failed": "The session did not accept the message. Your comments stay saved and unsent; check that the session is running, then try again.",
@@ -772,6 +791,22 @@
 			"mix.show": "Ver mezcla",
 			"mix.full": "La mezcla admite hasta {max} selecciones. Quita una primero.",
 			"mix.noteTooLong": "Escribe una nota de {max} caracteres como máximo.",
+			"part.add": "Implementar solo esto",
+			"part.addTitle": "Construye solo este elemento en tu app, sin elegir esta propuesta",
+			"part.noteTooLong": "La nota puede tener como máximo {max} caracteres.",
+			"part.sent": "Enviado: la sesión está construyendo solo esta parte de {title} ahora.",
+			"part.queued": "En cola: la sesión construirá solo esta parte de {title} cuando termine su tarea actual.",
+			"parts.title": "Implementaciones parciales · {count}",
+			"part.state.sent": "Enviado",
+			"part.state.queued": "En cola",
+			"part.state.in_progress": "En curso",
+			"part.state.implemented": "Implementado ✓",
+			"part.time.sent": "Enviado a las {time}",
+			"part.time.queued": "En cola desde las {time}",
+			"part.time.in_progress": "En curso desde las {time}",
+			"part.time.implemented": "Implementado a las {time}",
+			"part.show": "Mostrar",
+			"part.showAria": "Mostrar la parte {n} en {file}",
 			"mix.empty": "Aún no hay nada en la mezcla. En el modo Comentar, haz clic en un elemento y elige Añadir a la mezcla: un contenedor aporta su sección entera; un elemento, solo a sí mismo.",
 			"mix.pinAria": "Selección {number} de la mezcla: {selector}",
 			"mix.used": "Usada",
@@ -957,6 +992,9 @@
 			"reason.implement-unavailable": "Este canvas no está conectado a una sesión de Pi, así que no puede entregar el artboard. Abre el canvas desde tu sesión con /gentle:design open.",
 			"reason.variant-unavailable": "Este canvas no está conectado a una sesión de Pi, así que no puede pedir otra dirección. Abre el canvas desde tu sesión con /gentle:design open.",
 			"reason.mix-unavailable": "Este canvas no está conectado a una sesión de Pi, así que no puede pedir una propuesta combinada. Abre el canvas desde tu sesión con /gentle:design open.",
+			"reason.implement-part-unavailable": "Este canvas no está conectado a una sesión de Pi, así que no puede enviar una parte. Abre el canvas desde tu sesión con /gentle:design open.",
+			"reason.invalid-parts": "No se puede leer design/{slug}/parts.json, así que la parte no se envió. Corrige el archivo a mano; nunca se sobrescribe.",
+			"reason.too-many-parts": "Este diseño ya guarda el máximo de partes que admite.",
 			"reason.invalid-base": "El artboard base ya no está en este diseño. Elige otro en Estructura de y vuelve a intentarlo.",
 			"reason.invalid-instruction": "El servidor rechazó esta solicitud. Escribe de 1 a {max} caracteres y vuelve a intentarlo.",
 			"reason.delivery-failed": "La sesión no aceptó el mensaje. Tus comentarios quedan guardados y sin enviar; comprueba que la sesión esté en marcha y vuelve a intentarlo.",
@@ -1157,6 +1195,10 @@
 		mixNote: $("gd-mix-note"),
 		mixClear: $("gd-mix-clear"),
 		mixAdd: $("gd-popover-mix"),
+		partAdd: $("gd-popover-part"),
+		partsPanel: $("gd-parts-panel"),
+		partsTitle: $("gd-parts-title"),
+		partsList: $("gd-parts-list"),
 		mixShow: $("gd-popover-show-mix"),
 		countOpen: $("gd-count-open"),
 		tabPanel: $("gd-tabpanel"),
@@ -1284,6 +1326,8 @@
 		// The step-by-step help: on (saved in this browser), the step whose card was dismissed with Got it, and where focus
 		// was when the card took it (only when you turn it on).
 		help: { on: false, dismissed: null, returnFocus: null },
+		// The design's parts handed off on their own (parts.json, canvas-implement-part S3).
+		parts: { slug: null, parts: [] },
 		activeId: null,
 		designCount: 0,
 		// The minimap's switch (M); it also hides in focus mode, Compare and a version comparison.
@@ -3226,6 +3270,7 @@
 		renderWork();
 		renderCompareApp();
 		renderTimeline();
+		renderParts();
 		renderNav();
 		renderHistory();
 		// After Compare with app: the help points at it once it shows.
@@ -3731,6 +3776,82 @@
 		if (slug === state.slug) setHandoffs(slug, data);
 	}
 
+	// ---- partial implementations (canvas-implement-part S3) ----------------------------------
+	// Parts handed off with Implement only this, from parts.json: listed under the handoff timeline with their state in
+	// words, time, the agent's note and Show. They never choose a direction.
+
+	async function loadParts() {
+		const slug = state.slug;
+		if (!slug) return;
+		let data = null;
+		try {
+			data = await getJson(`api/designs/${encodeURIComponent(slug)}/parts`);
+		} catch (error) {
+			setStatus("status.handoffs", true, { slug, message: error.message });
+		}
+		if (slug !== state.slug) return;
+		state.parts = { slug, parts: data && Array.isArray(data.parts) ? data.parts.filter((part) => part && typeof part === "object" && typeof part.id === "string" && typeof part.file === "string") : [] };
+		renderParts();
+	}
+
+	/** A part the server just accepted, before its parts.json change event arrives. */
+	function noteParts(slug, part) {
+		if (state.parts.slug !== slug) state.parts = { slug, parts: [] };
+		if (!state.parts.parts.some((entry) => entry.id === part.id)) state.parts.parts.push(part);
+		renderParts();
+	}
+
+	function partKind(part) {
+		if (part.status === "implemented" || part.status === "in_progress") return part.status;
+		return part.queued ? "queued" : "sent";
+	}
+
+	function renderParts() {
+		const parts = state.parts.slug === state.slug ? state.parts.parts : [];
+		els.partsPanel.hidden = parts.length === 0;
+		if (parts.length === 0) {
+			els.partsList.replaceChildren();
+			return;
+		}
+		els.partsTitle.textContent = t("parts.title", { count: parts.length });
+		els.partsList.replaceChildren(...parts.map((part, index) => {
+			const kind = partKind(part);
+			const board = state.boards.find((candidate) => candidate.artboard.file === part.file);
+			const item = document.createElement("li");
+			item.className = "gd-part";
+			item.dataset.status = kind;
+			const head = document.createElement("div");
+			head.className = "gd-part-head";
+			const title = board ? `${String(board.number).padStart(2, "0")} · ${board.artboard.title}` : part.file;
+			head.append(chip("gd-part-title", title), chip("gd-part-state", t(`part.state.${kind}`)));
+			item.append(head);
+			if (part.excerpt) item.append(chip("gd-part-excerpt", `“${part.excerpt}”`));
+			if (state.technical) item.append(chip("gd-part-selector", part.selector));
+			const stamp = kind === "implemented" ? part.implementedAt : kind === "in_progress" ? part.startedAt : part.sentAt;
+			const time = clockOrDate(stamp);
+			if (time) item.append(chip("gd-part-time", t(`part.time.${kind}`, { time })));
+			if (typeof part.note === "string" && part.note) item.append(chip("gd-part-note", `“${part.note}”`));
+			const show = document.createElement("button");
+			show.type = "button";
+			show.className = "gd-part-show gd-small";
+			show.textContent = t("part.show");
+			show.setAttribute("aria-label", t("part.showAria", { n: index + 1, file: part.file }));
+			show.disabled = !board;
+			show.addEventListener("click", () => showPart(part));
+			item.append(show);
+			return item;
+		}));
+	}
+
+	/** Show: the part's artboard in focus, with its element highlighted by the artboard's inspector. */
+	function showPart(part) {
+		const board = state.boards.find((candidate) => candidate.artboard.file === part.file);
+		if (!board) return;
+		exitCompare(false);
+		enterFocus(board);
+		for (const surface of surfacesOf(board)) surface.frame.contentWindow?.postMessage({ type: "gd:highlight", selector: part.selector }, "*");
+	}
+
 	/** Shows a handoff the server just accepted, before its handoffs.json change event arrives. */
 	function noteHandoff(slug, file, queued) {
 		const current = state.handoffs.slug === slug ? state.handoffs.handoffs : {};
@@ -4000,6 +4121,7 @@
 		else setStatus(state.boards.length === 0 ? "empty.noArtboards" : "", false);
 		if (!keepView) requestAnimationFrame(fit);
 		await loadHandoffs();
+		await loadParts();
 		await loadComments();
 		loadHistory().catch(() => {});
 	}
@@ -4168,6 +4290,11 @@
 			}
 			if (change.file === "handoffs.json") {
 				loadHandoffs();
+				return;
+			}
+			// Not a shared asset: a part's progress reloads no artboard.
+			if (change.file === "parts.json") {
+				loadParts();
 				return;
 			}
 			if (state.compare && state.compare.board.artboard.file === change.file) state.compare.artboardFrame.src = `${boardUrl(state.compare.board)}?v=${Date.now()}`;
@@ -5934,6 +6061,7 @@
 		if (!on) hideInspector();
 		renderTechnical();
 		renderList();
+		renderParts();
 	}
 
 	function renderTechnical() {
@@ -6148,6 +6276,9 @@
 		els.message.classList.remove("gd-error");
 		els.mixShow.hidden = true;
 		els.send.disabled = false;
+		// Implement only this needs a session behind the canvas; without one it says so in its tooltip.
+		els.partAdd.disabled = !DELIVERY.part;
+		loc(els.partAdd, "title", DELIVERY.part ? "part.addTitle" : "reason.implement-part-unavailable");
 		els.popover.hidden = false;
 		renderGuide(false);
 		// Beside the element in the frame it was picked in, which may be scaled (All sizes) or resized (a single size).
@@ -6346,6 +6477,42 @@
 		closePopover();
 		showMixTab(true);
 		els.tabMix.focus();
+	});
+
+	// The popover's third action (canvas-implement-part S1): the picked element goes to the session to be built on its
+	// own, with the field as its optional note. It is recorded in parts.json and chooses no direction.
+	els.partAdd.addEventListener("click", async () => {
+		const pick = state.pick;
+		if (!pick || els.partAdd.disabled) return;
+		const note = els.text.value.replace(/\r\n?/g, "\n").trim();
+		const fail = (text, detail) => {
+			els.message.textContent = text;
+			els.message.title = detail ?? "";
+			els.message.classList.add("gd-error");
+			els.mixShow.hidden = true;
+		};
+		if (note.length > LIMITS.comment) return fail(t("part.noteTooLong", { max: LIMITS.comment }));
+		els.partAdd.disabled = true;
+		els.mixShow.hidden = true;
+		els.message.classList.remove("gd-error");
+		els.message.textContent = t("popover.sending");
+		const board = pick.board;
+		const reply = await postJson(`api/designs/${encodeURIComponent(board.slug)}/implement-part`, { file: board.artboard.file, selector: pick.selector, excerpt: pick.excerpt, note });
+		els.partAdd.disabled = !DELIVERY.part;
+		if (state.pick !== pick) return;
+		if (!reply.ok) {
+			const info = explain(reply);
+			return fail(info.text, info.detail);
+		}
+		const queued = reply.body.queued === true;
+		if (typeof reply.body.id === "string") {
+			noteParts(board.slug, { id: reply.body.id, file: board.artboard.file, selector: pick.selector, excerpt: pick.excerpt, status: "sent", queued, sentAt: new Date().toISOString(), startedAt: null, implementedAt: null, ...(note ? { instruction: note } : {}) });
+		}
+		els.text.value = "";
+		els.message.textContent = t("popover.sentDone");
+		els.message.title = "";
+		showToast(t(queued ? "part.queued" : "part.sent", { title: board.artboard.title }), false);
+		state.closeTimer = setTimeout(closePopover, 1200);
 	});
 
 	window.addEventListener("message", (event) => {

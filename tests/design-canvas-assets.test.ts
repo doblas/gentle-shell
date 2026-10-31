@@ -220,6 +220,7 @@ async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknow
 		},
 		"/t/api/designs/alpha/comments": { comments: [] },
 		"/t/api/designs/alpha/handoffs": { version: 1, chosen: null, handoffs: {} },
+		"/t/api/designs/alpha/parts": { version: 1, parts: [] },
 		"/t/api/designs/beta": {
 			slug: "beta",
 			title: "Beta",
@@ -228,6 +229,7 @@ async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknow
 		},
 		"/t/api/designs/beta/comments": { comments: [] },
 		"/t/api/designs/beta/handoffs": { version: 1, chosen: null, handoffs: {} },
+		"/t/api/designs/beta/parts": { version: 1, parts: [] },
 		...extraReplies,
 	};
 	const fetched: string[] = [];
@@ -8628,4 +8630,137 @@ test("polish: the custom width field has a name, so the browser does not flag an
 	const inputs = findAll(canvas.document.getElementById("gd-world"), (element) => element.localName === "input");
 	assert.ok(inputs.length > 0);
 	for (const input of inputs) assert.equal((input as FakeElement & { name?: string }).name, "gd-custom-width");
+});
+
+// ---- canvas-implement-part T3: Implement only this (S1), Partial implementations (S3), languages (S7)
+
+const PART_URL = "/t/api/designs/alpha/implement-part";
+const PARTS_URL = "/t/api/designs/alpha/parts";
+const partEl = (canvas: MixCanvas, id: string) => canvas.document.getElementById(id);
+const partItems = (canvas: MixCanvas) => withClass(partEl(canvas, "gd-parts-list"), "gd-part");
+const partRow = (item: FakeElement) => [texts(item, "gd-part-title")[0], texts(item, "gd-part-state")[0], texts(item, "gd-part-excerpt")[0] ?? "", texts(item, "gd-part-note")[0] ?? ""];
+const storedPart = (fields: Record<string, unknown>) => ({ id: "p1", file: "01-a.html", selector: "nav.side", excerpt: "Home Tours", status: "sent", queued: false, sentAt: "2026-10-31T10:00:00.000Z", startedAt: null, implementedAt: null, ...fields });
+
+/** Comment mode on, a pick in artboard `index`, the note typed, then Implement only this. */
+function implementOnlyThis(canvas: MixCanvas, index: number, pick: { selector: string; excerpt?: string }, note = "") {
+	if (canvas.document.getElementById("gd-comment").getAttribute("aria-pressed") !== "true") canvas.document.getElementById("gd-comment").dispatch("click");
+	canvas.message(canvas.boards[index].frame.contentWindow, { type: "gd:pick", selector: pick.selector, excerpt: pick.excerpt ?? "", rect: { x: 10, y: 20, width: 30, height: 40 } });
+	canvas.document.getElementById("gd-popover-text").value = note;
+	canvas.document.getElementById("gd-popover-part").dispatch("click");
+}
+
+test("implement-part S1: the comment popover offers Implement only this between Add to the mix and Send", () => {
+	const html = read("index.html");
+	const actions = html.slice(html.indexOf('<div class="gd-popover-actions">'), html.indexOf("</form>"));
+	assert.match(actions, /<button type="button" id="gd-popover-part" data-i18n="part.add">Implement only this<\/button>/);
+	assert.ok(actions.indexOf("gd-popover-mix") < actions.indexOf("gd-popover-part") && actions.indexOf("gd-popover-part") < actions.indexOf("gd-popover-send"), "after Add to the mix, before Send");
+	const { en, es } = loadCatalog();
+	assert.equal(en["part.add"], "Implement only this");
+	assert.equal(es["part.add"], "Implementar solo esto");
+});
+
+test("implement-part S1/S2: Implement only this posts the element with the optional note, toasts Sent or Queued, and chooses nothing", async () => {
+	const canvas = await loadMix({ replies: { [PART_URL]: { ok: true, id: "p1", queued: false } } });
+	implementOnlyThis(canvas, 0, { selector: "nav.side", excerpt: "Home Tours" }, "  solo el menú\r\nsin la cabecera ");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.deepEqual(canvas.posts, [{ url: PART_URL, body: { file: "01-a.html", selector: "nav.side", excerpt: "Home Tours", note: "solo el menú\nsin la cabecera" } }]);
+	assert.equal(toastText(canvas), "Sent: the session is building only this part of First now.");
+	assert.equal(partEl(canvas, "gd-popover-text").value, "", "the field is cleared");
+	assert.equal(partEl(canvas, "gd-popover-message").textContent, "Sent to the session");
+	assert.deepEqual(texts(canvas.world, "gd-choice"), [], "no direction is chosen or discarded");
+	assert.equal(partEl(canvas, "gd-parts-panel").hidden, false, "the part shows at once, before its parts.json change");
+	assert.deepEqual(partItems(canvas).map(partRow), [["01 · First", "Sent", "“Home Tours”", ""]]);
+
+	canvas.replies[PART_URL] = { ok: true, id: "p2", queued: true };
+	implementOnlyThis(canvas, 1, { selector: "footer" });
+	for (let i = 0; i < 5; i++) await flush();
+	assert.equal(toastText(canvas), "Queued: the session will build only this part of Second after its current task.");
+	assert.deepEqual(partItems(canvas).map(partRow)[1], ["02 · Second", "Queued", "", ""]);
+});
+
+test("implement-part S1: a note over 2000 characters, a refused request and a canvas without a session send nothing and say why", async () => {
+	const canvas = await loadMix();
+	implementOnlyThis(canvas, 0, { selector: "nav" }, "n".repeat(2001));
+	await flush();
+	assert.equal(canvas.posts.length, 0);
+	assert.equal(partEl(canvas, "gd-popover-message").textContent, "The note can have at most 2000 characters.");
+	assert.ok(partEl(canvas, "gd-popover-message").classes.has("gd-error"));
+
+	const refused = await loadMix({ replies: { [PART_URL]: { __http: 500, error: "delivery-failed", slug: "alpha", file: "01-a.html", reason: "session closed" } } });
+	implementOnlyThis(refused, 0, { selector: "nav" });
+	for (let i = 0; i < 5; i++) await flush();
+	assert.ok(partEl(refused, "gd-popover-message").classes.has("gd-error"), "the reason shows in the popover");
+	assert.match(partEl(refused, "gd-popover-message").title, /delivery-failed/);
+	assert.equal(partEl(refused, "gd-parts-panel").hidden, true, "nothing is listed");
+	assert.equal(partEl(refused, "gd-popover-part").disabled, false, "it can be retried");
+
+	const offline = await loadMix({ config: { delivery: { part: false } } });
+	if (offline.document.getElementById("gd-comment").getAttribute("aria-pressed") !== "true") offline.document.getElementById("gd-comment").dispatch("click");
+	offline.message(offline.boards[0].frame.contentWindow, { type: "gd:pick", selector: "nav", excerpt: "", rect: { x: 1, y: 1, width: 1, height: 1 } });
+	const button = partEl(offline, "gd-popover-part");
+	assert.equal(button.disabled, true);
+	assert.match(button.title, /not connected to a Pi session/);
+	button.dispatch("click");
+	await flush();
+	assert.equal(offline.posts.length, 0);
+});
+
+test("implement-part S3: Partial implementations lists each part live from parts.json, with its state, time, note and Show; a parts.json change reloads no artboard", async () => {
+	const canvas = await loadMix({ replies: { [PARTS_URL]: { version: 1, parts: [
+		storedPart({}),
+		storedPart({ id: "p2", file: "02-b.html", selector: "footer", excerpt: "", status: "in_progress", startedAt: todayAt(9, 48), note: "Building the footer" }),
+	] } } });
+	const panel = partEl(canvas, "gd-parts-panel");
+	assert.equal(panel.hidden, false);
+	assert.equal(partEl(canvas, "gd-parts-title").textContent, "Partial implementations · 2");
+	assert.deepEqual(partItems(canvas).map(partRow), [["01 · First", "Sent", "“Home Tours”", ""], ["02 · Second", "In progress", "", "“Building the footer”"]]);
+	assert.deepEqual(partItems(canvas).map((item) => item.dataset.status), ["sent", "in_progress"]);
+	assert.deepEqual(texts(partItems(canvas)[1], "gd-part-time"), ["In progress since 09:48"]);
+	const before = canvas.boards.map((board) => board.frame.src);
+	canvas.replies[PARTS_URL] = { version: 1, parts: [storedPart({ status: "implemented", startedAt: todayAt(9, 50), implementedAt: todayAt(10, 5), note: "src/layout/Sidebar.tsx" })] };
+	await canvas.serverEvent("change", { slug: "alpha", file: "parts.json" });
+	for (let i = 0; i < 3; i++) await flush();
+	assert.deepEqual(partItems(canvas).map(partRow), [["01 · First", "Implemented ✓", "“Home Tours”", "“src/layout/Sidebar.tsx”"]]);
+	assert.deepEqual(texts(partItems(canvas)[0], "gd-part-time"), ["Implemented at 10:05"]);
+	assert.deepEqual(canvas.boards.map((board) => board.frame.src), before, "no artboard reloads for parts.json");
+
+	assert.deepEqual(texts(partItems(canvas)[0], "gd-part-selector"), [], "no selector until Technical details is on");
+	canvas.document.getElementById("gd-technical").dispatch("click");
+	assert.deepEqual(texts(partItems(canvas)[0], "gd-part-selector"), ["nav.side"]);
+	const show = withClass(partItems(canvas)[0], "gd-part-show")[0];
+	assert.equal(show.getAttribute("aria-label"), "Show part 1 in 01-a.html");
+	show.dispatch("click");
+	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit", "Show opens its artboard");
+	assert.deepEqual(canvas.boards[0].frame.contentWindow!.posted.filter((message) => message.type === "gd:highlight").at(-1), { type: "gd:highlight", selector: "nav.side" }, "and highlights the element");
+
+	canvas.replies[PARTS_URL] = { version: 1, parts: [] };
+	await canvas.serverEvent("change", { slug: "alpha", file: "parts.json" });
+	for (let i = 0; i < 3; i++) await flush();
+	assert.equal(panel.hidden, true, "no parts, no panel");
+});
+
+test("implement-part S7: the button, the toast and the list speak Spanish with tú forms", async () => {
+	const canvas = await loadMix({ browser: "es-ES", hydrate: true, replies: { [PART_URL]: { ok: true, id: "p1", queued: false }, [PARTS_URL]: { version: 1, parts: [storedPart({ status: "implemented", implementedAt: todayAt(10, 5) })] } } });
+	assert.equal(partEl(canvas, "gd-popover-part").textContent, "Implementar solo esto");
+	assert.equal(partEl(canvas, "gd-parts-title").textContent, "Implementaciones parciales · 1");
+	assert.deepEqual(partItems(canvas).map(partRow), [["01 · First", "Implementado ✓", "“Home Tours”", ""]]);
+	assert.equal(withClass(partItems(canvas)[0], "gd-part-show")[0].textContent, "Mostrar");
+	implementOnlyThis(canvas, 1, { selector: "footer" });
+	for (let i = 0; i < 5; i++) await flush();
+	assert.equal(toastText(canvas), "Enviado: la sesión está construyendo solo esta parte de Second ahora.");
+});
+
+test("implement-part S3: canvas.css styles the parts list with tokens and the state in words, not color alone", () => {
+	const css = read("canvas.css");
+	const rule = (selector: string) => {
+		const start = css.indexOf(`${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	for (const selector of [".gd-parts", ".gd-part", ".gd-part-state", ".gd-part-excerpt"]) assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule(selector)), `${selector}: tokens only`);
+	assert.match(css, /\.gd-part\[data-status="implemented"\] \.gd-part-state \{[^}]*var\(--success\)/);
+	assert.match(css, /\.gd-part\[data-status="in_progress"\] \.gd-part-state \{[^}]*var\(--info\)/);
+	const html = read("index.html");
+	assert.match(html, /<section id="gd-parts-panel" class="gd-handoff-panel gd-parts-panel" aria-labelledby="gd-parts-title" hidden>\s*<h3 id="gd-parts-title" class="gd-handoff-title"><\/h3>\s*<ol id="gd-parts-list" class="gd-parts"><\/ol>\s*<\/section>/);
+	assert.ok(html.indexOf('id="gd-handoff-panel"') < html.indexOf('id="gd-parts-panel"'), "right after the handoff timeline");
 });
