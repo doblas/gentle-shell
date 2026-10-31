@@ -721,7 +721,7 @@ test("Compare shows the artboard and the sandboxed app side by side at the artbo
 	assert.equal(overlay.hidden, true, "Shift+Esc inside the artboard exits Compare");
 });
 
-test("Compare offers scale to fit when the pair is wider than the window", async () => {
+test("Compare starts scaled to fit when the pair is wider than the window (polish F5), and unchecking shows it at 100%", async () => {
 	const canvas = await loadCanvas(300, { "/t/api/designs/alpha/handoffs": handoffDoc("01-a.html", { "01-a.html": { status: "implemented", previewUrl: "http://localhost:3000/" } }) });
 	const stage = canvas.document.getElementById("gd-compare-stage");
 	stage.rect = { left: 0, top: 0, width: 500, height: 600 };
@@ -730,15 +730,16 @@ test("Compare offers scale to fit when the pair is wider than the window", async
 	const field = canvas.document.getElementById("gd-compare-fit-field");
 	const panes = canvas.document.getElementById("gd-compare-panes");
 	assert.equal(field.hidden, false, "two 400 px boards do not fit in 500 px");
-	assert.equal(panes.style.transform, "none", "Compare starts at 100%");
-	fit.checked = true;
+	assert.equal(fit.checked, true, "Scale to fit starts on");
+	assert.match(panes.style.transform, /^scale\(0\.\d+\)$/, "so both panes are in view from the start");
+	fit.checked = false;
 	fit.dispatch("change");
-	assert.match(panes.style.transform, /^scale\(0\.\d+\)$/);
+	assert.equal(panes.style.transform, "none", "unchecked, the pair is at 100%");
 	canvas.document.getElementById("gd-compare-back").dispatch("click");
 	stage.rect = { left: 0, top: 0, width: 2000, height: 600 };
 	withClass(boardsOf(canvas)[0], "gd-compare-start")[0].dispatch("click");
 	assert.equal(field.hidden, true, "no toggle when the pair fits");
-	assert.equal(panes.style.transform, "none");
+	assert.equal(panes.style.transform, "none", "a pair that fits stays at 100%");
 });
 
 test("Implement this shows a toast and the badge at once: Queued when busy, Implementing… when idle", async () => {
@@ -1784,14 +1785,17 @@ test("S2: Phone, Tablet and Desktop resize the focused iframe in place, centered
 	assert.equal(canvas.frames()[0], first.frame, "and keeps its iframe");
 });
 
-test("S2: a size taller than the viewport keeps today's clip, and one wider than it starts at the left margin", async () => {
+test("S2: a size taller than the viewport keeps today's clip, and one wider than it is drawn smaller to fit (polish F4)", async () => {
 	const canvas = await loadRail(300, wideAlpha);
 	const [first] = canvas.boards;
 	first.frame.parentElement!.offsetLeft = 480;
 	first.frame.parentElement!.offsetTop = 20;
 	focusOn(canvas);
-	// Desktop is 1200 wide in a 1000 px viewport: the left margin, 16 - 480.
-	assert.match(canvas.world.style.transform, /^translate\(-464px, /);
+	// Desktop is 1200 wide in a 1000 px viewport: it keeps its 1200 px width, drawn at (1000 - 2 * 16) / 1200, from the left margin.
+	const scale = 968 / 1200;
+	assert.equal(first.frame.style.width, "1200px", "the design still renders at its real width");
+	assert.equal(canvas.world.style.transform, `translate(${Math.round(16 - 480 * scale)}px, ${Math.round(16 + 20 * scale - 20 * scale)}px) scale(${scale})`);
+	assert.equal(canvas.zoomLevel.textContent, "81%", "the zoom says how much smaller it is drawn");
 	sizeButton(canvas, "phone").dispatch("click");
 	assert.equal(first.frame.style.height, "600px", "844 px does not fit the 700 px viewport (less the 16 px margin, the 20 px label and the 64 px band): clipped like a tall artboard");
 	assert.equal(readout(canvas), "390 × 844", "the readout keeps the preset height");
@@ -4201,10 +4205,7 @@ test("T1/S2-S3: the stacked modes size the pair as one artboard, and Scale to fi
 	cmpEl(canvas, "stage").rect = { left: 0, top: 0, width: 300, height: 600 };
 	canvas.windowEvent("resize");
 	assert.equal(field.hidden, false, "a 300 px window cannot show 400 px");
-	assert.equal(panes.style.transform, "none", "still 100% until Scale to fit is on");
-	fit.checked = true;
-	fit.dispatch("change");
-	// 300 - 2 * 24 = 252 px for a 400 px stack.
+	// Scale to fit starts on (polish F5): 300 - 2 * 24 = 252 px for a 400 px stack.
 	assert.equal(panes.style.transform, "scale(0.630)");
 	assert.equal(cmpEl(canvas, "sizer").style.width, `${Math.ceil(400 * (252 / 400))}px`);
 	assert.equal(cmpEl(canvas, "sizer").style.height, `${Math.ceil(300 * (252 / 400))}px`);

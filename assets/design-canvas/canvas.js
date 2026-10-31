@@ -1778,9 +1778,11 @@
 
 	/**
 	 * 100% zoom with the focused artboard centered and its label (Implement this) in view.
+	 * A wider artboard keeps its real width and is drawn smaller to fit the viewport, like
+	 * All sizes (the zoom says how much), since the canvas cannot pan in focus mode.
 	 * A taller artboard is top-aligned and its frame is clipped to the viewport, so it
-	 * scrolls inside like a browser window instead of leaving its bottom out of reach
-	 * while the canvas cannot pan. The frame has the focused size (Phone, a custom width...);
+	 * scrolls inside like a browser window instead of leaving its bottom out of reach.
+	 * The frame has the focused size (Phone, a custom width...);
 	 * All sizes puts the label at the top and fits three frames below it.
 	 */
 	function centerFocus() {
@@ -1795,13 +1797,15 @@
 		const labelSpace = box.offsetTop - board.wrapper.offsetTop;
 		const all = state.size.kind === "all";
 		const { width, height } = focusSize(board);
-		const minTop = FOCUS_MARGIN + labelSpace;
+		// Screen pixels per artboard pixel: 1 when it fits beside the margins.
+		const zoom = all ? 1 : Math.min(1, (viewport.width - FOCUS_MARGIN * 2) / width);
+		const minTop = FOCUS_MARGIN + labelSpace * zoom;
 		const available = viewport.height - minTop - BACK_SPACE;
-		const tall = all || height > available;
-		setFrameSize(board, width, tall ? Math.max(120, Math.floor(available)) : height);
-		state.zoom = 1;
-		state.x = Math.round(!all && width + FOCUS_MARGIN * 2 <= viewport.width ? (viewport.width - width) / 2 - left : FOCUS_MARGIN - left);
-		state.y = Math.round((tall ? minTop : Math.max(minTop, (viewport.height - height) / 2)) - top);
+		const tall = all || height * zoom > available;
+		setFrameSize(board, width, tall ? Math.max(120, Math.floor(available / zoom)) : height);
+		state.zoom = zoom;
+		state.x = Math.round(!all && width * zoom + FOCUS_MARGIN * 2 <= viewport.width ? (viewport.width - width * zoom) / 2 - left * zoom : FOCUS_MARGIN - left * zoom);
+		state.y = Math.round((tall ? minTop : Math.max(minTop, (viewport.height - height * zoom) / 2)) - top * zoom);
 		applyView();
 		if (all) layoutSizes(board, minTop, viewport);
 	}
@@ -3881,7 +3885,8 @@
 		els.compareOpen.href = preview;
 		setCompareMessage(new URL(preview).hostname === "[::1]" ? "compare.hintIpv6" : "compare.hint", { url: new URL(preview).origin }, false);
 		els.comparePanes.replaceChildren(design.figure, running.figure, handle, shield);
-		els.compareFit.checked = false;
+		// On by default (polish F5): it only applies when the pair is wider than the window, and can be unchecked.
+		els.compareFit.checked = true;
 		els.compare.hidden = false;
 		renderGuide(false);
 		els.viewport.inert = true;
