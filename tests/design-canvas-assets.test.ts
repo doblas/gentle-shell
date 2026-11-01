@@ -246,7 +246,8 @@ async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknow
 		innerHeight: 800,
 		CSS: { escape: (value: string) => value },
 		history: { replaceState(_state: unknown, _title: string, url: string) { urls.push(url); } },
-		localStorage: { getItem: () => null, setItem() {} },
+		// canvas-progressive S6: the first-run guide counts as seen, so it never opens over the other tests.
+		localStorage: { getItem: (key: string) => (key === "gentle-design:guide" ? "done" : null), setItem() {} },
 		requestAnimationFrame: (callback: () => void) => { callback(); return 0; },
 		fetch: async (url: string, init?: { method?: string; body?: string }) => {
 			if (init?.method === "POST") posts.push({ url, body: JSON.parse(init.body ?? "null") });
@@ -301,7 +302,7 @@ test("a click on an artboard's shield enters focus mode at 100% and only that ar
 	assert.equal(canvas.boards.length, 2);
 	const [first, second] = canvas.boards;
 	assert.ok(first.shield && second.shield, "every artboard has an interaction shield");
-	assert.equal(canvas.navMode.textContent, "Navigating");
+	assert.equal(canvas.navMode.textContent, NAV_CHIP);
 
 	// Start from a non-default view so restoring it is observable.
 	canvas.viewport.dispatch("wheel", { deltaX: 0, deltaY: 40, deltaMode: 0, ctrlKey: true, metaKey: false, shiftKey: false, clientX: 300, clientY: 300 });
@@ -336,7 +337,7 @@ test("a click on an artboard's shield enters focus mode at 100% and only that ar
 	assert.equal(canvas.zoomLevel.textContent, zoomBefore);
 	assert.equal(first.shield!.hidden, false);
 	assert.equal(second.wrapper.inert, false);
-	assert.equal(canvas.navMode.textContent, "Navigating");
+	assert.equal(canvas.navMode.textContent, NAV_CHIP);
 });
 
 test("a taller artboard is top-aligned and clipped to the viewport while focused, then restored", async () => {
@@ -388,7 +389,7 @@ test("the Back to canvas button and Shift+Esc in the canvas both leave focus mod
 	click(first.shield!, 200, 200);
 	assert.equal(back.hidden, false);
 	back.dispatch("click");
-	assert.equal(canvas.navMode.textContent, "Navigating");
+	assert.equal(canvas.navMode.textContent, NAV_CHIP);
 	assert.equal(back.hidden, true);
 
 	click(first.shield!, 200, 200);
@@ -398,7 +399,7 @@ test("the Back to canvas button and Shift+Esc in the canvas both leave focus mod
 	assert.match(canvas.navMode.textContent, /^Using:/, "plain Esc does not leave focus mode");
 	const chord: any = { key: "Escape", shiftKey: true, target: back, defaultPrevented: false, preventDefault() { chord.defaultPrevented = true; } };
 	keydown.forEach((listener) => listener(chord));
-	assert.equal(canvas.navMode.textContent, "Navigating");
+	assert.equal(canvas.navMode.textContent, NAV_CHIP);
 });
 
 test("a drag over an artboard pans the canvas, and in comment mode a click opens the artboard in focus instead of picking", async () => {
@@ -410,7 +411,7 @@ test("a drag over an artboard pans the canvas, and in comment mode a click opens
 	first.shield!.dispatch("pointermove", { pointerId: 1, clientX: 190, clientY: 170 });
 	first.shield!.dispatch("pointerup", { button: 0, pointerId: 1, clientX: 190, clientY: 170 });
 	assert.notEqual(canvas.world.style.transform, before, "the drag panned");
-	assert.equal(canvas.navMode.textContent, "Navigating", "a drag never enters focus mode");
+	assert.equal(canvas.navMode.textContent, NAV_CHIP, "a drag never enters focus mode");
 
 	canvas.document.getElementById("gd-comment").dispatch("click");
 	click(first.shield!, 150, 130);
@@ -462,7 +463,7 @@ test("a show event for another design leaves focus, loads that design and replac
 	assert.equal(canvas.urls.at(-1), "/t/d/beta/");
 	assert.equal(canvas.document.title, "Beta · Gentle Design", "the design's title moves to the tab title; the breadcrumb keeps Gentle Design");
 	assert.equal(canvas.document.getElementById("gd-design").value, "beta", "the design selector follows");
-	assert.equal(canvas.navMode.textContent, "Navigating", "focus mode ends when the design changes");
+	assert.equal(canvas.navMode.textContent, NAV_CHIP, "focus mode ends when the design changes");
 	assert.deepEqual(canvas.frames().map((frame) => frame.title), ["Only artboard"]);
 
 	await canvas.serverEvent("show", { slug: null });
@@ -594,7 +595,7 @@ test("canvas assets keep the sandbox, the source check and no remote URLs", () =
 	}
 	const html = read("index.html");
 	assert.match(html, /id="gd-back"[^>]*>Back to canvas</);
-	assert.match(html, /id="gd-nav-mode"[^>]*>Navigating</);
+	assert.match(html, /id="gd-nav-mode"[^>]*>Moving around the canvas · wheel to zoom</);
 });
 
 // S15: handoff badges, the chosen artboard, and Compare.
@@ -794,6 +795,9 @@ function press(canvas: Canvas, key: string, init: Record<string, unknown> = {}, 
 
 const pressed = (canvas: Canvas, id: string) => canvas.document.getElementById(id).getAttribute("aria-pressed");
 const COMMENT_CHIP = "Click a direction to open it and comment · Esc";
+// canvas-progressive S1: the Navigate mode chip (was "Navigating" / "Navegando").
+const NAV_CHIP = "Moving around the canvas · wheel to zoom";
+const NAV_CHIP_ES = "Moviéndote por el lienzo · rueda para acercar";
 
 test("the rail's Navigate and Comment form a pressed pair over the comment mode, and the chip says which", async () => {
 	const canvas = await loadRail();
@@ -801,7 +805,7 @@ test("the rail's Navigate and Comment form a pressed pair over the comment mode,
 	const comment = canvas.document.getElementById("gd-comment");
 	assert.equal(pressed(canvas, "gd-tool-navigate"), "true");
 	assert.equal(pressed(canvas, "gd-comment"), "false");
-	assert.equal(canvas.navMode.textContent, "Navigating");
+	assert.equal(canvas.navMode.textContent, NAV_CHIP);
 
 	comment.dispatch("click");
 	assert.equal(pressed(canvas, "gd-comment"), "true");
@@ -813,7 +817,7 @@ test("the rail's Navigate and Comment form a pressed pair over the comment mode,
 	navigate.dispatch("click");
 	assert.equal(pressed(canvas, "gd-comment"), "false");
 	assert.equal(pressed(canvas, "gd-tool-navigate"), "true");
-	assert.equal(canvas.navMode.textContent, "Navigating");
+	assert.equal(canvas.navMode.textContent, NAV_CHIP);
 	assert.ok(!canvas.world.classes.has("gd-commenting"));
 	assert.deepEqual(canvas.frames()[0].contentWindow!.posted.at(-1), { type: "gd:mode", enabled: false });
 
@@ -823,7 +827,7 @@ test("the rail's Navigate and Comment form a pressed pair over the comment mode,
 	assert.equal(pressed(canvas, "gd-comment"), "false");
 	navigate.dispatch("click");
 	assert.equal(pressed(canvas, "gd-tool-navigate"), "true");
-	assert.equal(canvas.navMode.textContent, "Navigating");
+	assert.equal(canvas.navMode.textContent, NAV_CHIP);
 });
 
 test("the mode chip names focus mode over comment mode, and returns to the right text on exit", async () => {
@@ -860,7 +864,7 @@ test("V, C, F, [, ] and ? drive the tools from the keyboard", async () => {
 	assert.equal(canvas.navMode.textContent, COMMENT_CHIP);
 	press(canvas, "v");
 	assert.equal(pressed(canvas, "gd-comment"), "false");
-	assert.equal(canvas.navMode.textContent, "Navigating");
+	assert.equal(canvas.navMode.textContent, NAV_CHIP);
 	press(canvas, "C");
 	assert.equal(pressed(canvas, "gd-comment"), "true", "the shortcuts ignore letter case");
 	press(canvas, "V");
@@ -901,7 +905,9 @@ test("shortcuts with a modifier, and the buttons of the rail, reach the same too
 	canvas.document.getElementById("gd-nav-toggle").dispatch("click");
 	assert.equal(canvas.document.getElementById("gd-nav").hidden, true);
 	assert.equal(pressed(canvas, "gd-nav-toggle"), "false");
-	canvas.document.getElementById("gd-shortcuts-open").dispatch("click");
+	// canvas-progressive S1: Keyboard shortcuts moved from the rail into More.
+	canvas.document.getElementById("gd-rail-more").dispatch("click");
+	findAll(canvas.document.getElementById("gd-menu"), (element) => element.getAttribute("aria-keyshortcuts") === "?")[0].dispatch("click");
 	assert.ok(dialog.hasAttribute("open"));
 	// Single keys do nothing while the dialog is open, except ? which closes it.
 	press(canvas, "c");
@@ -938,18 +944,24 @@ test("single-key shortcuts are ignored while typing, with the popover open, and 
 	assert.equal(canvas.world.style.transform, transform);
 	assert.match(canvas.navMode.textContent, /^Using:/);
 	press(canvas, "Escape", { shiftKey: true });
-	assert.equal(canvas.navMode.textContent, "Navigating", "Shift+Esc still leaves focus mode");
+	assert.equal(canvas.navMode.textContent, NAV_CHIP, "Shift+Esc still leaves focus mode");
 	press(canvas, "c");
 	assert.equal(pressed(canvas, "gd-comment"), "true", "shortcuts work again outside focus mode");
 });
 
+// canvas-progressive S1: the Design system tool is now the first item of the rail's More menu.
+const moreSystemItem = (canvas: Canvas) => {
+	canvas.document.getElementById("gd-rail-more").dispatch("click");
+	return findAll(canvas.document.getElementById("gd-menu"), (element) => element.getAttribute("role") === "menuitem")[0];
+};
+
 test("the Design system tool is disabled without a system board and focuses it when there is one", async () => {
 	const without = await loadRail();
-	assert.equal(without.document.getElementById("gd-rail-system").disabled, true);
+	assert.equal(moreSystemItem(without).getAttribute("aria-disabled"), "true");
 
 	const canvas = await loadRail(300, { "/t/api/system": { exists: true, file: "system.html", width: 1440, height: 1200 } });
-	const system = canvas.document.getElementById("gd-rail-system");
-	assert.equal(system.disabled, false);
+	const system = moreSystemItem(canvas);
+	assert.equal(system.getAttribute("aria-disabled"), null);
 	system.dispatch("click");
 	assert.equal(canvas.navMode.textContent, "Using: Design system · Shift+Esc to exit");
 	// Overview is off while focused, and back on after.
@@ -975,12 +987,13 @@ test("index.html: one sprite, named icon buttons with shortcut titles, a shortcu
 	assert.equal(html.split("<svg ").filter((part) => /aria-hidden="true"/.test(part.split(">")[0]) && /<symbol/.test(part)).length, 1, "a single sprite");
 	for (const match of html.matchAll(/<use href="#([^"]+)"/g)) assert.ok(html.includes(`<symbol id="${match[1]}"`), `${match[1]} exists in the sprite`);
 	const iconButtons = [...html.matchAll(/<button\b([^>]*)>\s*<svg[^>]*><use [^>]*\/><\/svg>\s*<\/button>/g)];
-	assert.ok(iconButtons.length >= 8);
+	// canvas-progressive S1: the rail's tools carry visible labels now, so the icon-only buttons are the zoom, tab arrows and dismiss.
+	assert.ok(iconButtons.length >= 5);
 	for (const [, attributes] of iconButtons) {
 		assert.match(attributes, /aria-label="[^"]+"/);
 		assert.match(attributes, /title="[^"]+"/);
 	}
-	for (const [id, shortcut] of [["gd-tool-navigate", "V"], ["gd-comment", "C"], ["gd-rail-fit", "F"], ["gd-nav-toggle", "["], ["gd-shortcuts-open", "?"]] as const) {
+	for (const [id, shortcut] of [["gd-tool-navigate", "V"], ["gd-comment", "C"], ["gd-rail-fit", "F"], ["gd-nav-toggle", "["]] as const) {
 		assert.match(html, new RegExp(`id="${id.replace(/[[\]]/g, "\\$&")}"[^>]*title="[^"]*\\(${shortcut.replace(/[[\]?]/g, "\\$&")}\\)"`), `${id} names ${shortcut}`);
 	}
 	assert.match(html, /<nav class="gd-rail" aria-label="Tools"/);
@@ -1054,9 +1067,9 @@ test("activating a navigator item enters focus mode on it and marks it aria-curr
 	assert.deepEqual(navItems(canvas).map((item) => item.getAttribute("aria-current")), [null, null]);
 });
 
-test("the navigator footer note appears only when a system board exists", async () => {
-	const without = await loadRail();
-	assert.equal(without.document.getElementById("gd-nav-note").hidden, true);
+test("the navigator footer note appears whenever there are directions (canvas-progressive S5; it was only with a system board)", async () => {
+	const without = await loadRail(300, { "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "", artboards: [] } });
+	assert.equal(without.document.getElementById("gd-nav-note").hidden, true, "a design without directions");
 	const withSystem = await loadRail(300, { "/t/api/system": { exists: true, file: "system.html", width: 1440, height: 1200 } });
 	const note = withSystem.document.getElementById("gd-nav-note");
 	assert.equal(note.hidden, false);
@@ -1211,26 +1224,27 @@ test("Compare with app shows only for the chosen artboard when implemented with 
 	assert.equal(button(canvas).disabled, false);
 });
 
-test("the review side has Comments (with its Open / Resolved filter), History, Checks, Mix and Original request tabs that drive the list", async () => {
+test("the review side has Comments (with its Open / Resolved / All filter), Quality and Mix tabs, and More opens Original request (canvas-progressive S5)", async () => {
 	const canvas = await loadRail(300, { ...commentsDoc(comment("a1", "01-a.html"), comment("a2", "02-b.html", "resolved", { sentAt: "2026-10-26T10:00:00.000Z" })), "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "Make a checkout.", feature: "odd/tasks/checkout.md", artboards: [{ file: "01-a.html", title: "First", tradeoff: "", width: 400, height: 300 }, { file: "02-b.html", title: "Second", tradeoff: "", width: 400, height: 300 }] } });
 	const doc = canvas.document;
 	// canvas-ux-quick-wins S4: one Comments tab; open and resolved are a filter inside it.
-	const tabs = ["gd-tab-comments", "gd-tab-history", "gd-tab-checks", "gd-tab-mix", "gd-tab-brief"];
+	// canvas-progressive S5: three tabs; History and Original request open from the panel's More.
+	const tabs = ["gd-tab-comments", "gd-tab-checks", "gd-tab-mix"];
 	const selected = () => tabs.map((id) => doc.getElementById(id).getAttribute("aria-selected"));
 	const list = doc.getElementById("gd-comment-list");
 	const brief = doc.getElementById("gd-brief");
-	assert.deepEqual(selected(), ["true", "false", "false", "false", "false"]);
+	assert.deepEqual(selected(), ["true", "false", "false"]);
 	assert.equal(doc.getElementById("gd-count-open").textContent, "1");
-	assert.equal(doc.getElementById("gd-filter-resolved").textContent, "Resolved (1)");
+	assert.equal(doc.getElementById("gd-filter-resolved").textContent, "Resolved · 1");
 	assert.equal(brief.hidden, true);
 	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a1"]);
 
 	doc.getElementById("gd-filter-resolved").dispatch("click");
-	assert.deepEqual(selected(), ["true", "false", "false", "false", "false"]);
+	assert.deepEqual(selected(), ["true", "false", "false"]);
 	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a2"]);
 
-	doc.getElementById("gd-tab-brief").dispatch("click");
-	assert.deepEqual(selected(), ["false", "false", "false", "false", "true"]);
+	openPanelView(canvas, "Original request");
+	assert.deepEqual(selected(), ["false", "false", "false"]);
 	assert.equal(brief.hidden, false);
 	assert.equal(list.hidden, true);
 	assert.equal(doc.getElementById("gd-panel-empty").hidden, true);
@@ -1238,29 +1252,27 @@ test("the review side has Comments (with its Open / Resolved filter), History, C
 	assert.equal(doc.getElementById("gd-brief-text").textContent, "Make a checkout.");
 	assert.equal(doc.getElementById("gd-brief-feature").textContent, "odd/tasks/checkout.md");
 	assert.equal(doc.getElementById("gd-brief-feature").hidden, false);
-	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-labelledby"), "gd-tab-brief");
+	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-label"), "Original request");
 
 	// Arrow keys move between tabs (roving tabindex), wrapping around.
 	const tablist = doc.getElementById("gd-tabs");
 	tablist.dispatch("keydown", { key: "ArrowRight" });
-	assert.deepEqual(selected(), ["true", "false", "false", "false", "false"]);
+	assert.deepEqual(selected(), ["true", "false", "false"]);
 	assert.equal(doc.activeElement, doc.getElementById("gd-tab-comments"));
 	assert.equal(doc.getElementById("gd-tab-comments").getAttribute("tabindex"), "0");
-	assert.equal(doc.getElementById("gd-tab-brief").getAttribute("tabindex"), "-1");
+	assert.equal(doc.getElementById("gd-tab-mix").getAttribute("tabindex"), "-1");
 	tablist.dispatch("keydown", { key: "End" });
-	assert.deepEqual(selected(), ["false", "false", "false", "false", "true"]);
-	tablist.dispatch("keydown", { key: "ArrowLeft" });
-	assert.deepEqual(selected(), ["false", "false", "false", "true", "false"], "Mix sits between Checks and Brief");
+	assert.deepEqual(selected(), ["false", "false", "true"]);
 	assert.equal(doc.getElementById("gd-mix").hidden, false);
 	tablist.dispatch("keydown", { key: "ArrowLeft" });
-	assert.deepEqual(selected(), ["false", "false", "true", "false", "false"], "Checks sits between History and Mix");
+	assert.deepEqual(selected(), ["false", "true", "false"], "Quality sits between Comments and Mix");
 	assert.equal(brief.hidden, true);
 	assert.equal(doc.getElementById("gd-checks").hidden, false);
 });
 
 test("the Brief tab says so when the design has no brief, and keeps the Send footer", async () => {
 	const canvas = await loadRail();
-	canvas.document.getElementById("gd-tab-brief").dispatch("click");
+	openPanelView(canvas, "Original request");
 	assert.equal(canvas.document.getElementById("gd-brief-title").textContent, "Alpha");
 	assert.equal(canvas.document.getElementById("gd-brief-text").textContent, "No original request written.");
 	assert.equal(canvas.document.getElementById("gd-brief-feature").hidden, true);
@@ -1364,15 +1376,15 @@ test("the focused artboard header shows its number, title and handoff state chip
 	assert.equal(chip.dataset.status, "implemented");
 });
 
-test("the T2 markup: tablist with five tabs (canvas-ux S4: no Resolved tab), tabpanel, timeline region, Compare with app and the navigator note", () => {
+test("the T2 markup: tablist with three tabs (canvas-progressive S5), tabpanel, timeline region, Compare with app and the navigator note", () => {
 	const html = read("index.html");
 	assert.match(html, /role="tablist"/);
-	assert.equal([...html.matchAll(/role="tab"/g)].length, 5);
+	assert.equal([...html.matchAll(/role="tab"/g)].length, 3);
 	assert.match(html, /id="gd-tab-comments"[^>]*role="tab"|role="tab"[^>]*id="gd-tab-comments"/);
 	assert.match(html, /role="tabpanel"/);
 	assert.match(html, /<section id="gd-handoff-panel"[^>]*aria-labelledby="gd-handoff-title"/);
 	assert.match(html, /id="gd-compare-app"[^>]*hidden>.*Compare with app<\/span><\/button>/);
-	assert.match(html, /Design system board is always first in Overview\./);
+	assert.match(html, /Open a direction to comment on it, mix it or implement it\./);
 	assert.match(html, /<code id="gd-feature"/);
 });
 
@@ -3231,7 +3243,8 @@ test("S4: each artboard's list item carries Accessible ✓ (canvas-ux S3, was A1
 	report_(canvas, second.frame, [finding(), finding({ selector: "#b" }), finding({ check: "target", severity: "advice", selector: "#c" })]);
 	assert.deepEqual(navA11y(canvas).map((tag) => tag.textContent), ["Accessible ✓", "2 checks"]);
 	assert.deepEqual(navA11y(canvas).map((tag) => tag.dataset.state), ["ok", "warn"]);
-	assert.match(navA11y(canvas)[1].title, /Checks tab/);
+	// canvas-progressive S5: the Checks tab is named Quality.
+	assert.match(navA11y(canvas)[1].title, /Quality tab/);
 	assert.match(navA11y(canvas)[0].title, /heuristics/i);
 	report_(canvas, second.frame, [finding()]);
 	assert.equal(navA11y(canvas)[1].textContent, "1 check", "singular");
@@ -3348,8 +3361,9 @@ test("S4: the Checks tab follows the design: results of the old design never sho
 
 test("S4: index.html and canvas.css carry the Checks tab, the issue cards and the list tag with tokens only", () => {
 	const html = read("index.html");
-	assert.match(html, /<button type="button" role="tab" id="gd-tab-checks" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.checks">Checks<\/span> <span id="gd-count-checks" class="gd-count">0<\/span><\/button>/);
-	assert.ok(html.indexOf('id="gd-tab-history"') < html.indexOf('id="gd-tab-checks"') && html.indexOf('id="gd-tab-checks"') < html.indexOf('id="gd-tab-brief"'));
+	// canvas-progressive S5: the tab reads Quality and sits between Comments and Mix.
+	assert.match(html, /<button type="button" role="tab" id="gd-tab-checks" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.checks">Quality<\/span> <span id="gd-count-checks" class="gd-count">0<\/span><\/button>/);
+	assert.ok(html.indexOf('id="gd-tab-comments"') < html.indexOf('id="gd-tab-checks"') && html.indexOf('id="gd-tab-checks"') < html.indexOf('id="gd-tab-mix"'));
 	assert.match(html, /<div id="gd-checks" class="gd-checks" hidden>/);
 	const css = read("canvas.css");
 	for (const selector of [".gd-checks", ".gd-check-group", ".gd-check", ".gd-check-fail", ".gd-check-advice", ".gd-check-passed", ".gd-nav-a11y"]) assert.ok(css.includes(`${selector} {`) || css.includes(`${selector},`) || css.includes(`${selector}[`), `${selector} is styled`);
@@ -3375,40 +3389,44 @@ async function withHistory(doc: unknown = HISTORY, extra: Record<string, unknown
 	tallViewport(canvas);
 	return canvas;
 }
-const historyTab = (canvas: Canvas) => canvas.document.getElementById("gd-tab-history");
 const historyPanel = (canvas: Canvas) => canvas.document.getElementById("gd-history");
-const openHistory = (canvas: Canvas) => historyTab(canvas).dispatch("click");
-const historyCount = (canvas: Canvas) => canvas.document.getElementById("gd-count-history").textContent;
+// canvas-progressive S5: History is a view the review panel's More menu opens (it was a tab), and its count is in that menu item.
+const openHistory = (canvas: Canvas) => {
+	canvas.document.getElementById("gd-panel-more").dispatch("click");
+	findAll(canvas.document.getElementById("gd-menu"), (element) => element.getAttribute("role") === "menuitem")[0].dispatch("click");
+};
+const historyCount = (canvas: Canvas) => {
+	const before = canvas.document.activeElement;
+	const more = canvas.document.getElementById("gd-panel-more");
+	more.dispatch("click");
+	const item = findAll(canvas.document.getElementById("gd-menu"), (element) => element.getAttribute("role") === "menuitem")[0];
+	const count = texts(item, "gd-count")[0];
+	more.dispatch("click");
+	before?.focus();
+	return count;
+};
 const versionCards = (canvas: Canvas) => withClass(historyPanel(canvas), "gd-version");
 const cardOf = (canvas: Canvas, n: number) => versionCards(canvas).find((card) => card.dataset.n === String(n))!;
 const cardButton = (canvas: Canvas, className: string, n: number) => withClass(cardOf(canvas, n), className)[0];
 const historyAlert = (canvas: Canvas) => withClass(historyPanel(canvas), "gd-alert")[0];
 const fetchCount = (canvas: Canvas, url: string) => canvas.fetched.filter((entry) => entry === url).length;
 
-test("S2: the History tab sits after Comments (canvas-ux S4: no Resolved tab) with its own count, and arrow keys reach it", async () => {
+test("S2: History opens from the review panel's More (canvas-progressive S5: no longer a tab) with its own count, and the arrow keys leave it", async () => {
 	const canvas = await withHistory();
-	assert.equal(historyTab(canvas).getAttribute("aria-selected"), "false");
-	assert.equal(historyTab(canvas).getAttribute("tabindex"), "-1");
 	assert.equal(historyPanel(canvas).hidden, true);
 	assert.equal(historyCount(canvas), "4", "the first artboard's four versions");
 	openHistory(canvas);
-	assert.equal(historyTab(canvas).getAttribute("aria-selected"), "true");
-	assert.equal(historyTab(canvas).getAttribute("tabindex"), "0");
 	assert.equal(historyPanel(canvas).hidden, false);
 	assert.equal(canvas.document.getElementById("gd-comment-list").hidden, true);
 	assert.equal(canvas.document.getElementById("gd-checks").hidden, true);
 	assert.equal(canvas.document.getElementById("gd-brief").hidden, true);
 	assert.equal(canvas.document.getElementById("gd-panel-empty").hidden, true);
-	assert.equal(canvas.document.getElementById("gd-tabpanel").getAttribute("aria-labelledby"), "gd-tab-history");
+	assert.equal(canvas.document.getElementById("gd-tabpanel").getAttribute("aria-label"), "History");
 	const tablist = canvas.document.getElementById("gd-tabs");
-	tablist.dispatch("keydown", { key: "ArrowRight" });
-	assert.equal(canvas.document.getElementById("gd-tab-checks").getAttribute("aria-selected"), "true");
 	tablist.dispatch("keydown", { key: "ArrowLeft" });
-	assert.equal(historyTab(canvas).getAttribute("aria-selected"), "true");
-	assert.equal(canvas.document.activeElement, historyTab(canvas));
-	tablist.dispatch("keydown", { key: "ArrowLeft" });
-	assert.equal(canvas.document.getElementById("gd-tab-comments").getAttribute("aria-selected"), "true");
-	assert.equal(historyPanel(canvas).hidden, true, "leaving the tab hides it");
+	assert.equal(canvas.document.getElementById("gd-tab-mix").getAttribute("aria-selected"), "true", "ArrowLeft from a More view goes to the last tab");
+	assert.equal(canvas.document.activeElement, canvas.document.getElementById("gd-tab-mix"));
+	assert.equal(historyPanel(canvas).hidden, true, "leaving the view hides it");
 });
 
 test("S2: the History tab shows the focused artboard's versions, else the chosen one's, else the first's", async () => {
@@ -3430,7 +3448,8 @@ test("S2: the History tab shows the focused artboard's versions, else the chosen
 test("S2: focus on the design system board does not change the History artboard", async () => {
 	const canvas = await withHistory(HISTORY, { "/t/api/system": { exists: true, file: "system.html", width: 1440, height: 1200 } });
 	openHistory(canvas);
-	canvas.document.getElementById("gd-rail-system").dispatch("click");
+	moreSystemItem(canvas).dispatch("click");
+	assert.match(canvas.navMode.textContent, /^Using: Design system/, "the design system board is in focus");
 	assert.equal(texts(historyPanel(canvas), "gd-history-title")[0], "01 First");
 	assert.equal(historyCount(canvas), "4");
 });
@@ -3714,7 +3733,7 @@ test("S3: Close comparison, Esc and Shift+Esc close it; entering focus mode for 
 		else press(canvas, "Escape", { shiftKey: how === "shift-escape" }, sliderHandle(canvas));
 		assert.equal(versionsPanel(canvas).hidden, true, how);
 		assert.equal(canvas.world.inert, false, how);
-		assert.equal(canvas.navMode.textContent, "Navigating", `${how}: focus mode entered for the comparison ends with it`);
+		assert.equal(canvas.navMode.textContent, NAV_CHIP, `${how}: focus mode entered for the comparison ends with it`);
 		assert.deepEqual(compareFrames(canvas), [], how);
 		assert.ok(older && current);
 		assert.equal(cardOf(canvas, 3).classes.has("gd-version-comparing"), false);
@@ -3917,8 +3936,8 @@ test("S4: the restore question survives a refresh of the list while it is open",
 
 test("S2-S4: the History tab and the comparison are in index.html and canvas.css with tokens only, focus rings and no inline script or style", () => {
 	const html = read("index.html");
-	assert.match(html, /<button type="button" role="tab" id="gd-tab-history" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.history">History<\/span> <span id="gd-count-history" class="gd-count">0<\/span><\/button>/);
-	assert.ok(html.indexOf('id="gd-tab-comments"') < html.indexOf('id="gd-tab-history"') && html.indexOf('id="gd-tab-history"') < html.indexOf('id="gd-tab-checks"'));
+	// canvas-progressive S5: History is a view of the panel's More menu, not a tab.
+	assert.match(html, /<button type="button" id="gd-panel-more" class="gd-tab gd-tab-more" aria-haspopup="menu"/);
 	assert.match(html, /<div id="gd-history" class="gd-history" hidden><\/div>/);
 	assert.match(html, /<section id="gd-versions" class="gd-versions" aria-labelledby="gd-versions-title" hidden>/);
 	assert.match(html, /<div class="gd-devices gd-versions-mode" role="group" aria-label="Comparison mode" data-i18n-aria-label="versions.group">/);
@@ -4028,12 +4047,13 @@ test("L10 (A2): moving between tabs with the keyboard scrolls the chosen tab int
 	const canvas = await loadCanvas();
 	const doc = canvas.document;
 	const scrolled: Array<[string, unknown]> = [];
-	for (const id of ["gd-tab-comments", "gd-tab-history", "gd-tab-checks", "gd-tab-brief"]) {
+	// canvas-progressive S5: the last tab is Mix.
+	for (const id of ["gd-tab-comments", "gd-tab-checks", "gd-tab-mix"]) {
 		// The options object comes from the canvas's own realm: compare its content.
 		doc.getElementById(id).scrollIntoView = (options: unknown) => scrolled.push([id, JSON.parse(JSON.stringify(options))]);
 	}
 	doc.getElementById("gd-tabs").dispatch("keydown", { key: "End" });
-	assert.deepEqual(scrolled, [["gd-tab-brief", { block: "nearest", inline: "nearest" }]]);
+	assert.deepEqual(scrolled, [["gd-tab-mix", { block: "nearest", inline: "nearest" }]]);
 });
 
 // ---- Compare modes (canvas-compare-overlay T1): Side by side, Overlay and Slider over the artboard and the running app
@@ -4499,7 +4519,7 @@ test("T1/S1: a click in the minimap centers the view on that world point; zoom s
 	mapPointer(canvas, "pointerup", 400, 300);
 	assert.equal(canvas.zoomLevel.textContent, zoom);
 	near(miniBox(miniView(canvas)), [6 + 0.1 * 0, 6 + 0.1 * 20, 80, 56]);
-	assert.equal(canvas.navMode.textContent, "Navigating", "a click in the map never focuses an artboard");
+	assert.equal(canvas.navMode.textContent, NAV_CHIP, "a click in the map never focuses an artboard");
 });
 
 test("T1/S1: dragging in the minimap pans with the pointer until it is released", async () => {
@@ -4875,19 +4895,21 @@ test("T2/S2: single-key shortcuts stay off while the menu is open", async () => 
 	assert.equal(miniPanel(canvas).hidden, true, "back to normal after it closes");
 });
 
-test("T2/S2: Implement this stays visible in the header and the menu item opens the same confirm step", async () => {
+// canvas-progressive S4: Implement this is in the header only in focus mode; from the overview the menu item opens the direction first.
+test("T2/S2: Implement this is in the header in focus mode and the menu item opens the same confirm step", async () => {
 	const canvas = await loadRail();
 	const wrapper = boardsOf(canvas)[0];
 	const control = withClass(wrapper, "gd-implement")[0];
 	const start = withClass(control, "gd-implement-start")[0];
 	const confirm = withClass(control, "gd-implement-confirm")[0];
-	assert.equal(start.hidden, false);
+	assert.equal(control.hidden, true, "not in the overview");
 	assert.equal(start.textContent, "Implement this");
 	assert.ok(!menuEl(canvas).contains(start), "the header button is not moved into the menu");
 	assert.equal(confirm.hidden, true);
 	openMenu(canvas, 0);
 	itemNamed(canvas, "Implement this").dispatch("click");
 	assert.equal(menuEl(canvas).hidden, true);
+	assert.equal(control.hidden, false, "the direction is open in focus mode");
 	assert.equal(confirm.hidden, false, "the confirm step is open");
 	assert.equal(start.hidden, true);
 	assert.equal(canvas.fetched.filter((url) => url === IMPLEMENT).length, 0, "nothing is sent before confirming");
@@ -5139,7 +5161,7 @@ test("T3/S4: a capture failure stops the stream and restores the canvas view", a
 	for (let i = 0; i < 8; i++) await flush();
 	assert.equal(stopped, 1);
 	assert.equal(canvas.world.style.transform, before);
-	assert.match(canvas.navMode.textContent, /Navigating/);
+	assert.equal(canvas.navMode.textContent, NAV_CHIP);
 	assert.ok(withClass(canvas.world, "gd-alert").some((alert) => !alert.hidden && texts(alert, "gd-alert-text").some((text) => /screenshot/i.test(text))));
 	assert.equal(canvas.posts.length, 0);
 });
@@ -5444,7 +5466,8 @@ test("T2/S2/S3: canvas.css styles the menu, the dialog and the placeholder with 
 
 const LANG_KEY = "gentle-design:language";
 
-type LangOptions = { browser?: string | string[]; stored?: string | null; replies?: Record<string, unknown>; config?: Record<string, unknown>; extra?: Record<string, unknown>; script?: string };
+// `guide`: the first-run guide has not been seen yet, so it opens (canvas-progressive S6); otherwise it counts as seen.
+type LangOptions = { browser?: string | string[]; stored?: string | null; replies?: Record<string, unknown>; config?: Record<string, unknown>; extra?: Record<string, unknown>; script?: string; guide?: boolean };
 
 /** The canvas with index.html's static text hydrated, a browser language and a stored choice; `saved()` lists what it wrote. */
 async function loadLang(options: LangOptions = {}) {
@@ -5453,7 +5476,7 @@ async function loadLang(options: LangOptions = {}) {
 	const navigator = browser === undefined ? undefined : Array.isArray(browser) ? { language: browser[0], languages: browser } : { language: browser, languages: [browser] };
 	const context = {
 		...(navigator ? { navigator } : {}),
-		localStorage: { getItem: (key: string) => (key === LANG_KEY ? options.stored ?? null : null), setItem: (key: string, value: string) => { writes.push([key, value]); } },
+		localStorage: { getItem: (key: string) => (key === LANG_KEY ? options.stored ?? null : key === "gentle-design:guide" && !options.guide ? "done" : null), setItem: (key: string, value: string) => { writes.push([key, value]); } },
 		...options.extra,
 	};
 	const canvas = await loadCanvas(300, options.replies ?? {}, options.config ?? {}, context, { hydrate: true, script: options.script });
@@ -5476,8 +5499,8 @@ const modeChip = (canvas: LangCanvas) => canvas.document.getElementById("gd-nav-
 
 test("S1: the language starts from the browser: es* is Spanish, anything else (or nothing) is English, and <html lang> follows", async () => {
 	const cases: Array<[string | string[] | undefined, string, string]> = [
-		["es", "es", "Navegando"], ["es-MX", "es", "Navegando"], ["ES-ar", "es", "Navegando"], [["es-ES", "en"], "es", "Navegando"],
-		["en-US", "en", "Navigating"], ["fr-FR", "en", "Navigating"], ["", "en", "Navigating"], [["en-US", "es"], "en", "Navigating"], [undefined, "en", "Navigating"],
+		["es", "es", NAV_CHIP_ES], ["es-MX", "es", NAV_CHIP_ES], ["ES-ar", "es", NAV_CHIP_ES], [["es-ES", "en"], "es", NAV_CHIP_ES],
+		["en-US", "en", NAV_CHIP], ["fr-FR", "en", NAV_CHIP], ["", "en", NAV_CHIP], [["en-US", "es"], "en", NAV_CHIP], [undefined, "en", NAV_CHIP],
 	];
 	for (const [browser, lang, chip] of cases) {
 		const canvas = await loadLang({ browser });
@@ -5530,7 +5553,7 @@ test("S1/S2: choosing a language applies at once, saves the choice and leaves th
 	assert.equal(canvas.document.getElementById("gd-back").textContent, "Back to canvas");
 	chooseLang(canvas, "es");
 	assert.equal(htmlLang(canvas), "es");
-	assert.equal(modeChip(canvas), "Navegando");
+	assert.equal(modeChip(canvas), NAV_CHIP_ES);
 	assert.equal(canvas.document.getElementById("gd-lang-code").textContent, "ES");
 	assert.equal(canvas.document.getElementById("gd-back").textContent, "Volver al canvas");
 	assert.equal(canvas.document.getElementById("gd-back").title, "Volver al canvas (Shift+Esc)");
@@ -5547,7 +5570,7 @@ test("S1/S2: choosing a language applies at once, saves the choice and leaves th
 
 	chooseLang(canvas, "en");
 	assert.equal(htmlLang(canvas), "en");
-	assert.equal(modeChip(canvas), "Navigating");
+	assert.equal(modeChip(canvas), NAV_CHIP);
 	assert.equal(canvas.document.getElementById("gd-back").textContent, "Back to canvas");
 	assert.equal(canvas.document.getElementById("gd-lang-code").textContent, "EN");
 	assert.deepEqual(canvas.saved(), [[LANG_KEY, "es"], [LANG_KEY, "en"]]);
@@ -5676,7 +5699,9 @@ test("S2: the navigator, tabs, cards and Send all speak Spanish with plural coun
 	// A comment-less artboard reads "Sin comentarios", and Resolved empty says so.
 	const empty = await loadLang({ browser: "es" });
 	assert.deepEqual(withClass(empty.document.getElementById("gd-nav-list"), "gd-nav-summary").map((element) => element.textContent), ["Sin comentarios", "Sin comentarios"]);
-	assert.equal(empty.document.getElementById("gd-panel-empty").textContent, "Aún no hay comentarios. Activa el modo Comentar y haz clic en un elemento.");
+	// canvas-progressive S5: no comments at all is a box with a title and how to add one.
+	assert.equal(empty.document.getElementById("gd-comments-empty").hidden, false);
+	assert.ok(staticText(empty).includes("Aún no hay comentarios"));
 });
 
 test("S2: switching language re-renders what is already on screen: lists, badges, the timeline and the chip, without a reload", async () => {
@@ -5716,14 +5741,14 @@ test("S2: dates use Today/Hoy and the month names of the language, with the year
 	chooseLang(spanish, "en");
 	assert.deepEqual(details().slice(0, 2), ["Today 09:05", "Mar 4 2020, 09:06"]);
 	chooseLang(spanish, "es");
-	spanish.document.getElementById("gd-tab-history").dispatch("click");
+	openHistory(spanish as unknown as Canvas);
 	const meta = texts(spanish.document.getElementById("gd-history"), "gd-version-meta");
 	assert.deepEqual(meta, ["Tú · 4 mar 2020, 09:04", "Restauración · 4 mar 2020, 09:03", "Agente · 4 mar 2020, 09:02", "Tú · 4 mar 2020, 09:01"]);
 });
 
 test("S2: history cards, tags and buttons are Spanish, and restoring asks in Spanish", async () => {
 	const canvas = await loadLang({ browser: "es", replies: { [HISTORY_URL]: HISTORY, ...commentsDoc(comment("a1", "01-a.html", "resolved")) } });
-	canvas.document.getElementById("gd-tab-history").dispatch("click");
+	openHistory(canvas as unknown as Canvas);
 	const panel = canvas.document.getElementById("gd-history");
 	assert.deepEqual(texts(panel, "gd-version-tag"), ["Actual", "Original"]);
 	assert.deepEqual(texts(panel, "gd-version-applied"), ["Aplicado #1"]);
@@ -5923,10 +5948,10 @@ test("S3: the messages the canvas sends and what the user wrote are never transl
 
 test("S4: a Spanish key that is missing falls back to the English text", async () => {
 	const source = read("canvas.js");
-	const line = '"nav.note": "El tablero del design system siempre va primero en Ver todo.",';
+	const line = '"nav.note": "Abre una propuesta para comentarla, mezclarla o implementarla.",';
 	assert.ok(source.includes(line), "the Spanish entry is on its own line");
 	const canvas = await loadLang({ browser: "es", script: source.replace(line, ""), replies: SYSTEM_REPLY });
-	assert.equal(canvas.document.getElementById("gd-nav-note").textContent, "Design system board is always first in Overview.");
+	assert.equal(canvas.document.getElementById("gd-nav-note").textContent, "Open a direction to comment on it, mix it or implement it.");
 	assert.equal(canvas.document.getElementById("gd-back").textContent, "Volver al canvas", "the other keys stay Spanish");
 });
 
@@ -6309,8 +6334,18 @@ test("S2: after a switch no text, title or accessible name of the old language i
 		layoutWorld(canvas as unknown as Canvas, [[0, 0, 800, 600], [880, 0, 400, 300], [1360, 0, 400, 300]]);
 		canvas.windowEvent("resize");
 		void system;
-		for (const tab of ["gd-filter-open", "gd-filter-resolved", "gd-tab-history", "gd-tab-checks", "gd-tab-brief"]) {
-			canvas.document.getElementById(tab).dispatch("click");
+		// canvas-progressive S5: History and Original request open from the panel's More (its first and second items).
+		const more = (index: number) => () => {
+			canvas.document.getElementById("gd-panel-more").dispatch("click");
+			findAll(canvas.document.getElementById("gd-menu"), (element) => element.getAttribute("role") === "menuitem")[index].dispatch("click");
+		};
+		const views: Array<[string, () => void]> = [
+			...["gd-filter-open", "gd-filter-resolved", "gd-filter-all", "gd-tab-checks", "gd-tab-mix"].map((id) => [id, () => { canvas.document.getElementById(id).dispatch("click"); }] as [string, () => void]),
+			["History", more(0)],
+			["Original request", more(1)],
+		];
+		for (const [tab, open] of views) {
+			open();
 			chooseLang(canvas, to);
 			assert.deepEqual(leftovers(canvas, from), [], `${from} -> ${to} on ${tab}`);
 			chooseLang(canvas, from);
@@ -6353,7 +6388,7 @@ test("S2: after a switch nothing of the old language is left in Compare, a versi
 		assert.deepEqual(leftovers(compare, to), [], `${to} -> ${from} in Compare`);
 
 		const versions = await loadLang({ browser: from, replies: { [HISTORY_URL]: HISTORY, ...commentsDoc(comment("a1", "01-a.html", "resolved")) } });
-		versions.document.getElementById("gd-tab-history").dispatch("click");
+		openHistory(versions as unknown as Canvas);
 		withClass(versions.document.getElementById("gd-history"), "gd-version-compare")[0].dispatch("click");
 		chooseLang(versions, to);
 		assert.deepEqual(leftovers(versions, from), [], `${from} -> ${to} in a version comparison`);
@@ -6388,21 +6423,22 @@ test("chosen-direction S1: the top bar names the chosen direction with its state
 
 	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "sent", queued: true, sentAt: todayAt(9, 47) } }));
 	assert.equal(workBar(canvas).hidden, false);
-	assert.deepEqual(workTexts(canvas), { lead: ["Implementing"], title: ["“Second”"], state: ["Queued since 09:47"], note: [] });
+	// canvas-progressive S2: no lead word; step 4 of the breadcrumb says Implement.
+	assert.deepEqual(workTexts(canvas), { lead: [], title: ["“Second”"], state: ["Queued since 09:47"], note: [] });
 
 	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", sentAt: todayAt(9, 47), startedAt: todayAt(9, 48), note: "Exploring the current code (navigation and the Usage screen) before planning." } }));
-	assert.deepEqual(workTexts(canvas), { lead: ["Implementing"], title: ["“Second”"], state: ["In progress since 09:48"], note: ["Exploring the current code (navigation and the Usage screen) before planning."] });
+	assert.deepEqual(workTexts(canvas), { lead: [], title: ["“Second”"], state: ["In progress since 09:48"], note: ["Exploring the current code (navigation and the Usage screen) before planning."] });
 	const [note] = withClass(workBar(canvas), "gd-work-note");
 	assert.equal(note.title, "Exploring the current code (navigation and the Usage screen) before planning.", "the full note is in the tooltip");
 	assert.equal(withClass(workBar(canvas), "gd-work-dot")[0].dataset.status, "in_progress");
 
 	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented", implementedAt: "2020-03-04T09:05:00.000Z", previewUrl: "http://localhost:3000/" } }));
-	assert.deepEqual(workTexts(canvas).lead, ["Implemented ✓"]);
+	assert.deepEqual(workTexts(canvas).lead, []);
 	assert.match(workTexts(canvas).state[0], /^at Mar 4 2020, \d\d:\d\d$/, "another day keeps its date");
 	assert.equal(canvas.document.getElementById("gd-compare-app").hidden, false, "Compare with app stays the way to compare");
 
 	await setHandoffs(canvas, handoffDoc("01-a.html", {}));
-	assert.deepEqual(workTexts(canvas), { lead: ["Chosen"], title: ["“First”"], state: ["Not sent yet"], note: [] });
+	assert.deepEqual(workTexts(canvas), { lead: [], title: ["“First”"], state: ["Not sent yet"], note: [] });
 
 	await setHandoffs(canvas, handoffDoc(null, {}));
 	assert.equal(workBar(canvas).hidden, true, "hidden again when nothing is chosen");
@@ -6434,7 +6470,7 @@ test("chosen-direction S1: index.html puts the status in the bar after the bread
 test("chosen-direction S1/S2: the status and the discarded labels are in Spanish too", async () => {
 	const canvas = await loadLang({ browser: "es", replies: { "/t/api/designs/alpha/handoffs": handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", startedAt: todayAt(9, 48) } }) } });
 	const c = canvas as unknown as Canvas;
-	assert.deepEqual(workTexts(c), { lead: ["Implementando"], title: ["«Second»"], state: ["En curso desde 09:48"], note: [] });
+	assert.deepEqual(workTexts(c), { lead: [], title: ["«Second»"], state: ["En curso desde 09:48"], note: [] });
 	assert.equal(withClass(workBar(c), "gd-work-show")[0].textContent, "Ver");
 	assert.deepEqual(texts(boardsOf(c)[0], "gd-choice"), ["Descartada"]);
 	assert.equal(withClass(boardsOf(c)[0], "gd-implement-start")[0].textContent, "Cambiar a esta…");
@@ -7043,7 +7079,7 @@ type StoredPick = { id: string; file: string; selector: string; excerpt: string;
 
 /** The canvas with a working (or a throwing) localStorage; `stored` is what `gentle-design:mix:alpha` holds at start. */
 async function loadMix(options: { stored?: unknown; broken?: boolean; config?: Record<string, unknown>; replies?: Record<string, unknown>; hydrate?: boolean; browser?: string } = {}) {
-	const data = new Map<string, string>();
+	const data = new Map<string, string>([["gentle-design:guide", "done"]]);
 	if (options.stored !== undefined) data.set(MIX_KEY, typeof options.stored === "string" ? options.stored : JSON.stringify(options.stored));
 	const localStorage = options.broken
 		? { getItem() { throw new Error("denied"); }, setItem() { throw new Error("denied"); } }
@@ -7129,23 +7165,23 @@ test("canvas-mix S2: a pick gets a pin of its own color on its artboard, beside 
 	assert.equal(canvas.document.activeElement, mixItems(canvas)[0], "keyboard focus lands on that pick");
 });
 
-test("canvas-mix S2: the Mix tab sits before Brief with its count and lists the picks grouped by artboard, each removable", async () => {
+test("canvas-mix S2: the Mix tab is the last tab (canvas-progressive S5) with its count and lists the picks grouped by artboard, each removable", async () => {
 	const canvas = await loadMix();
-	const tabs = ["gd-tab-comments", "gd-tab-history", "gd-tab-checks", "gd-tab-mix", "gd-tab-brief"];
+	const tabs = ["gd-tab-comments", "gd-tab-checks", "gd-tab-mix"];
 	const selected = () => tabs.map((id) => canvas.document.getElementById(id).getAttribute("aria-selected"));
 	assert.equal(mixEl(canvas, "gd-mix").hidden, true);
 	openMixTab(canvas);
-	assert.deepEqual(selected(), ["false", "false", "false", "true", "false"]);
+	assert.deepEqual(selected(), ["false", "false", "true"]);
 	assert.equal(mixEl(canvas, "gd-mix").hidden, false);
 	assert.equal(canvas.document.getElementById("gd-comment-list").hidden, true);
 	assert.equal(canvas.document.getElementById("gd-panel-empty").hidden, true);
 	assert.equal(canvas.document.getElementById("gd-tabpanel").getAttribute("aria-labelledby"), "gd-tab-mix");
 	assert.equal(mixEl(canvas, "gd-mix-empty").hidden, false, "an empty tray explains how to add picks");
 	assert.match(mixEl(canvas, "gd-mix-empty").textContent, /Comment mode[^]*Add to the mix/);
-	// Arrow keys reach it between Checks and Brief.
+	// Arrow keys reach it after Quality, wrapping to Comments.
 	const tablist = canvas.document.getElementById("gd-tabs");
 	tablist.dispatch("keydown", { key: "ArrowRight" });
-	assert.equal(canvas.document.getElementById("gd-tab-brief").getAttribute("aria-selected"), "true");
+	assert.equal(canvas.document.getElementById("gd-tab-comments").getAttribute("aria-selected"), "true");
 	tablist.dispatch("keydown", { key: "ArrowLeft" });
 	assert.equal(canvas.document.activeElement, mixEl(canvas, "gd-tab-mix"));
 
@@ -7320,8 +7356,8 @@ test("canvas-mix S6: the mix speaks Spanish with tú forms, and a switch leaves 
 
 test("canvas-mix S6: index.html carries the Mix tab, the popover action and the tray; canvas.css styles them with tokens, focus rings and no motion", () => {
 	const html = read("index.html");
-	assert.equal([...html.matchAll(/role="tab"/g)].length, 5);
-	assert.ok(html.indexOf('id="gd-tab-mix"') > html.indexOf('id="gd-tab-checks"') && html.indexOf('id="gd-tab-mix"') < html.indexOf('id="gd-tab-brief"'), "Mix sits between Checks and Brief");
+	assert.equal([...html.matchAll(/role="tab"/g)].length, 3);
+	assert.ok(html.indexOf('id="gd-tab-mix"') > html.indexOf('id="gd-tab-checks"') && html.indexOf('id="gd-tab-mix"') < html.indexOf('id="gd-panel-more"'), "Mix sits after Quality, before More");
 	assert.match(html, /<button type="button" role="tab" id="gd-tab-mix" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.mix">Mix<\/span> <span id="gd-count-mix" class="gd-count">0<\/span><\/button>/);
 	const actions = html.slice(html.indexOf('class="gd-popover-actions"'), html.indexOf("</form>", html.indexOf('class="gd-popover-actions"')));
 	assert.match(actions, /<button type="button" id="gd-popover-mix"[^>]*data-i18n="mix.add">Add to the mix<\/button>/);
@@ -7356,7 +7392,7 @@ test("canvas-mix S6: the docs and the README describe Mix", () => {
 // ---- canvas-mix discoverability: the first pick shows the Mix tab, the popover links to it, the placeholder says what it is ----
 
 const panelShown = (canvas: MixCanvas) => !canvas.document.getElementById("gd-panel").hidden;
-const selectedTab = (canvas: MixCanvas) => ["gd-tab-comments", "gd-tab-history", "gd-tab-checks", "gd-tab-mix", "gd-tab-brief"].filter((id) => canvas.document.getElementById(id).getAttribute("aria-selected") === "true");
+const selectedTab = (canvas: MixCanvas) => ["gd-tab-comments", "gd-tab-checks", "gd-tab-mix"].filter((id) => canvas.document.getElementById(id).getAttribute("aria-selected") === "true");
 
 test("canvas-mix discoverability: the first pick opens the review panel on the Mix tab; a refused pick and later picks leave the tab alone", async () => {
 	const canvas = await loadMix();
@@ -7489,8 +7525,9 @@ test("canvas-mix discoverability: the docs describe the count, Show mix, the fir
 const TECHNICAL_KEY = "gentle-design:technical";
 
 /** The canvas with a working (or a throwing) localStorage; `stored` seeds it. index.html's static text is hydrated. */
-async function loadUx(options: { stored?: Record<string, string>; broken?: boolean; replies?: Record<string, unknown>; browser?: string } = {}) {
-	const data = new Map<string, string>(Object.entries(options.stored ?? {}));
+async function loadUx(options: { stored?: Record<string, string>; broken?: boolean; replies?: Record<string, unknown>; browser?: string; guide?: boolean } = {}) {
+	// `guide`: the first-run guide has not been seen yet (canvas-progressive S6); otherwise it counts as seen.
+	const data = new Map<string, string>(Object.entries({ ...(options.guide ? {} : { "gentle-design:guide": "done" }), ...options.stored }));
 	const localStorage = options.broken
 		? { getItem() { throw new Error("denied"); }, setItem() { throw new Error("denied"); } }
 		: { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, String(value)); } };
@@ -7616,11 +7653,11 @@ test("canvas-ux S2: the Technical details toggle applies at once, both ways, and
 	assert.deepEqual(texts(broken.document.getElementById("gd-comment-list"), "gd-comment-selector"), ["main > .a1"]);
 });
 
-test("canvas-ux S2: the toggle is a named, pressed button in the top bar with an icon and a label in both languages", async () => {
+test("canvas-ux S2: the toggle is a named, pressed button at the bottom of the review side (canvas-progressive S5) with an icon and a label in both languages", async () => {
 	const html = read("index.html");
-	const bar = html.slice(html.indexOf('<header class="gd-bar"'), html.indexOf("</header>"));
-	const button = /<button type="button" id="gd-technical"([^>]*)>([^]*?)<\/button>/.exec(bar);
-	assert.ok(button, "the toggle is a button in the top bar");
+	const foot = html.slice(html.indexOf('<div class="gd-side-foot">'), html.indexOf("</aside>", html.indexOf('<div class="gd-side-foot">')));
+	const button = /<button type="button" id="gd-technical"([^>]*)>([^]*?)<\/button>/.exec(foot);
+	assert.ok(button, "the toggle is a button in the review side's footer");
 	assert.match(button![1], /aria-pressed="false"/);
 	assert.match(button![2], /<svg class="gd-i[^"]*" aria-hidden="true"><use href="#i-[a-z-]+"\/><\/svg>/);
 	assert.match(button![2], /<span data-i18n="technical.label">Technical details<\/span>/);
@@ -7636,7 +7673,8 @@ test("canvas-ux S2: the toggle is a named, pressed button in the top bar with an
 
 // ---- canvas-ux-quick-wins T2: plain wording (S3), one Comments tab with a filter (S4) ----
 
-const tabIds = ["gd-tab-comments", "gd-tab-history", "gd-tab-checks", "gd-tab-mix", "gd-tab-brief"];
+// canvas-progressive S5: three tabs; History and Original request are More views.
+const tabIds = ["gd-tab-comments", "gd-tab-checks", "gd-tab-mix"];
 const selectedTabs = (canvas: Canvas) => tabIds.filter((id) => canvas.document.getElementById(id).getAttribute("aria-selected") === "true");
 const filterState = (canvas: Canvas) => ["gd-filter-open", "gd-filter-resolved"].map((id) => `${canvas.document.getElementById(id).textContent}=${canvas.document.getElementById(id).getAttribute("aria-pressed")}`);
 const pendingLine = (canvas: Canvas) => canvas.document.getElementById("gd-send-pending");
@@ -7649,7 +7687,8 @@ test("canvas-ux S3: plain words: Accessible ✓, Original request, Save to send 
 		["panel.collect", "Save to send later", "Guardar para enviar luego"],
 		["nav.title", "Directions · {count}", "Propuestas · {count}"],
 		["viewport.label", "Directions", "Propuestas"],
-		["rail.list", "Direction list", "Lista de propuestas"],
+		// canvas-progressive S1: the rail's visible label is List / Lista; its tooltip keeps the full name.
+		["rail.list.title", "Direction list ([)", "Lista de propuestas ([)"],
 		["panel.footIntro", "Your comments go to the agent so it changes the design", "Tus comentarios se envían al agente para que cambie el diseño"],
 	];
 	for (const [key, english, spanish] of words) {
@@ -7665,13 +7704,16 @@ test("canvas-ux S3: plain words: Accessible ✓, Original request, Save to send 
 	assert.equal(withClass(canvas.document.getElementById("gd-nav-list"), "gd-nav-a11y")[0].textContent, "Accessible ✓");
 	assert.equal(canvas.document.getElementById("gd-nav-title").textContent, "Directions · 2");
 	const staticTexts = canvas.document.querySelectorAll("[data-i18n]").map((element) => element.textContent);
-	for (const text of ["Original request", "Save to send later", "Your comments go to the agent so it changes the design"]) assert.ok(staticTexts.includes(text), text);
+	for (const text of ["Save to send later", "Your comments go to the agent so it changes the design"]) assert.ok(staticTexts.includes(text), text);
 	chooseLang(canvas as unknown as LangCanvas, "es");
 	assert.equal(withClass(canvas.document.getElementById("gd-nav-list"), "gd-nav-a11y")[0].textContent, "Accesible ✓");
 	assert.equal(canvas.document.getElementById("gd-nav-title").textContent, "Propuestas · 2");
 	const spanish = canvas.document.querySelectorAll("[data-i18n]").map((element) => element.textContent);
-	for (const text of ["Petición original", "Guardar para enviar luego", "Tus comentarios se envían al agente para que cambie el diseño"]) assert.ok(spanish.includes(text), text);
-	canvas.document.getElementById("gd-tab-brief").dispatch("click");
+	for (const text of ["Guardar para enviar luego", "Tus comentarios se envían al agente para que cambie el diseño"]) assert.ok(spanish.includes(text), text);
+	// canvas-progressive S5: Original request opens from the panel's More (its second item).
+	canvas.document.getElementById("gd-panel-more").dispatch("click");
+	assert.equal(texts(findAll(canvas.document.getElementById("gd-menu"), (element) => element.getAttribute("role") === "menuitem")[1], "gd-menu-label")[0], "Petición original");
+	findAll(canvas.document.getElementById("gd-menu"), (element) => element.getAttribute("role") === "menuitem")[1].dispatch("click");
 	assert.equal(canvas.document.getElementById("gd-brief-text").textContent, "Aún no se ha escrito la petición original.");
 });
 
@@ -7697,6 +7739,7 @@ test("canvas-ux S3: the footer says where comments go and how many wait to be se
 	assert.ok(foot.indexOf("gd-send-intro") < foot.indexOf("gd-sendmode"), "the sentence leads the footer");
 });
 
+// canvas-progressive S5: the filter reads Open · N / Resolved · N (was Open (N) / Resolved (N)), with All after them.
 test("canvas-ux S4: one Comments tab counts the open comments, with an Open / Resolved filter, Open by default", async () => {
 	const canvas = await loadUx({ replies: commentsDoc(comment("a1", "01-a.html"), comment("a2", "01-a.html", "resolved"), comment("a3", "02-b.html")) });
 	const doc = canvas.document;
@@ -7704,10 +7747,10 @@ test("canvas-ux S4: one Comments tab counts the open comments, with an Open / Re
 	assert.deepEqual(selectedTabs(canvas), ["gd-tab-comments"]);
 	assert.equal(doc.getElementById("gd-count-open").textContent, "2", "the tab counts open comments");
 	assert.equal(doc.getElementById("gd-comment-filter").hidden, false);
-	assert.deepEqual(filterState(canvas), ["Open (2)=true", "Resolved (1)=false"]);
+	assert.deepEqual(filterState(canvas), ["Open · 2=true", "Resolved · 1=false"]);
 	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a1", "Text of a3"]);
 	doc.getElementById("gd-filter-resolved").dispatch("click");
-	assert.deepEqual(filterState(canvas), ["Open (2)=false", "Resolved (1)=true"]);
+	assert.deepEqual(filterState(canvas), ["Open · 2=false", "Resolved · 1=true"]);
 	assert.deepEqual(selectedTabs(canvas), ["gd-tab-comments"], "the filter is not a tab");
 	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a2"]);
 	// Reopen works from the filter as it did from the Resolved tab.
@@ -7715,27 +7758,27 @@ test("canvas-ux S4: one Comments tab counts the open comments, with an Open / Re
 	await flush();
 	assert.deepEqual(canvas.posts.filter((post) => post.url.endsWith("/comments/a2/status")).map((post) => post.body), [{ status: "open" }]);
 	await setComments(canvas, comment("a1", "01-a.html"), comment("a2", "01-a.html"));
-	assert.deepEqual(filterState(canvas), ["Open (2)=false", "Resolved (0)=true"]);
+	assert.deepEqual(filterState(canvas), ["Open · 2=false", "Resolved · 0=true"]);
 	assert.equal(doc.getElementById("gd-panel-empty").hidden, false);
 	assert.equal(doc.getElementById("gd-panel-empty").textContent, "No resolved comments.");
 	doc.getElementById("gd-filter-open").dispatch("click");
 	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a1", "Text of a2"]);
 	// The filter belongs to the Comments tab only.
-	doc.getElementById("gd-tab-history").dispatch("click");
+	doc.getElementById("gd-tab-mix").dispatch("click");
 	assert.equal(doc.getElementById("gd-comment-filter").hidden, true);
 	// Spanish, live.
 	doc.getElementById("gd-tab-comments").dispatch("click");
 	chooseLang(canvas as unknown as LangCanvas, "es");
-	assert.deepEqual(filterState(canvas), ["Abiertos (2)=true", "Resueltos (0)=false"]);
+	assert.deepEqual(filterState(canvas), ["Abiertos · 2=true", "Resueltos · 0=false"]);
 	assert.equal(doc.getElementById("gd-comment-filter").getAttribute("aria-label"), "Mostrar comentarios");
 	const html = read("index.html");
-	assert.equal([...html.matchAll(/role="tab"/g)].length, 5, "five tabs: Comments, History, Checks, Mix, Original request");
+	assert.equal([...html.matchAll(/role="tab"/g)].length, 3, "three tabs: Comments, Quality, Mix");
 	assert.ok(!/id="gd-count-resolved"/.test(html), "no Resolved tab count");
 	assert.match(html, /<button type="button" role="tab" id="gd-tab-comments"[^>]*aria-selected="true"[^>]*><span data-i18n="tab.comments">Comments<\/span> <span id="gd-count-open" class="gd-count">0<\/span><\/button>/);
-	assert.match(html, /<div id="gd-comment-filter" class="gd-devices gd-comment-filter" role="group" aria-label="Show comments" data-i18n-aria-label="filter.label">\s*<button type="button" id="gd-filter-open" class="gd-size-button" aria-pressed="true"[^>]*>[^<]*<\/button>\s*<button type="button" id="gd-filter-resolved" class="gd-size-button" aria-pressed="false"[^>]*>[^<]*<\/button>\s*<\/div>/);
+	assert.match(html, /<div id="gd-comment-filter" class="gd-devices gd-comment-filter" role="group" aria-label="Show comments" data-i18n-aria-label="filter.label">\s*<button type="button" id="gd-filter-open" class="gd-size-button" aria-pressed="true"[^>]*>[^<]*<\/button>\s*<button type="button" id="gd-filter-resolved" class="gd-size-button" aria-pressed="false"[^>]*>[^<]*<\/button>\s*<button type="button" id="gd-filter-all"[^>]*>[^<]*<\/button>\s*<\/div>/);
 });
 
-test("canvas-ux S4: a pin opens the Comments tab with its comment's filter and focuses its card; arrow keys move over five tabs", async () => {
+test("canvas-ux S4: a pin opens the Comments tab with its comment's filter and focuses its card; arrow keys move over the three tabs (canvas-progressive S5)", async () => {
 	const canvas = await loadUx({ replies: commentsDoc(comment("a1", "01-a.html"), comment("a2", "01-a.html", "resolved")) });
 	const doc = canvas.document;
 	const [first] = canvas.boards;
@@ -7744,19 +7787,19 @@ test("canvas-ux S4: a pin opens the Comments tab with its comment's filter and f
 	doc.getElementById("gd-tab-checks").dispatch("click");
 	pin("a2").dispatch("click");
 	assert.deepEqual(selectedTabs(canvas), ["gd-tab-comments"]);
-	assert.deepEqual(filterState(canvas), ["Open (1)=false", "Resolved (1)=true"]);
+	assert.deepEqual(filterState(canvas), ["Open · 1=false", "Resolved · 1=true"]);
 	const list = doc.getElementById("gd-comment-list");
 	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a2"]);
 	assert.ok(list.children[0].contains(doc.activeElement), "keyboard focus is on its card");
 	pin("a1").dispatch("click");
-	assert.deepEqual(filterState(canvas), ["Open (1)=true", "Resolved (1)=false"]);
+	assert.deepEqual(filterState(canvas), ["Open · 1=true", "Resolved · 1=false"]);
 	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a1"]);
 
 	const tablist = doc.getElementById("gd-tabs");
 	tablist.dispatch("keydown", { key: "ArrowRight" });
-	assert.deepEqual(selectedTabs(canvas), ["gd-tab-history"], "Comments is followed by History");
+	assert.deepEqual(selectedTabs(canvas), ["gd-tab-checks"], "Comments is followed by Quality");
 	tablist.dispatch("keydown", { key: "End" });
-	assert.deepEqual(selectedTabs(canvas), ["gd-tab-brief"]);
+	assert.deepEqual(selectedTabs(canvas), ["gd-tab-mix"]);
 	tablist.dispatch("keydown", { key: "ArrowRight" });
 	assert.deepEqual(selectedTabs(canvas), ["gd-tab-comments"], "and it wraps around");
 	assert.equal(doc.activeElement, doc.getElementById("gd-tab-comments"));
@@ -7775,9 +7818,674 @@ test("canvas-ux S5: the docs describe commenting inside a direction and the Tech
 test("canvas-ux S5: the docs and the README use the plain words, the footer sentence and the one Comments tab", () => {
 	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
 	const section = docs.slice(docs.indexOf("### Gentle Design"));
-	for (const part of ["**Original request**", "**Save to send later**", "`Accessible ✓`", "**Directions · N**", "**Open (N)**", "**Resolved (N)**", "\"Your comments go to the agent so it changes the design\"", "**N waiting to be sent**"]) assert.ok(section.includes(part), `docs mention ${part}`);
+	// canvas-progressive S5: the filter reads Open · N / Resolved · N.
+	for (const part of ["**Original request**", "**Save to send later**", "`Accessible ✓`", "**Directions · N**", "**Open · N**", "**Resolved · N**", "\"Your comments go to the agent so it changes the design\"", "**N waiting to be sent**"]) assert.ok(section.includes(part), `docs mention ${part}`);
 	for (const old of ["**Collect**", "A11y ✓", "**Resolved**, **History**", "Resolved tab", "Comments and Resolved tabs", "**Brief** tabs"]) assert.ok(!section.includes(old), `docs no longer say ${old}`);
 	const readme = readFileSync(fileURLToPath(new URL("../README.md", import.meta.url)), "utf8");
 	const row = readme.split("\n").find((line) => line.startsWith("| Gentle Design |"))!;
 	for (const part of ["opens it in focus", "Technical details", "Original request", "Save to send later", "Open / Resolved"]) assert.ok(row.includes(part), `the README row mentions ${part}`);
+});
+
+// ---- canvas-progressive T1: labeled rail and More (S1), step breadcrumb (S2), connection chip (S3) ----
+
+const moreButton = (canvas: Canvas) => canvas.document.getElementById("gd-rail-more");
+const openMore = (canvas: Canvas) => {
+	moreButton(canvas).dispatch("click");
+	return menuItems(canvas);
+};
+const stepsList = (canvas: Canvas) => canvas.document.getElementById("gd-steps-list");
+const stepItems = (canvas: Canvas) => withClass(stepsList(canvas), "gd-steps-item");
+const crumbStates = (canvas: Canvas) => stepItems(canvas).map((item) => `${texts(item, "gd-steps-label")[0]}=${item.dataset.state}`);
+const stepLinks = (canvas: Canvas) => withClass(stepsList(canvas), "gd-steps-link");
+const currentSteps = (canvas: Canvas) => stepLinks(canvas).filter((link) => link.getAttribute("aria-current") === "step").map((link) => texts(link, "gd-steps-label")[0]);
+const stepWords = (canvas: Canvas) => texts(stepsList(canvas), "gd-steps-state").map((text) => text.trim());
+const connection = (canvas: Canvas) => canvas.document.getElementById("gd-connection");
+const OFFLINE = { delivery: { comment: true, batch: false, implement: false, variant: false, mix: false } };
+
+test("progressive S1: the rail shows Move, Comment, Overview, List and More, each an icon with a visible label that names it", async () => {
+	const html = read("index.html");
+	const rail = html.slice(html.indexOf('<nav class="gd-rail"'), html.indexOf("</nav>", html.indexOf('<nav class="gd-rail"')));
+	const tools: Array<[string, string, string]> = [["gd-tool-navigate", "rail.navigate", "Move"], ["gd-comment", "rail.comment", "Comment"], ["gd-rail-fit", "rail.overview", "Overview"], ["gd-nav-toggle", "rail.list", "List"], ["gd-rail-more", "rail.more", "More"]];
+	const buttons = [...rail.matchAll(/<button type="button" id="([^"]+)"([^>]*)>([^]*?)<\/button>/g)];
+	assert.deepEqual(buttons.map((match) => match[1]), tools.map(([id]) => id), "five tools, in this order, and nothing else");
+	for (const [id, key, english] of tools) {
+		const [, , attributes, inner] = buttons.find((match) => match[1] === id)!;
+		assert.match(inner, new RegExp(`^<svg class="gd-i" aria-hidden="true"><use href="#i-[a-z-]+"/></svg><span class="gd-tool-label" data-i18n="${key}">${english}</span>$`), `${id}: an icon and the label ${english}`);
+		assert.ok(!/aria-label=/.test(attributes), `${id}: the visible label is its name`);
+		assert.match(attributes, /title="[^"]+" data-i18n-title="[^"]+"/, `${id}: a tooltip from the catalog`);
+	}
+	const more = buttons.find((match) => match[1] === "gd-rail-more")![2];
+	assert.match(more, /class="gd-tool gd-bottom"/, "More sits at the bottom");
+	assert.match(more, /aria-haspopup="menu" aria-expanded="false" aria-controls="gd-menu"/);
+	for (const gone of ["gd-rail-system", "gd-shortcuts-open"]) assert.ok(!html.includes(`id="${gone}"`), `${gone} moved into More`);
+
+	const { en, es } = loadCatalog();
+	assert.deepEqual(tools.map(([, key]) => en[key]), ["Move", "Comment", "Overview", "List", "More"]);
+	assert.deepEqual(tools.map(([, key]) => es[key]), ["Mover", "Comentar", "Ver todo", "Lista", "Más"]);
+	const canvas = await loadLang({ browser: "es" });
+	const shown = staticText(canvas);
+	for (const label of ["Mover", "Comentar", "Ver todo", "Lista", "Más"]) assert.ok(shown.includes(label), `the rail reads ${label}`);
+	assert.equal(canvas.document.getElementById("gd-tool-navigate").title, "Mover por el lienzo (V)");
+	assert.match(read("canvas.css"), /\.gd-tool-label\s*{[^}]*font-size:\s*11px/);
+});
+
+test("progressive S1: More opens a menu with Design system, Keyboard shortcuts and See the guide (S6), with the artboard menu's keyboard behavior", async () => {
+	const canvas = await loadRail();
+	const more = moreButton(canvas);
+	const dialog = canvas.document.getElementById("gd-shortcuts");
+	(dialog as any).showModal = () => dialog.setAttribute("open", "");
+	(dialog as any).close = () => dialog.removeAttribute("open");
+	assert.equal(menuEl(canvas).hidden, true);
+	const items = openMore(canvas);
+	assert.equal(menuEl(canvas).hidden, false);
+	assert.equal(more.getAttribute("aria-expanded"), "true");
+	assert.equal(menuEl(canvas).getAttribute("aria-label"), "More");
+	assert.deepEqual(itemLabels(canvas), ["Design system board", "Keyboard shortcuts", "See the guide"]);
+	assert.equal(canvas.document.activeElement, items[0], "focus moves to the first item");
+	assert.equal(items[0].getAttribute("aria-disabled"), "true", "no design system board, nothing to show");
+	assert.equal(items[1].getAttribute("aria-keyshortcuts"), "?");
+	items[0].dispatch("click");
+	assert.equal(menuEl(canvas).hidden, false, "a disabled item does nothing");
+	assert.equal(canvas.navMode.textContent, "Moving around the canvas · wheel to zoom");
+
+	keyOn(items[0], "ArrowDown");
+	assert.equal(canvas.document.activeElement, items[1]);
+	keyOn(items[1], "Home");
+	assert.equal(canvas.document.activeElement, items[0]);
+	keyOn(items[0], "End");
+	assert.equal(canvas.document.activeElement, items[2]);
+	assert.equal(press(canvas, "c", {}, items[2]).defaultPrevented, false, "single keys stay off while it is open");
+	assert.equal(keyOn(items[2], "Escape").defaultPrevented, true);
+	assert.equal(menuEl(canvas).hidden, true);
+	assert.equal(more.getAttribute("aria-expanded"), "false");
+	assert.equal(canvas.document.activeElement, more, "Escape returns focus to More");
+
+	keyOn(more, "ArrowUp");
+	const again = menuItems(canvas);
+	assert.equal(canvas.document.activeElement, again[again.length - 1], "ArrowUp opens on the last item");
+	keyOn(again[1], "Enter");
+	assert.equal(menuEl(canvas).hidden, true);
+	assert.ok(dialog.hasAttribute("open"), "Keyboard shortcuts opens the list");
+	canvas.document.getElementById("gd-shortcuts-close").dispatch("click");
+	assert.equal(canvas.document.activeElement, more, "closing the list returns focus to More");
+
+	const pointerdown = (target: FakeElement) => (canvas.document.listeners.get("pointerdown") ?? []).forEach((listener) => listener({ target, button: 0 }));
+	openMore(canvas);
+	pointerdown(canvas.viewport);
+	assert.equal(menuEl(canvas).hidden, true, "a click outside closes it");
+	openMore(canvas);
+	more.dispatch("click");
+	assert.equal(menuEl(canvas).hidden, true, "More toggles it");
+
+	const system = await loadRail(300, SYSTEM_REPLY);
+	const [board] = openMore(system);
+	assert.equal(board.getAttribute("aria-disabled"), null);
+	board.dispatch("click");
+	assert.equal(menuEl(system).hidden, true);
+	assert.equal(system.navMode.textContent, "Using: Design system · Shift+Esc to exit", "it shows the design system board");
+});
+
+test("progressive S1: More and its items speak Spanish; the shortcut keys V, C, F and [ still work", async () => {
+	const canvas = await loadLang({ browser: "es", replies: SYSTEM_REPLY });
+	const c = canvas as unknown as Canvas;
+	openMore(c);
+	assert.equal(menuEl(c).getAttribute("aria-label"), "Más");
+	assert.deepEqual(itemLabels(c), ["Sistema de diseño", "Atajos de teclado", "Ver la guía"]);
+	keyOn(menuItems(c)[0], "Escape");
+	Object.defineProperty(c.world, "offsetWidth", { value: 2000 });
+	Object.defineProperty(c.world, "offsetHeight", { value: 400 });
+	press(c, "c");
+	assert.equal(pressed(c, "gd-comment"), "true");
+	press(c, "v");
+	assert.equal(pressed(c, "gd-tool-navigate"), "true");
+	press(c, "[");
+	assert.equal(c.document.getElementById("gd-nav").hidden, true);
+	press(c, "[");
+	c.viewport.dispatch("wheel", { deltaX: 0, deltaY: 40, deltaMode: 0, ctrlKey: true, metaKey: false, shiftKey: false, clientX: 300, clientY: 300 });
+	const before = c.zoomLevel.textContent;
+	press(c, "f");
+	assert.notEqual(c.zoomLevel.textContent, before, "F fits");
+});
+
+test("progressive S1: the Navigate mode chip reads Moving around the canvas · wheel to zoom, in both languages", async () => {
+	const canvas = await loadRail();
+	assert.equal(canvas.navMode.textContent, "Moving around the canvas · wheel to zoom");
+	const spanish = await loadLang({ browser: "es" });
+	assert.equal(modeChip(spanish), NAV_CHIP_ES);
+	assert.match(read("index.html"), /id="gd-nav-mode"[^>]*>Moving around the canvas · wheel to zoom</);
+});
+
+test("progressive S2: the step breadcrumb starts at 1 Compare, marks the current step, and says each state in words", async () => {
+	const canvas = await loadRail();
+	assert.deepEqual(crumbStates(canvas), ["Compare=current", "Review=pending", "Choose=pending", "Implement=pending"]);
+	assert.deepEqual(texts(stepsList(canvas), "gd-steps-num"), ["1", "2", "3", "4"]);
+	assert.deepEqual(currentSteps(canvas), ["Compare"]);
+	assert.deepEqual(stepWords(canvas), ["(current)", "(not yet)", "(not yet)", "(not yet)"]);
+	const links = stepLinks(canvas);
+	assert.deepEqual(links.map((link) => link.localName), ["button", "button", "span", "span"], "only Compare and Review are buttons");
+	assert.deepEqual(links.slice(0, 2).map((link) => link.type), ["button", "button"]);
+});
+
+test("progressive S2: focus on a direction makes 2 Review current; Compare goes back to the overview and Review opens the first direction", async () => {
+	const canvas = await loadRail(300, SYSTEM_REPLY);
+	click(canvas.boards[2].shield!, 200, 200);
+	assert.deepEqual(crumbStates(canvas), ["Compare=done", "Review=current", "Choose=pending", "Implement=pending"]);
+	assert.deepEqual(currentSteps(canvas), ["Review"]);
+	assert.deepEqual(stepWords(canvas), ["(done)", "(current)", "(not yet)", "(not yet)"]);
+	stepLinks(canvas)[0].dispatch("click");
+	assert.equal(canvas.navMode.textContent, "Moving around the canvas · wheel to zoom", "Compare leaves focus mode");
+	assert.deepEqual(currentSteps(canvas), ["Compare"]);
+
+	click(canvas.boards[0].shield!, 200, 200);
+	assert.deepEqual(currentSteps(canvas), ["Compare"], "the design system board is not a direction");
+	canvas.document.getElementById("gd-back").dispatch("click");
+
+	stepLinks(canvas)[1].dispatch("click");
+	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit", "Review opens the first direction without a choice");
+	assert.deepEqual(currentSteps(canvas), ["Review"]);
+	assert.ok(canvas.document.activeElement === canvas.boards[1].frame);
+});
+
+test("progressive S2: a handoff makes 4 Implement current after three done steps, done once implemented; Review opens the chosen one", async () => {
+	const canvas = await loadRail();
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", startedAt: todayAt(9, 48) } }));
+	assert.deepEqual(crumbStates(canvas), ["Compare=done", "Review=done", "Choose=done", "Implement=current"]);
+	assert.deepEqual(currentSteps(canvas), ["Implement"]);
+	stepLinks(canvas)[1].dispatch("click");
+	assert.equal(canvas.navMode.textContent, "Using: Second · Shift+Esc to exit", "Review opens the chosen direction");
+	assert.deepEqual(currentSteps(canvas), ["Implement"], "the handoff wins over focus mode");
+	canvas.document.getElementById("gd-back").dispatch("click");
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented", implementedAt: todayAt(10, 5) } }));
+	assert.deepEqual(crumbStates(canvas), ["Compare=done", "Review=done", "Choose=done", "Implement=done"]);
+	assert.deepEqual(currentSteps(canvas), []);
+	assert.deepEqual(stepWords(canvas), ["(done)", "(done)", "(done)", "(done)"]);
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.deepEqual(currentSteps(canvas), ["Compare"]);
+});
+
+test("progressive S2: the top-bar status follows the steps as step 4's detail, without repeating the state word", async () => {
+	const canvas = await loadRail();
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "sent", queued: true, sentAt: todayAt(9, 47) } }));
+	assert.deepEqual(workTexts(canvas), { lead: [], title: ["“Second”"], state: ["Queued since 09:47"], note: [] });
+	await setHandoffs(canvas, handoffDoc("01-a.html", {}));
+	assert.deepEqual(workTexts(canvas), { lead: [], title: ["“First”"], state: ["Not sent yet"], note: [] });
+	const html = read("index.html");
+	assert.match(html, /<nav id="gd-steps" class="gd-steps" aria-label="Steps" data-i18n-aria-label="steps.label"><ol id="gd-steps-list" class="gd-steps-list"><\/ol><\/nav>/);
+	assert.ok(html.indexOf('id="gd-design-field"') < html.indexOf('id="gd-steps"') && html.indexOf('id="gd-steps"') < html.indexOf('id="gd-work"') && html.indexOf('id="gd-work"') < html.indexOf('class="gd-spacer"'), "after the design selector, then the status");
+	const css = read("canvas.css");
+	assert.match(css, /\.gd-steps-link\[aria-current="step"\]\s*{[^}]*background:\s*var\(--accent\)[^}]*color:\s*var\(--bg\)/);
+	assert.match(css, /\.gd-steps-link:focus-visible[^{]*{[^}]*outline:\s*2px solid var\(--accent\)|:focus-visible\s*{[^}]*outline:\s*2px solid var\(--accent\)/);
+});
+
+test("progressive S2: the steps speak Spanish and follow a switch", async () => {
+	const canvas = await loadLang({ browser: "es" });
+	const c = canvas as unknown as Canvas;
+	assert.deepEqual(crumbStates(c), ["Comparar=current", "Revisar=pending", "Elegir=pending", "Implementar=pending"]);
+	assert.deepEqual(stepWords(c), ["(actual)", "(pendiente)", "(pendiente)", "(pendiente)"]);
+	assert.equal(c.document.getElementById("gd-steps").getAttribute("aria-label"), "Pasos");
+	chooseLang(canvas, "en");
+	assert.deepEqual(crumbStates(c), ["Compare=current", "Review=pending", "Choose=pending", "Implement=pending"]);
+	assert.equal(c.document.getElementById("gd-steps").getAttribute("aria-label"), "Steps");
+});
+
+test("progressive S3: the top bar says Connected, or Not connected with what to do when a delivery is missing", async () => {
+	const online = await loadRail();
+	assert.equal(texts(connection(online), "gd-connection-label")[0], "Connected");
+	assert.equal(connection(online).dataset.state, "on");
+	assert.equal(connection(online).title, "Connected to the Pi session: your comments and requests reach the agent.");
+	const offline = await loadRail(300, {}, OFFLINE);
+	assert.equal(texts(connection(offline), "gd-connection-label")[0], "Not connected");
+	assert.equal(connection(offline).dataset.state, "off");
+	const sentence = "This canvas is not connected to a Pi session, so it cannot send comments or hand anything off. Open the canvas from your session with /gentle:design open alpha.";
+	assert.equal(connection(offline).title, sentence);
+	assert.deepEqual(texts(connection(offline), "gd-visually-hidden").map((text) => text.trim()), [sentence], "the way out is read too, not only shown on hover");
+	const partial = await loadRail(300, {}, { delivery: { batch: false } });
+	assert.equal(connection(partial).dataset.state, "off", "any missing delivery means the canvas is not fully connected");
+
+	const spanish = await loadLang({ browser: "es", config: OFFLINE });
+	const s = spanish as unknown as Canvas;
+	assert.equal(texts(connection(s), "gd-connection-label")[0], "Sin conexión");
+	assert.equal(connection(s).title, "Este canvas no está conectado a una sesión de Pi, así que no puede enviar comentarios ni entregar nada. Abre el canvas desde tu sesión con /gentle:design open alpha.");
+	chooseLang(spanish, "en");
+	assert.equal(texts(connection(s), "gd-connection-label")[0], "Not connected");
+	const onlineEs = await loadLang({ browser: "es" });
+	assert.equal(texts(connection(onlineEs as unknown as Canvas), "gd-connection-label")[0], "Conectado");
+
+	const html = read("index.html");
+	assert.match(html, /<p id="gd-connection" class="gd-connection"><\/p>/);
+	assert.ok(html.indexOf('class="gd-spacer"') < html.indexOf('id="gd-connection"'), "on the right side of the bar");
+	const css = read("canvas.css");
+	assert.match(css, /\.gd-connection\[data-state="off"\]\s*{[^}]*var\(--warning\)/);
+	assert.match(css, /\.gd-connection\[data-state="off"\]\s*{[^}]*var\(--warning-line\)/);
+});
+
+test("progressive S7 (T1): the docs describe the labeled rail, More, the steps and the connection chip", () => {
+	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
+	const section = docs.slice(docs.indexOf("### Gentle Design"));
+	for (const part of ["**Move**", "**Comment**", "**Overview**", "**List**", "**More**", "**Keyboard shortcuts**", "**1 Compare · 2 Review · 3 Choose · 4 Implement**", "**Connected**", "**Not connected**", "**Moving around the canvas · wheel to zoom**"]) assert.ok(section.includes(part), `docs mention ${part}`);
+	assert.ok(!section.includes("**Navigating**"), "the old chip text is gone");
+});
+
+// ---- canvas-progressive T2: Open in the overview, Implement inside (S4); the review panel (S5) ----
+
+const openButtonOf = (wrapper: FakeElement) => withClass(wrapper, "gd-board-open")[0];
+const implementOf = (wrapper: FakeElement) => withClass(wrapper, "gd-implement")[0];
+const panelMore = (canvas: Canvas) => canvas.document.getElementById("gd-panel-more");
+/** Opens the review panel's More menu and chooses the item labeled `label` (History, Original request). */
+const openPanelView = (canvas: Canvas, label: string) => {
+	panelMore(canvas).dispatch("click");
+	itemNamed(canvas, label).dispatch("click");
+};
+const progressiveFilters = (canvas: Canvas) => ["gd-filter-open", "gd-filter-resolved", "gd-filter-all"].map((id) => `${canvas.document.getElementById(id).textContent}=${canvas.document.getElementById(id).getAttribute("aria-pressed")}`);
+const selectedPanelTabs = (canvas: Canvas) => ["gd-tab-comments", "gd-tab-checks", "gd-tab-mix"].filter((id) => canvas.document.getElementById(id).getAttribute("aria-selected") === "true");
+
+test("progressive S4: in the overview each direction header shows Open, which opens it in focus; Implement this shows only in focus mode", async () => {
+	const canvas = await loadRail(300, SYSTEM_REPLY);
+	const [system, first, second] = boardsOf(canvas);
+	assert.equal(withClass(system, "gd-board-open").length, 0, "the design system board is not a direction");
+	for (const [wrapper, name] of [[first, "Open direction 01, First"], [second, "Open direction 02, Second"]] as const) {
+		const open = openButtonOf(wrapper);
+		assert.equal(open.localName, "button");
+		assert.equal(open.textContent, "Open");
+		assert.equal(open.getAttribute("aria-label"), name);
+		assert.equal(open.hidden, false);
+		assert.equal(implementOf(wrapper).hidden, true, "Implement this waits for focus mode");
+		assert.ok(withClass(wrapper, "gd-board-actions")[0].contains(open), "at screen size, where Implement this was");
+	}
+	openButtonOf(first).dispatch("click");
+	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit");
+	assert.equal(openButtonOf(first).hidden, true, "no Open on the open direction");
+	assert.equal(implementOf(first).hidden, false);
+	assert.equal(withClass(first, "gd-implement-start")[0].textContent, "Implement this");
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(openButtonOf(first).hidden, false);
+	assert.equal(implementOf(first).hidden, true);
+
+	// Once one is chosen, the overview keeps the handoff row and the discarded one switches inside focus mode.
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }));
+	assert.equal(withClass(second, "gd-handoff")[0].hidden, false);
+	assert.deepEqual(texts(second, "gd-choice"), ["Chosen"]);
+	assert.deepEqual(texts(second, "gd-handoff-badge"), ["In progress"]);
+	assert.deepEqual(texts(first, "gd-choice"), ["Discarded"]);
+	assert.equal(implementOf(first).hidden, true);
+	openButtonOf(first).dispatch("click");
+	assert.equal(withClass(first, "gd-implement-start")[0].textContent, "Switch to this…");
+	assert.equal(implementOf(first).hidden, false);
+
+	const css = read("canvas.css");
+	assert.match(css, /\.gd-compact \.gd-handoff, \.gd-compact \.gd-implement\s*{\s*display:\s*none;?\s*}/, "zoomed out, only the handoff row and Implement this collapse");
+	assert.ok(!/\.gd-compact \.gd-board-actions\s*{\s*display:\s*none/.test(css), "Open stays");
+	const spanish = await loadLang({ browser: "es" });
+	const open = openButtonOf(boardsOf(spanish as unknown as Canvas)[0]);
+	assert.equal(open.textContent, "Abrir");
+	assert.equal(open.getAttribute("aria-label"), "Abrir la propuesta 01, First");
+});
+
+test("progressive S4: the ⋯ menu keeps its items; its Implement this opens the direction in focus with the confirm step", async () => {
+	const canvas = await loadRail();
+	const [first] = boardsOf(canvas);
+	openMenu(canvas, 0);
+	assert.deepEqual(itemLabels(canvas), ["Try another direction from this…", "Export as PNG", "Export as PNG at 2×", "Export as PDF", "Download HTML", "Implement this"]);
+	itemNamed(canvas, "Implement this").dispatch("click");
+	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit", "the direction opens first");
+	const confirm = withClass(implementOf(first), "gd-implement-confirm")[0];
+	assert.equal(implementOf(first).hidden, false);
+	assert.equal(confirm.hidden, false, "the confirm step is open and visible");
+	assert.equal(canvas.document.activeElement, withClass(confirm, "gd-primary")[0]);
+	assert.equal(canvas.posts.length, 0, "nothing is sent before confirming");
+});
+
+test("progressive S5: the review panel has three tabs, Comments, Quality and Mix with counts, and More with History and Original request", async () => {
+	const html = read("index.html");
+	const tablist = html.slice(html.indexOf('<div id="gd-tabs"'), html.indexOf("</div>", html.indexOf('<div id="gd-tabs"')));
+	assert.deepEqual([...tablist.matchAll(/role="tab" id="([^"]+)"/g)].map((match) => match[1]), ["gd-tab-comments", "gd-tab-checks", "gd-tab-mix"]);
+	for (const id of ["gd-count-open", "gd-count-checks", "gd-count-mix"]) assert.ok(tablist.includes(`id="${id}"`), `${id} in its tab`);
+	assert.equal([...html.matchAll(/role="tab"/g)].length, 3);
+	for (const gone of ["gd-tab-history", "gd-tab-brief", "gd-count-history"]) assert.ok(!html.includes(`id="${gone}"`), `${gone} is no longer a tab`);
+	// canvas-progressive fix: More is an icon button named More, so Comments, Quality and Mix fit the panel.
+	assert.match(html, /<button type="button" id="gd-panel-more" class="gd-tab gd-tab-more" aria-haspopup="menu" aria-expanded="false" aria-controls="gd-menu" title="More" data-i18n-title="panel.more"><span class="gd-visually-hidden" data-i18n="panel.more">More<\/span><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-more"\/><\/svg><\/button>/);
+	assert.ok(!tablist.includes("gd-panel-more"), "More is a menu button beside the tablist, not a tab");
+	const { en, es } = loadCatalog();
+	assert.deepEqual([en["tab.comments"], en["tab.checks"], en["tab.mix"], en["panel.more"]], ["Comments", "Quality", "Mix", "More"]);
+	assert.deepEqual([es["tab.comments"], es["tab.checks"], es["tab.mix"], es["panel.more"]], ["Comentarios", "Calidad", "Mezcla", "Más"]);
+	assert.equal(en["a11y.failTitle"], "Open the Quality tab to see them.");
+	assert.equal(es["a11y.failTitle"], "Abre la pestaña Calidad para verlas.");
+
+	const canvas = await withHistory();
+	const doc = canvas.document;
+	panelMore(canvas).dispatch("click");
+	assert.equal(panelMore(canvas).getAttribute("aria-expanded"), "true");
+	assert.equal(menuEl(canvas).getAttribute("aria-label"), "More");
+	assert.deepEqual(itemLabels(canvas), ["History", "Original request"]);
+	assert.deepEqual(texts(itemNamed(canvas, "History"), "gd-count"), ["4"], "History keeps its count");
+	itemNamed(canvas, "History").dispatch("click");
+	assert.equal(menuEl(canvas).hidden, true);
+	assert.equal(historyPanel(canvas).hidden, false, "History opens in the panel");
+	assert.equal(doc.getElementById("gd-comment-list").hidden, true);
+	assert.deepEqual(selectedPanelTabs(canvas), [], "no tab is selected while a More view shows");
+	assert.equal(doc.getElementById("gd-tab-comments").getAttribute("tabindex"), "0", "the tablist stays reachable");
+	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-label"), "History");
+	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-labelledby"), null);
+	assert.ok(panelMore(canvas).classes.has("gd-tab-more-current"), "More is marked while its view shows");
+	openPanelView(canvas, "Original request");
+	assert.equal(doc.getElementById("gd-brief").hidden, false);
+	assert.equal(historyPanel(canvas).hidden, true);
+	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-label"), "Original request");
+	doc.getElementById("gd-tabs").dispatch("keydown", { key: "ArrowRight" });
+	assert.deepEqual(selectedPanelTabs(canvas), ["gd-tab-comments"], "the arrows return to the tabs");
+	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-labelledby"), "gd-tab-comments");
+	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-label"), null);
+	assert.ok(!panelMore(canvas).classes.has("gd-tab-more-current"));
+	doc.getElementById("gd-tabs").dispatch("keydown", { key: "End" });
+	assert.deepEqual(selectedPanelTabs(canvas), ["gd-tab-mix"]);
+	doc.getElementById("gd-tabs").dispatch("keydown", { key: "ArrowRight" });
+	assert.deepEqual(selectedPanelTabs(canvas), ["gd-tab-comments"], "three tabs, wrapping around");
+
+	const spanish = await loadLang({ browser: "es" });
+	const s = spanish as unknown as Canvas;
+	const shown = staticText(spanish);
+	for (const label of ["Comentarios", "Calidad", "Mezcla", "Más"]) assert.ok(shown.includes(label), label);
+	panelMore(s).dispatch("click");
+	assert.deepEqual(itemLabels(s), ["Historial", "Petición original"]);
+	assert.equal(menuEl(s).getAttribute("aria-label"), "Más");
+});
+
+test("progressive S5: the comments filter is Open · n, Resolved · n and All; All lists every comment", async () => {
+	const canvas = await loadUx({ replies: commentsDoc(comment("a1", "01-a.html"), comment("a2", "01-a.html", "resolved"), comment("a3", "02-b.html")) });
+	const doc = canvas.document;
+	const list = doc.getElementById("gd-comment-list");
+	assert.deepEqual(progressiveFilters(canvas), ["Open · 2=true", "Resolved · 1=false", "All=false"]);
+	doc.getElementById("gd-filter-all").dispatch("click");
+	assert.deepEqual(progressiveFilters(canvas), ["Open · 2=false", "Resolved · 1=false", "All=true"]);
+	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a1", "Text of a2", "Text of a3"]);
+	assert.deepEqual(selectedTabs(canvas), ["gd-tab-comments"]);
+	const [first] = canvas.boards;
+	canvas.message(first.frame.contentWindow, { type: "gd:pin-rects", rects: [{ id: "a2", rect: { x: 50, y: 50, width: 20, height: 20 } }] });
+	withClass(first.wrapper, "gd-pin").find((element) => element.dataset.id === "a2")!.dispatch("click");
+	assert.deepEqual(progressiveFilters(canvas), ["Open · 2=false", "Resolved · 1=false", "All=true"], "a pin keeps All, which already lists its comment");
+	assert.ok(list.children[1].contains(doc.activeElement));
+	doc.getElementById("gd-filter-resolved").dispatch("click");
+	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a2"]);
+	chooseLang(canvas as unknown as LangCanvas, "es");
+	assert.deepEqual(progressiveFilters(canvas), ["Abiertos · 2=false", "Resueltos · 1=true", "Todos=false"]);
+	assert.match(read("index.html"), /<button type="button" id="gd-filter-all" class="gd-size-button" aria-pressed="false" data-i18n="filter.all">All<\/button>/);
+});
+
+test("progressive S5: with no comments the Comments tab says No comments yet and how to add one", async () => {
+	const canvas = await loadLang({});
+	const c = canvas as unknown as Canvas;
+	const doc = c.document;
+	const empty = doc.getElementById("gd-comments-empty");
+	assert.equal(empty.hidden, false);
+	assert.equal(doc.getElementById("gd-panel-empty").hidden, true, "the one-line notice is for an empty filter");
+	const shown = staticText(canvas);
+	assert.ok(shown.includes("No comments yet"));
+	assert.ok(shown.includes("Open a direction and press “Comment” on whatever you want to change."));
+	doc.getElementById("gd-tab-mix").dispatch("click");
+	assert.equal(empty.hidden, true, "only on the Comments tab");
+	doc.getElementById("gd-tab-comments").dispatch("click");
+	assert.equal(empty.hidden, false);
+	await setComments(c, comment("a1", "01-a.html", "resolved"));
+	assert.equal(empty.hidden, true);
+	assert.equal(doc.getElementById("gd-panel-empty").hidden, false);
+	assert.equal(doc.getElementById("gd-panel-empty").textContent, "No open comments.");
+	const spanish = await loadLang({ browser: "es" });
+	const words = staticText(spanish);
+	assert.ok(words.includes("Aún no hay comentarios"));
+	assert.ok(words.includes("Abre una propuesta y pulsa «Comentar» sobre lo que quieras cambiar."));
+	const html = read("index.html");
+	assert.match(html, /<div id="gd-comments-empty" class="gd-comments-empty" hidden>\s*<svg class="gd-i" aria-hidden="true"><use href="#i-comment"\/><\/svg>\s*<strong data-i18n="panel.empty.none">No comments yet<\/strong>\s*<span data-i18n="panel.empty.hint">[^<]+<\/span>\s*<\/div>/);
+	assert.match(read("canvas.css"), /\.gd-comments-empty\s*{[^}]*border:\s*1px dashed var\(--border\)/);
+});
+
+test("progressive S5: the footer offers Send now or Save to send later, and Technical details sits at its bottom, same toggle and key", async () => {
+	const { en, es } = loadCatalog();
+	assert.deepEqual([en["panel.sendNow"], en["panel.collect"]], ["Send now", "Save to send later"]);
+	assert.deepEqual([es["panel.sendNow"], es["panel.collect"]], ["Enviar al momento", "Guardar para enviar luego"]);
+	const html = read("index.html");
+	const bar = html.slice(html.indexOf('<header class="gd-bar"'), html.indexOf("</header>"));
+	assert.ok(!bar.includes('id="gd-technical"'), "no longer in the top bar");
+	const foot = html.slice(html.indexOf('<div class="gd-side-foot">'), html.indexOf("</aside>", html.indexOf('<div class="gd-side-foot">')));
+	assert.ok(foot.indexOf('id="gd-send-all"') < foot.indexOf('id="gd-technical"'), "at the bottom of the review side, under Send all");
+	assert.match(foot, /<button type="button" id="gd-technical" class="gd-technical" aria-pressed="false"[^>]*><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-code"\/><\/svg><span data-i18n="technical.label">Technical details<\/span><span class="gd-switch" aria-hidden="true"><\/span><\/button>/);
+	const canvas = await loadUx();
+	technicalButton(canvas).dispatch("click");
+	assert.equal(technicalButton(canvas).getAttribute("aria-pressed"), "true");
+	assert.equal(canvas.data.get(TECHNICAL_KEY), "on", "the same key");
+	const css = read("canvas.css");
+	assert.match(css, /\.gd-technical\[aria-pressed="true"\] \.gd-switch\s*{[^}]*background:\s*var\(--accent\)/);
+	assert.match(css, /\.gd-technical\s*{[^}]*width:\s*100%/);
+});
+
+test("progressive S5: the navigator footer note says to open a direction to comment on it, mix it or implement it", async () => {
+	const { en, es } = loadCatalog();
+	assert.equal(en["nav.note"], "Open a direction to comment on it, mix it or implement it.");
+	assert.equal(es["nav.note"], "Abre una propuesta para comentarla, mezclarla o implementarla.");
+	const canvas = await loadRail();
+	assert.equal(canvas.document.getElementById("gd-nav-note").hidden, false, "whenever there are directions");
+	const none = await loadRail(300, { "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "", artboards: [] } });
+	assert.equal(none.document.getElementById("gd-nav-note").hidden, true, "nothing to open");
+	assert.match(read("index.html"), /<p id="gd-nav-note" class="gd-nav-note" data-i18n="nav.note">Open a direction to comment on it, mix it or implement it\.<\/p>/);
+});
+
+test("progressive S7 (T2): the docs describe Open, the review panel's tabs and More, the All filter and Technical details at the bottom", () => {
+	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
+	const section = docs.slice(docs.indexOf("### Gentle Design"));
+	for (const part of ["**Open**", "**Comments**, **Quality**, and **Mix**", "**History** and **Original request**", "**All**", "**Open · N**", "**Resolved · N**", "**No comments yet**", "bottom of the review side", "\"Open a direction to comment on it, mix it or implement it.\""]) assert.ok(section.includes(part), `docs mention ${part}`);
+	for (const old of ["**Open (N)**", "**Resolved (N)**", "**Comments**, **History**, **Checks**, **Mix**, and **Original request** tabs", "toggle in the top bar"]) assert.ok(!section.includes(old), `docs no longer say ${old}`);
+	const readme = readFileSync(fileURLToPath(new URL("../README.md", import.meta.url)), "utf8");
+	const row = readme.split("\n").find((line) => line.startsWith("| Gentle Design |"))!;
+	for (const part of ["Open", "Quality", "Open / Resolved / All", "bottom of the review side"]) assert.ok(row.includes(part), `the README row mentions ${part}`);
+});
+
+// ---- canvas-progressive T3: the first-run guide (S6) ----
+
+const GUIDE_KEY = "gentle-design:guide";
+const guideEl = (canvas: Canvas) => canvas.document.getElementById("gd-guide");
+const guideSpot = (canvas: Canvas) => canvas.document.getElementById("gd-guide-spot");
+const guideNext = (canvas: Canvas) => canvas.document.getElementById("gd-guide-next");
+const guideSkip = (canvas: Canvas) => canvas.document.getElementById("gd-guide-skip");
+const guideView = (canvas: Canvas) => ({
+	eyebrow: canvas.document.getElementById("gd-guide-eyebrow").textContent,
+	title: canvas.document.getElementById("gd-guide-title").textContent,
+	steps: canvas.document.getElementById("gd-guide-steps").children.map((item) => `${item.textContent}${item.getAttribute("aria-current") === "step" ? " (current)" : ""}`),
+	next: canvas.document.getElementById("gd-guide-next-label").textContent,
+	target: guideEl(canvas).dataset.target,
+});
+const spotBox = (canvas: Canvas) => ["left", "top", "width", "height"].map((key) => guideSpot(canvas).style[key]);
+const GUIDE_STEPS_EN = ["These are your directions", "Open them to review them", "Choose one and press Implement"];
+
+test("progressive S6: the first visit shows the guide: First time · 1 of 3, a title, one sentence, the three steps with the current one marked, Skip and Next", async () => {
+	const canvas = await loadUx({ guide: true });
+	const c = canvas as unknown as Canvas;
+	assert.equal(guideEl(c).hidden, false);
+	assert.equal(guideSpot(c).hidden, false, "the spotlight points at the directions");
+	assert.deepEqual(guideView(c), { eyebrow: "First time · 1 of 3", title: "These are your directions", steps: [`${GUIDE_STEPS_EN[0]} (current)`, GUIDE_STEPS_EN[1], GUIDE_STEPS_EN[2]], next: "Next", target: "directions" });
+	assert.equal(c.document.getElementById("gd-guide-text").textContent, "The agent answered your request in several ways. Under each title you see what each one does better and what it gives up.");
+	assert.equal(guideSkip(c).textContent, "Skip the guide");
+	assert.equal(c.document.activeElement, guideNext(c), "focus moves into it");
+	assert.equal(canvas.data.get(GUIDE_KEY), undefined, "nothing saved until it is skipped or finished");
+	const html = read("index.html");
+	assert.match(html, /<section id="gd-guide" class="gd-guide" role="dialog" aria-modal="false" aria-labelledby="gd-guide-title" aria-describedby="gd-guide-text" hidden>/);
+	assert.match(html, /<div id="gd-guide-spot" class="gd-guide-spot" aria-hidden="true" hidden><\/div>/);
+	assert.match(html, /<ol id="gd-guide-steps" class="gd-guide-steps" aria-label="Guide steps" data-i18n-aria-label="guide.steps"><\/ol>/);
+	assert.match(html, /<button type="button" id="gd-guide-skip" class="gd-guide-skip" data-i18n="guide.skip">Skip the guide<\/button>/);
+	assert.match(html, /<button type="button" id="gd-guide-next" class="gd-primary"><span id="gd-guide-next-label" data-i18n="guide.next">Next<\/span>/);
+});
+
+test("progressive S6: Next walks the steps and points at the directions, an Open button and step 4; Got it ends it, saves it and gives focus back", async () => {
+	const canvas = await loadUx({ guide: true });
+	const c = canvas as unknown as Canvas;
+	c.document.getElementById("gd-world").rect = { left: 100, top: 120, width: 700, height: 300 };
+	openButtonOf(boardsOf(c)[0]).rect = { left: 300, top: 200, width: 60, height: 30 };
+	stepItems(c)[3].rect = { left: 500, top: 10, width: 120, height: 34 };
+	guideNext(c).dispatch("click");
+	assert.deepEqual(guideView(c), { eyebrow: "First time · 2 of 3", title: "Open them to review them", steps: [GUIDE_STEPS_EN[0], `${GUIDE_STEPS_EN[1]} (current)`, GUIDE_STEPS_EN[2]], next: "Next", target: "open" });
+	assert.deepEqual(spotBox(c), ["292px", "192px", "76px", "46px"], "the spotlight surrounds the first Open button");
+	assert.equal(c.document.getElementById("gd-guide-text").textContent, "Press “Open” on a direction to see it at full size, comment on it or mix it.");
+	assert.equal(c.document.activeElement, guideNext(c));
+	guideNext(c).dispatch("click");
+	assert.deepEqual(guideView(c), { eyebrow: "First time · 3 of 3", title: "Choose one and press Implement", steps: [GUIDE_STEPS_EN[0], GUIDE_STEPS_EN[1], `${GUIDE_STEPS_EN[2]} (current)`], next: "Got it", target: "implement" });
+	assert.deepEqual(spotBox(c), ["492px", "2px", "136px", "50px"], "and then step 4 of the breadcrumb");
+	assert.equal(c.document.getElementById("gd-guide-text").textContent, "Inside the direction you prefer, press “Implement this” and the agent builds it in your project. Step 4 at the top tells you how it is going.");
+	guideNext(c).dispatch("click");
+	assert.equal(guideEl(c).hidden, true);
+	assert.equal(guideSpot(c).hidden, true);
+	assert.equal(canvas.data.get(GUIDE_KEY), "done", "once per browser");
+	// Focus returns where it was when the guide opened: in a browser the page (then the canvas); the fake DOM's start leaves it on Comment.
+	assert.equal(c.document.activeElement, c.document.getElementById("gd-comment"), "focus returns where it was");
+	const again = await loadUx({ stored: { [GUIDE_KEY]: "done" } });
+	assert.equal(guideEl(again as unknown as Canvas).hidden, true, "a later visit does not show it");
+});
+
+test("progressive S6: Skip the guide and Esc end it and save it; unreadable storage never opens it on its own", async () => {
+	const skipped = await loadUx({ guide: true });
+	guideSkip(skipped as unknown as Canvas).dispatch("click");
+	assert.equal(guideEl(skipped as unknown as Canvas).hidden, true);
+	assert.equal(skipped.data.get(GUIDE_KEY), "done");
+
+	const escaped = await loadUx({ guide: true });
+	const e = escaped as unknown as Canvas;
+	guideNext(e).dispatch("click");
+	// Esc from Next bubbles to the card; the fake DOM does not nest index.html, so it is sent to the card.
+	assert.equal(keyOn(guideEl(e), "Escape").defaultPrevented, true);
+	assert.equal(guideEl(e).hidden, true, "Esc skips from any step");
+	assert.equal(escaped.data.get(GUIDE_KEY), "done");
+	assert.equal(pressed(e, "gd-comment"), "false");
+
+	const outside = await loadUx({ guide: true });
+	const o = outside as unknown as Canvas;
+	o.document.getElementById("gd-comment").dispatch("click");
+	assert.equal(press(o, "Escape").defaultPrevented, true, "Esc anywhere on the page skips it first");
+	assert.equal(guideEl(o).hidden, true);
+	assert.equal(pressed(o, "gd-comment"), "true", "and only that: Comment mode stays on");
+
+	const broken = await loadUx({ broken: true });
+	assert.equal(guideEl(broken as unknown as Canvas).hidden, true, "it cannot be remembered, so it does not open by itself");
+});
+
+test("progressive S6: the guide never shows over focus mode, a dialog, the comment box or a menu; it waits and comes back where it was", async () => {
+	const canvas = await loadUx({ guide: true });
+	const c = canvas as unknown as Canvas;
+	const dialog = c.document.getElementById("gd-shortcuts");
+	(dialog as any).showModal = () => dialog.setAttribute("open", "");
+	(dialog as any).close = () => dialog.removeAttribute("open");
+	guideNext(c).dispatch("click");
+	openButtonOf(boardsOf(c)[0]).dispatch("click");
+	assert.equal(guideEl(c).hidden, true, "not over focus mode");
+	assert.equal(guideSpot(c).hidden, true);
+	c.message(c.boards[0].frame.contentWindow, PICK);
+	assert.equal(c.document.getElementById("gd-popover").hidden, true, "Comment mode is off");
+	c.document.getElementById("gd-back").dispatch("click");
+	assert.equal(guideEl(c).hidden, false, "back on the canvas it shows again");
+	assert.equal(guideView(c).eyebrow, "First time · 2 of 3", "at the same step");
+	press(c, "?");
+	assert.equal(guideEl(c).hidden, true, "not over the shortcuts dialog");
+	c.document.getElementById("gd-shortcuts-close").dispatch("click");
+	assert.equal(guideEl(c).hidden, false);
+	moreButton(c).dispatch("click");
+	assert.equal(guideEl(c).hidden, true, "not over a menu");
+	keyOn(menuItems(c)[0], "Escape");
+	assert.equal(guideEl(c).hidden, false);
+
+	const focused = await loadUx({ guide: true });
+	const f = focused as unknown as Canvas;
+	f.document.getElementById("gd-comment").dispatch("click");
+	click(f.boards[0].shield!, 200, 200);
+	f.message(f.boards[0].frame.contentWindow, PICK);
+	assert.equal(f.document.getElementById("gd-popover").hidden, false);
+	assert.equal(guideEl(f).hidden, true, "not over the comment box");
+});
+
+test("progressive S6: See the guide in More shows it again from the first step, also from focus mode, and focus returns to More", async () => {
+	const canvas = await loadUx();
+	const c = canvas as unknown as Canvas;
+	assert.equal(guideEl(c).hidden, true);
+	openMore(c);
+	assert.deepEqual(itemLabels(c), ["Design system board", "Keyboard shortcuts", "See the guide"]);
+	itemNamed(c, "See the guide").dispatch("click");
+	assert.equal(guideEl(c).hidden, false);
+	assert.equal(guideView(c).eyebrow, "First time · 1 of 3");
+	assert.equal(c.document.activeElement, guideNext(c));
+	guideSkip(c).dispatch("click");
+	assert.equal(c.document.activeElement, moreButton(c), "focus returns to More");
+
+	openButtonOf(boardsOf(c)[0]).dispatch("click");
+	openMore(c);
+	itemNamed(c, "See the guide").dispatch("click");
+	assert.equal(c.navMode.textContent, NAV_CHIP, "it leaves focus mode to show the guide");
+	assert.equal(guideEl(c).hidden, false);
+	const { en, es } = loadCatalog();
+	assert.equal(en["rail.more.title"], "More: design system, keyboard shortcuts and the guide");
+	assert.equal(es["rail.more.title"], "Más: sistema de diseño, atajos de teclado y la guía");
+});
+
+test("progressive S6: the guide speaks Spanish, with tú forms, and follows a switch while it is open", async () => {
+	const canvas = await loadLang({ browser: "es", guide: true });
+	const c = canvas as unknown as Canvas;
+	assert.deepEqual(guideView(c), { eyebrow: "Primera vez · 1 de 3", title: "Estas son tus propuestas", steps: ["Estas son tus propuestas (current)", "Ábrelas para revisarlas", "Elige una y pulsa Implementar"], next: "Siguiente", target: "directions" });
+	assert.equal(c.document.getElementById("gd-guide-text").textContent, "El agente ha resuelto tu petición de varias formas. Debajo de cada título verás en qué gana y en qué cede.");
+	assert.equal(guideSkip(c).textContent, "Saltar la guía");
+	guideNext(c).dispatch("click");
+	assert.equal(c.document.getElementById("gd-guide-text").textContent, "Pulsa «Abrir» en una propuesta para verla a tamaño real, comentarla o mezclarla.");
+	guideNext(c).dispatch("click");
+	assert.equal(guideView(c).next, "Entendido");
+	assert.equal(c.document.getElementById("gd-guide-text").textContent, "Dentro de la propuesta que prefieras, pulsa «Implementar esto» y el agente la construirá en tu proyecto. El paso 4 de arriba te dirá cómo va.");
+	chooseLang(canvas, "en");
+	assert.deepEqual(guideView(c), { eyebrow: "First time · 3 of 3", title: "Choose one and press Implement", steps: [GUIDE_STEPS_EN[0], GUIDE_STEPS_EN[1], `${GUIDE_STEPS_EN[2]} (current)`], next: "Got it", target: "implement" });
+	assert.deepEqual(leftovers(canvas, "es"), [], "nothing Spanish is left in the guide");
+	const { es } = loadCatalog();
+	assert.equal(es["rail.guide"], "Ver la guía");
+});
+
+test("progressive S6: canvas.css styles the guide with tokens, a visible focus ring, and moves it only when motion is allowed", () => {
+	const css = read("canvas.css");
+	const block = (selector: string) => {
+		const start = css.indexOf(`${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	for (const selector of [".gd-guide", ".gd-guide-spot", ".gd-guide-eyebrow", ".gd-guide-steps li"]) {
+		const text = block(selector);
+		assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(text), `${selector}: tokens only`);
+		assert.ok(!/transition|animation/.test(text), `${selector}: no motion outside the reduced-motion query`);
+	}
+	assert.match(block(".gd-guide"), /border:\s*1px solid var\(--accent-line\)/);
+	assert.match(block(".gd-guide-spot"), /var\(--scrim\)/);
+	assert.match(block(".gd-guide-spot"), /pointer-events:\s*none/);
+	assert.match(css, /\.gd-guide-steps li\[aria-current="step"\]::before\s*{[^}]*background:\s*var\(--accent\)/);
+	assert.match(css, /@media \(prefers-reduced-motion: no-preference\)\s*{[^@]*\.gd-guide\s*{[^}]*animation:/);
+});
+
+test("progressive S7 (T3): the docs describe the first-run guide", () => {
+	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
+	const section = docs.slice(docs.indexOf("### Gentle Design"));
+	for (const part of ["**First time · 1 of 3**", "**Skip the guide**", "**Got it**", "**See the guide**", "`gentle-design:guide`", "These are your directions"]) assert.ok(section.includes(part), `docs mention ${part}`);
+	const readme = readFileSync(fileURLToPath(new URL("../README.md", import.meta.url)), "utf8");
+	const row = readme.split("\n").find((line) => line.startsWith("| Gentle Design |"))!;
+	assert.ok(row.includes("first-run guide"), "the README row mentions the first-run guide");
+});
+
+// ---- canvas-progressive fix: every review tab stays in view in the default 360px panel
+
+test("canvas-progressive fix: the panel's More is an icon button that keeps its name, and the tabs shrink instead of scrolling out of view", async () => {
+	const html = read("index.html");
+	const more = /<button type="button" id="gd-panel-more"[^>]*>([^]*?)<\/button>/.exec(html);
+	assert.ok(more, "the More button is in index.html");
+	assert.match(more[0], /title="More" data-i18n-title="panel.more"/, "its tooltip names it");
+	assert.match(more[1], /<span class="gd-visually-hidden" data-i18n="panel.more">More<\/span>/, "its name stays for assistive technology, visually hidden");
+	assert.match(more[1], /<use href="#i-more"\/>/, "it shows the ⋯ icon");
+	const css = read("canvas.css");
+	const rule = (selector: string) => {
+		const start = css.indexOf(`\n${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	assert.match(rule(".gd-tabs .gd-tab"), /flex:\s*0 1 auto/, "a tab may shrink when the panel is narrow");
+	assert.match(rule(".gd-tabs .gd-tab"), /min-width:\s*0/);
+	assert.match(rule(".gd-tabs .gd-tab"), /text-overflow:\s*ellipsis/);
+	assert.match(rule(".gd-tab"), /font-size:\s*13px/);
+	const spanish = await loadLang({ browser: "es" });
+	const button = spanish.document.getElementById("gd-panel-more");
+	assert.equal(button.title, "Más", "the tooltip follows the language");
 });

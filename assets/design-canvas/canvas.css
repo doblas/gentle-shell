@@ -95,14 +95,14 @@ body {
 	flex: none;
 }
 
-/* Tool rail */
+/* Tool rail: few tools, each with a word under its icon (canvas-progressive S1) */
 .gd-rail {
 	grid-column: 1;
 	grid-row: 1 / 3;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 6px;
+	gap: 4px;
 	padding: 10px 0;
 	background: var(--bg-deep);
 	border-right: 1px solid var(--border);
@@ -122,27 +122,34 @@ body {
 
 .gd-rail .gd-tool {
 	position: relative;
-	width: 40px;
-	height: 40px;
-	padding: 0;
+	flex-direction: column;
+	gap: 2px;
+	width: 52px;
+	min-width: 52px;
+	min-height: 52px;
+	padding: 4px 0;
 	color: var(--text-muted);
 	border-color: transparent;
 }
 
+.gd-tool-label { font-size: 11px; line-height: 1.2; }
+
 .gd-rail .gd-tool:hover:not(:disabled) { color: var(--accent-soft); border-color: var(--border-soft); }
 
-.gd-rail .gd-tool[aria-pressed="true"] {
+.gd-rail .gd-tool[aria-pressed="true"], .gd-rail .gd-tool[aria-expanded="true"] {
 	background: var(--surface-2);
-	color: var(--accent);
+	color: var(--text);
 	border-color: var(--border);
 }
+
+.gd-rail .gd-tool[aria-pressed="true"] .gd-i { color: var(--accent); }
 
 .gd-rail .gd-tool[aria-pressed="true"]::before {
 	content: "";
 	position: absolute;
-	left: -10px;
-	top: 8px;
-	bottom: 8px;
+	left: -4px;
+	top: 10px;
+	bottom: 10px;
 	width: 3px;
 	border-radius: 0 3px 3px 0;
 	background: var(--accent);
@@ -172,7 +179,77 @@ body {
 
 .gd-spacer { flex: 1; }
 
-/* The chosen direction's status, after the breadcrumb (canvas-chosen-direction S1). */
+/* Step breadcrumb (canvas-progressive S2): 1 Compare · 2 Review · 3 Choose · 4 Implement, the current step filled. */
+.gd-steps { flex: none; }
+
+.gd-steps-list {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	margin: 0;
+	padding: 3px;
+	list-style: none;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-pill);
+}
+
+.gd-steps-item { display: flex; align-items: center; }
+.gd-steps-item + .gd-steps-item::before { content: "›"; padding: 0 2px; color: var(--text-muted); }
+
+.gd-steps-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	min-height: 28px;
+	padding: 0 10px;
+	border: 0;
+	border-radius: var(--radius-pill);
+	color: var(--text-muted);
+	font-size: 13px;
+	white-space: nowrap;
+}
+
+button.gd-steps-link:hover:not(:disabled) { color: var(--text); background: var(--wash); }
+.gd-steps-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gd-steps-num { font: 600 11px var(--font-mono); }
+.gd-steps-item[data-state="done"] .gd-steps-num { color: var(--success); }
+
+.gd-steps-link[aria-current="step"] {
+	background: var(--accent);
+	color: var(--bg);
+	font-weight: 600;
+}
+
+.gd-steps-link[aria-current="step"] .gd-steps-num, button.gd-steps-link[aria-current="step"]:hover:not(:disabled) { color: var(--bg); }
+button.gd-steps-link[aria-current="step"]:hover:not(:disabled) { background: var(--accent-strong); }
+
+/* Whether a Pi session receives what the canvas sends (canvas-progressive S3); the text says it, never the dot alone. */
+.gd-connection {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0;
+	padding: 2px 10px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-pill);
+	color: var(--text-muted);
+	font-size: 13px;
+	white-space: nowrap;
+}
+
+.gd-connection-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px var(--success-halo); }
+
+.gd-connection[data-state="off"] {
+	color: var(--warning);
+	border-color: var(--warning-line);
+	font-weight: 600;
+	cursor: help;
+}
+
+.gd-connection[data-state="off"] .gd-connection-dot { background: var(--warning); box-shadow: 0 0 0 3px var(--warning-halo); }
+
+/* The chosen direction's status, step 4's detail right after the steps (canvas-chosen-direction S1). */
 .gd-work {
 	display: flex;
 	align-items: center;
@@ -190,7 +267,6 @@ body {
 .gd-work-dot[data-status="queued"] { background: var(--warning); }
 .gd-work-dot[data-status="sent"], .gd-work-dot[data-status="in_progress"] { background: var(--info); }
 .gd-work-dot[data-status="implemented"] { background: var(--success); }
-.gd-work-lead { color: var(--text); font-weight: 600; }
 .gd-work-title { color: var(--accent); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .gd-work-state::before, .gd-work-note::before { content: "·"; margin-right: 8px; color: var(--text-faint); }
 .gd-work-note { min-width: 0; max-width: 40ch; overflow: hidden; text-overflow: ellipsis; }
@@ -652,7 +728,8 @@ select {
 	transform-origin: right bottom;
 }
 
-.gd-compact .gd-board-actions { display: none; }
+/* Zoomed out, the handoff row and Implement this collapse; Open stays, it is how a direction opens (canvas-progressive S4). */
+.gd-compact .gd-handoff, .gd-compact .gd-implement { display: none; }
 
 .gd-implement { white-space: nowrap; }
 
@@ -1286,7 +1363,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .gd-panel[hidden] { display: none; }
 
 /* Tabs: Comments N / Resolved N / History N / Checks N / Brief */
-/* Five tabs can be wider than the panel (longer in Spanish): the row stays one line and scrolls rather than
+/* The tabs (Comments, Quality, Mix) and More beside them can be wider than the panel: the row stays one line and scrolls rather than
    squeezing labels and counts into each other; an arrow on each edge with tabs behind it scrolls toward that side.
    The bottom line is an inset shadow on the bar because a scrolling row clips anything drawn below it. */
 .gd-tabs-bar {
@@ -1299,8 +1376,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 	display: flex;
 	flex: 1;
 	min-width: 0;
-	gap: 2px;
-	padding: 8px 10px 0;
+	gap: 0;
+	padding: 8px 4px 0;
 	overflow-x: auto;
 	overflow-y: hidden;
 	scrollbar-width: none;
@@ -1332,7 +1409,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .gd-tab {
 	flex: none;
-	padding: 6px 8px;
+	padding: 6px;
+	font-size: 13px;
 	border-radius: var(--radius-sm) var(--radius-sm) 0 0;
 	border: 0;
 	border-bottom: 2px solid transparent;
@@ -1340,6 +1418,21 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 
 .gd-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+
+/* The three tabs fit the default panel; a narrower one shrinks the labels (with an ellipsis) before anything scrolls out of view. */
+.gd-tabs .gd-tab {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* More (History, Original request): a menu button beside the tablist, underlined while one of its views shows. */
+/* More is an icon (⋯) with a visually hidden name and a tooltip, so the tabs keep the room. */
+.gd-tab-more { margin: 8px 6px 0 0; }
+.gd-tab-more[aria-expanded="true"] { color: var(--text); background: var(--surface-2); }
+.gd-tab-more.gd-tab-more-current { color: var(--text); border-bottom-color: var(--accent); }
 
 .gd-count {
 	padding: 0 6px;
@@ -1360,6 +1453,24 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 
 .gd-panel-empty { margin: 0; color: var(--text-muted); }
+
+/* No comments yet, and how to add one (canvas-progressive S5). */
+.gd-comments-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	margin-top: 24px;
+	padding: 20px;
+	border: 1px dashed var(--border);
+	border-radius: var(--radius-md);
+	color: var(--text-muted);
+	font-size: 13px;
+	text-align: center;
+}
+
+.gd-comments-empty .gd-i { width: 28px; height: 28px; color: var(--accent); }
+.gd-comments-empty strong { color: var(--text); font-size: 14px; }
 
 /* The Comments tab's Open / Resolved filter: the segmented control of the size bar. */
 .gd-comment-filter { align-self: flex-start; }
@@ -2179,6 +2290,17 @@ kbd {
 
 .gd-menu-separator { height: 1px; margin: 4px 2px; background: var(--border); }
 
+/* The single key that does the same as a menu item (More: Keyboard shortcuts, ?). */
+.gd-menu-kbd {
+	margin-left: auto;
+	padding: 2px 5px;
+	border: 1px solid var(--border-soft);
+	border-bottom-width: 2px;
+	border-radius: 4px;
+	color: var(--text-muted);
+	font: 11px/1 var(--font-mono);
+}
+
 /* "Try another direction from this…" */
 .gd-variant { width: min(420px, calc(100vw - 32px)); }
 .gd-variant-note { margin: 0 0 12px; color: var(--text-muted); font-size: 12px; }
@@ -2291,17 +2413,34 @@ kbd {
 
 /* ---- technical details (canvas-ux-quick-wins S2) ---- */
 
-/* The top bar toggle: off by default, accent while on. */
+/* The last row of the review side (canvas-progressive S5): off by default; a switch at its end shows the state. */
 .gd-technical {
-	gap: 6px;
+	justify-content: flex-start;
+	width: 100%;
+	gap: 8px;
+	border-color: transparent;
 	color: var(--text-muted);
+	font-size: 13px;
 }
 
-.gd-technical[aria-pressed="true"] {
+.gd-technical[aria-pressed="true"] { color: var(--text); }
+
+.gd-switch {
+	display: inline-flex;
+	align-items: center;
+	flex: none;
+	width: 34px;
+	height: 20px;
+	margin-left: auto;
+	padding: 2px;
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-pill);
 	background: var(--surface-2);
-	border-color: var(--accent-line);
-	color: var(--accent);
 }
+
+.gd-switch::before { content: ""; width: 14px; height: 14px; border-radius: 50%; background: var(--text-muted); }
+.gd-technical[aria-pressed="true"] .gd-switch { justify-content: flex-end; background: var(--accent); border-color: var(--accent); }
+.gd-technical[aria-pressed="true"] .gd-switch::before { background: var(--bg); }
 
 .gd-technical:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -2356,4 +2495,98 @@ kbd {
 	body.gd-printing { display: block; }
 	body.gd-printing > :not(.gd-print) { display: none; }
 	body.gd-printing .gd-print { position: static; visibility: visible; }
+}
+
+/* ---- first-run guide (canvas-progressive S6) ---- */
+
+/* The spotlight: an accent ring around the step's target, the rest of the page under the scrim; clicks pass through. */
+.gd-guide-spot {
+	position: fixed;
+	z-index: 20;
+	border-radius: var(--radius-md);
+	box-shadow: 0 0 0 2px var(--accent), 0 0 0 100vmax var(--scrim);
+	pointer-events: none;
+}
+
+/* One short card next to the target, its arrow pointing at it (--gd-guide-arrow, set by the canvas). */
+.gd-guide {
+	position: fixed;
+	z-index: 21;
+	width: min(452px, calc(100vw - 24px));
+	padding: 20px 22px 18px;
+	background: var(--surface-1);
+	border: 1px solid var(--accent-line);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-panel);
+}
+
+.gd-guide::before {
+	content: "";
+	position: absolute;
+	left: var(--gd-guide-arrow, 50%);
+	width: 14px;
+	height: 14px;
+	margin-left: -7px;
+	background: var(--surface-1);
+	border: 1px solid var(--accent-line);
+	transform: rotate(45deg);
+}
+
+.gd-guide[data-side="below"]::before { top: -8px; border-right: 0; border-bottom: 0; }
+.gd-guide[data-side="above"]::before { bottom: -8px; border-left: 0; border-top: 0; }
+.gd-guide[data-side="inside"]::before { display: none; }
+
+.gd-guide-eyebrow {
+	margin: 0 0 6px;
+	color: var(--accent);
+	font: 600 12px/1.4 var(--font-mono);
+	letter-spacing: .12em;
+	text-transform: uppercase;
+}
+
+.gd-guide-title { margin: 0 0 6px; font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+.gd-guide-text { margin: 0 0 14px; color: var(--text-muted); }
+
+.gd-guide-steps {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin: 0 0 16px;
+	padding: 0;
+	list-style: none;
+	counter-reset: gd-guide;
+}
+
+.gd-guide-steps li {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	color: var(--text-muted);
+	font-size: 13px;
+	counter-increment: gd-guide;
+}
+
+.gd-guide-steps li::before {
+	content: counter(gd-guide);
+	display: inline-grid;
+	place-items: center;
+	flex: none;
+	width: 22px;
+	height: 22px;
+	border: 1px solid var(--border);
+	border-radius: 50%;
+	background: var(--surface);
+	font: 600 11px/1 var(--font-mono);
+}
+
+.gd-guide-steps li[aria-current="step"] { color: var(--text); font-weight: 600; }
+.gd-guide-steps li[aria-current="step"]::before { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+
+.gd-guide-actions { display: flex; align-items: center; gap: 8px; }
+.gd-guide-skip { border-color: transparent; color: var(--text-muted); }
+.gd-guide-skip:focus-visible, .gd-guide .gd-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: no-preference) {
+	.gd-guide { animation: gd-guide-rise .3s var(--ease) both; }
+	@keyframes gd-guide-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 }

@@ -12,8 +12,9 @@
 // A minimap in the viewport's bottom right (M) shows every board and the visible area; clicking or dragging in it pans.
 // Every word it shows is in one catalog (English and Spanish, below); the language starts from the browser's and
 // a button in the top bar switches it live. Messages sent to the session are not text of the canvas and stay English.
-// A left tool rail (Navigate, Comment, Overview, artboard list, design system, shortcuts) and the
-// single-key shortcuts behind it; the mode chip in the viewport names the active mode.
+// A left tool rail of labeled tools (Move, Comment, Overview, List, and More: design system, shortcuts) and the
+// single-key shortcuts behind it; the mode chip in the viewport names the active mode. The top bar shows where the
+// review stands (1 Compare · 2 Review · 3 Choose · 4 Implement) and whether a Pi session is connected.
 // Handoffs (design/<slug>/handoffs.json) show live on each artboard's header: the
 // handoff state, the chosen artboard and its alternatives, and, once implemented
 // with a loopback previewUrl, a Compare view of the artboard next to the running app.
@@ -36,6 +37,8 @@
 	const MODE_KEY = "gentle-design:send-mode";
 	// "on" shows the CSS selectors on cards and the token inspector; anything else (or nothing) is off.
 	const TECHNICAL_KEY = "gentle-design:technical";
+	// "done" once the first-run guide was skipped or finished in this browser; it then opens only from the rail's More.
+	const GUIDE_KEY = "gentle-design:guide";
 	// The picks of the mix, per design: `${MIX_KEY_PREFIX}<slug>`. A pick's pin id is `${MIX_PIN}<pick id>`, never a comment id.
 	const MIX_KEY_PREFIX = "gentle-design:mix:";
 	const MIX_PIN = "mix:";
@@ -71,7 +74,8 @@
 	const DELIVERY = { comment: true, batch: true, implement: true, variant: true, mix: true, ...(config.delivery && typeof config.delivery === "object" ? config.delivery : {}) };
 	// Suggestions in the "another direction" dialog: each fills the field with its own label.
 	const VARIANT_SUGGESTIONS = ["variant.compact", "variant.bolder", "variant.mobile", "variant.calmer"];
-	const TAB_NAMES = ["comments", "history", "checks", "mix", "brief"];
+	// The review panel's tabs; History and Original request ("history", "brief") are views its More menu opens in the panel.
+	const TAB_NAMES = ["comments", "checks", "mix"];
 
 	/* catalog:start */
 	// S4: every word the canvas shows, once per language, one entry per line. A key missing from `es` shows the English text.
@@ -95,17 +99,39 @@
 			"lang.auto": "Match the browser",
 			"lang.note": "Saved in this browser. Comments you write stay in the language you type; messages to the agent stay in English.",
 			"rail.label": "Tools",
-			"rail.navigate": "Navigate",
-			"rail.navigate.title": "Navigate (V)",
+			"rail.navigate": "Move",
+			"rail.navigate.title": "Move around the canvas (V)",
 			"rail.comment": "Comment",
-			"rail.comment.title": "Comment (C)",
-			"rail.overview": "Overview: fit all directions",
-			"rail.overview.title": "Overview: fit all (F)",
-			"rail.list": "Direction list",
+			"rail.comment.title": "Comment on an element (C)",
+			"rail.overview": "Overview",
+			"rail.overview.title": "See all the directions (F)",
+			"rail.list": "List",
 			"rail.list.title": "Direction list ([)",
+			"rail.more": "More",
+			"rail.more.title": "More: design system, keyboard shortcuts and the guide",
 			"rail.system": "Design system board",
 			"rail.keys": "Keyboard shortcuts",
-			"rail.keys.title": "Keyboard shortcuts (?)",
+			"rail.guide": "See the guide",
+			"guide.eyebrow": "First time · {n} of {total}",
+			"guide.steps": "Guide steps",
+			"guide.compare.title": "These are your directions",
+			"guide.compare.text": "The agent answered your request in several ways. Under each title you see what each one does better and what it gives up.",
+			"guide.open.title": "Open them to review them",
+			"guide.open.text": "Press “Open” on a direction to see it at full size, comment on it or mix it.",
+			"guide.implement.title": "Choose one and press Implement",
+			"guide.implement.text": "Inside the direction you prefer, press “Implement this” and the agent builds it in your project. Step 4 at the top tells you how it is going.",
+			"guide.skip": "Skip the guide",
+			"guide.next": "Next",
+			"guide.done": "Got it",
+			"steps.label": "Steps",
+			"steps.compare": "Compare",
+			"steps.review": "Review",
+			"steps.choose": "Choose",
+			"steps.implement": "Implement",
+			"connection.on": "Connected",
+			"connection.onTitle": "Connected to the Pi session: your comments and requests reach the agent.",
+			"connection.off": "Not connected",
+			"connection.offTitle": "This canvas is not connected to a Pi session, so it cannot send comments or hand anything off. Open the canvas from your session with /gentle:design open {slug}.",
 			"bar.label": "Design canvas controls",
 			"bar.design": "Design",
 			"bar.feature": "Feature document",
@@ -121,7 +147,7 @@
 			"zoom.fit": "Fit all",
 			"zoom.fit.title": "Fit all (0)",
 			"nav.title": "Directions · {count}",
-			"nav.note": "Design system board is always first in Overview.",
+			"nav.note": "Open a direction to comment on it, mix it or implement it.",
 			"nav.thumb": "{title} preview",
 			"nav.summary.open.one": "{count} open comment",
 			"nav.summary.open.other": "{count} open comments",
@@ -134,9 +160,9 @@
 			"a11y.fails.one": "{count} check",
 			"a11y.fails.other": "{count} checks",
 			"a11y.okTitle": "Automatic checks found no problems. They are heuristics, not a full audit.",
-			"a11y.failTitle": "Open the Checks tab to see them.",
+			"a11y.failTitle": "Open the Quality tab to see them.",
 			"viewport.label": "Directions",
-			"mode.navigating": "Navigating",
+			"mode.navigating": "Moving around the canvas · wheel to zoom",
 			"mode.commenting": "Click a direction to open it and comment · Esc",
 			"mode.using": "Using: {title} · Shift+Esc to exit",
 			"back": "Back to canvas",
@@ -149,18 +175,21 @@
 			"panel.toggleTitle": "Review panel (])",
 			"tab.comments": "Comments",
 			"tab.history": "History",
-			"tab.checks": "Checks",
+			"tab.checks": "Quality",
 			"tab.mix": "Mix",
 			"tab.brief": "Original request",
 			"tabs.prev": "Earlier tabs",
 			"tabs.next": "More tabs",
+			"panel.more": "More",
 			"panel.comments": "Comments",
-			"panel.empty.none": "No comments yet. Turn on Comment mode and click an element.",
+			"panel.empty.none": "No comments yet",
+			"panel.empty.hint": "Open a direction and press “Comment” on whatever you want to change.",
 			"panel.empty.open": "No open comments.",
 			"panel.empty.resolved": "No resolved comments.",
 			"filter.label": "Show comments",
-			"filter.open": "Open ({count})",
-			"filter.resolved": "Resolved ({count})",
+			"filter.open": "Open · {count}",
+			"filter.resolved": "Resolved · {count}",
+			"filter.all": "All",
 			"panel.sendMode": "When a comment is sent to the session",
 			"panel.sendNow": "Send now",
 			"panel.collect": "Save to send later",
@@ -219,6 +248,8 @@
 			"board.comment": "Open {title} to comment",
 			"board.frameTitle": "{title} artboard",
 			"board.menuButton": "More actions for {title}",
+			"board.open": "Open",
+			"board.openAria": "Open direction {number}, {title}",
 			"system.title": "Design system",
 			"system.tradeoff": "Project tokens (design/system.md)",
 			"system.note": "Comments apply to design artboards only. To change the system, update the project's design sources and run /gentle:design sync.",
@@ -313,7 +344,6 @@
 			"handoff.implemented": "Implemented ✓",
 			"choice.chosen": "Chosen",
 			"choice.discarded": "Discarded",
-			"work.implementing": "Implementing",
 			"work.title": "“{title}”",
 			"work.since": "{state} since {time}",
 			"work.at": "at {time}",
@@ -457,7 +487,7 @@
 			"versions.labelCurrent": "v{n} · Current",
 			"versions.goneOld": "v{n} is no longer kept, so the comparison was closed.",
 			"versions.goneCurrent": "v{n} is now the current version, so the comparison was closed.",
-			"keys.navigate": "Navigate",
+			"keys.navigate": "Move around the canvas",
 			"keys.comment": "Comment on an element",
 			"keys.or": "or",
 			"keys.fit": "Fit all directions",
@@ -520,17 +550,39 @@
 			"lang.auto": "Igual que el navegador",
 			"lang.note": "Se guarda en este navegador. Los comentarios se quedan en el idioma en que los escribes; los mensajes al agente siguen en inglés.",
 			"rail.label": "Herramientas",
-			"rail.navigate": "Navegar",
-			"rail.navigate.title": "Navegar (V)",
+			"rail.navigate": "Mover",
+			"rail.navigate.title": "Mover por el lienzo (V)",
 			"rail.comment": "Comentar",
-			"rail.comment.title": "Comentar (C)",
-			"rail.overview": "Ver todo: ajustar todas las propuestas",
-			"rail.overview.title": "Ver todo: ajustar todo (F)",
-			"rail.list": "Lista de propuestas",
+			"rail.comment.title": "Comentar un elemento (C)",
+			"rail.overview": "Ver todo",
+			"rail.overview.title": "Ver todas las propuestas (F)",
+			"rail.list": "Lista",
 			"rail.list.title": "Lista de propuestas ([)",
-			"rail.system": "Tablero del design system",
+			"rail.more": "Más",
+			"rail.more.title": "Más: sistema de diseño, atajos de teclado y la guía",
+			"rail.system": "Sistema de diseño",
 			"rail.keys": "Atajos de teclado",
-			"rail.keys.title": "Atajos de teclado (?)",
+			"rail.guide": "Ver la guía",
+			"guide.eyebrow": "Primera vez · {n} de {total}",
+			"guide.steps": "Pasos de la guía",
+			"guide.compare.title": "Estas son tus propuestas",
+			"guide.compare.text": "El agente ha resuelto tu petición de varias formas. Debajo de cada título verás en qué gana y en qué cede.",
+			"guide.open.title": "Ábrelas para revisarlas",
+			"guide.open.text": "Pulsa «Abrir» en una propuesta para verla a tamaño real, comentarla o mezclarla.",
+			"guide.implement.title": "Elige una y pulsa Implementar",
+			"guide.implement.text": "Dentro de la propuesta que prefieras, pulsa «Implementar esto» y el agente la construirá en tu proyecto. El paso 4 de arriba te dirá cómo va.",
+			"guide.skip": "Saltar la guía",
+			"guide.next": "Siguiente",
+			"guide.done": "Entendido",
+			"steps.label": "Pasos",
+			"steps.compare": "Comparar",
+			"steps.review": "Revisar",
+			"steps.choose": "Elegir",
+			"steps.implement": "Implementar",
+			"connection.on": "Conectado",
+			"connection.onTitle": "Conectado a la sesión de Pi: tus comentarios y peticiones llegan al agente.",
+			"connection.off": "Sin conexión",
+			"connection.offTitle": "Este canvas no está conectado a una sesión de Pi, así que no puede enviar comentarios ni entregar nada. Abre el canvas desde tu sesión con /gentle:design open {slug}.",
 			"bar.label": "Controles del canvas de diseño",
 			"bar.design": "Diseño",
 			"bar.feature": "Documento de la funcionalidad",
@@ -546,7 +598,7 @@
 			"zoom.fit": "Ajustar todo",
 			"zoom.fit.title": "Ajustar todo (0)",
 			"nav.title": "Propuestas · {count}",
-			"nav.note": "El tablero del design system siempre va primero en Ver todo.",
+			"nav.note": "Abre una propuesta para comentarla, mezclarla o implementarla.",
 			"nav.thumb": "Vista previa de {title}",
 			"nav.summary.open.one": "{count} comentario abierto",
 			"nav.summary.open.other": "{count} comentarios abiertos",
@@ -559,9 +611,9 @@
 			"a11y.fails.one": "{count} comprobación",
 			"a11y.fails.other": "{count} comprobaciones",
 			"a11y.okTitle": "Las comprobaciones automáticas no encontraron problemas. Son heurísticas, no una auditoría completa.",
-			"a11y.failTitle": "Abre la pestaña Comprobaciones para verlas.",
+			"a11y.failTitle": "Abre la pestaña Calidad para verlas.",
 			"viewport.label": "Propuestas",
-			"mode.navigating": "Navegando",
+			"mode.navigating": "Moviéndote por el lienzo · rueda para acercar",
 			"mode.commenting": "Haz clic en una propuesta para abrirla y comentar · Esc",
 			"mode.using": "Usando: {title} · Shift+Esc para salir",
 			"back": "Volver al canvas",
@@ -574,20 +626,23 @@
 			"panel.toggleTitle": "Panel de revisión (])",
 			"tab.comments": "Comentarios",
 			"tab.history": "Historial",
-			"tab.checks": "Comprobaciones",
+			"tab.checks": "Calidad",
 			"tab.mix": "Mezcla",
 			"tab.brief": "Petición original",
 			"tabs.prev": "Pestañas anteriores",
 			"tabs.next": "Más pestañas",
+			"panel.more": "Más",
 			"panel.comments": "Comentarios",
-			"panel.empty.none": "Aún no hay comentarios. Activa el modo Comentar y haz clic en un elemento.",
+			"panel.empty.none": "Aún no hay comentarios",
+			"panel.empty.hint": "Abre una propuesta y pulsa «Comentar» sobre lo que quieras cambiar.",
 			"panel.empty.open": "No hay comentarios abiertos.",
 			"panel.empty.resolved": "No hay comentarios resueltos.",
 			"filter.label": "Mostrar comentarios",
-			"filter.open": "Abiertos ({count})",
-			"filter.resolved": "Resueltos ({count})",
+			"filter.open": "Abiertos · {count}",
+			"filter.resolved": "Resueltos · {count}",
+			"filter.all": "Todos",
 			"panel.sendMode": "Cuándo se envía un comentario a la sesión",
-			"panel.sendNow": "Enviar ya",
+			"panel.sendNow": "Enviar al momento",
 			"panel.collect": "Guardar para enviar luego",
 			"panel.footIntro": "Tus comentarios se envían al agente para que cambie el diseño",
 			"panel.pending.one": "{count} pendiente de enviar",
@@ -644,6 +699,8 @@
 			"board.comment": "Abrir {title} para comentar",
 			"board.frameTitle": "Artboard {title}",
 			"board.menuButton": "Más acciones de {title}",
+			"board.open": "Abrir",
+			"board.openAria": "Abrir la propuesta {number}, {title}",
 			"system.title": "Design system",
 			"system.tradeoff": "Tokens del proyecto (design/system.md)",
 			"system.note": "Los comentarios solo se aplican a los artboards de diseño. Para cambiar el sistema, actualiza las fuentes de diseño del proyecto y ejecuta /gentle:design sync.",
@@ -738,7 +795,6 @@
 			"handoff.implemented": "Implementado ✓",
 			"choice.chosen": "Elegido",
 			"choice.discarded": "Descartada",
-			"work.implementing": "Implementando",
 			"work.title": "«{title}»",
 			"work.since": "{state} desde {time}",
 			"work.at": "a las {time}",
@@ -882,7 +938,7 @@
 			"versions.labelCurrent": "v{n} · Actual",
 			"versions.goneOld": "v{n} ya no se conserva, así que se cerró la comparación.",
 			"versions.goneCurrent": "v{n} es ahora la versión actual, así que se cerró la comparación.",
-			"keys.navigate": "Navegar",
+			"keys.navigate": "Moverte por el lienzo",
 			"keys.comment": "Comentar un elemento",
 			"keys.or": "o",
 			"keys.fit": "Ajustar todas las propuestas",
@@ -1051,8 +1107,19 @@
 		toolNavigate: $("gd-tool-navigate"),
 		railFit: $("gd-rail-fit"),
 		navToggle: $("gd-nav-toggle"),
-		railSystem: $("gd-rail-system"),
-		shortcutsOpen: $("gd-shortcuts-open"),
+		railMore: $("gd-rail-more"),
+		steps: $("gd-steps"),
+		stepsList: $("gd-steps-list"),
+		connection: $("gd-connection"),
+		guide: $("gd-guide"),
+		guideSpot: $("gd-guide-spot"),
+		guideEyebrow: $("gd-guide-eyebrow"),
+		guideTitle: $("gd-guide-title"),
+		guideText: $("gd-guide-text"),
+		guideSteps: $("gd-guide-steps"),
+		guideSkip: $("gd-guide-skip"),
+		guideNext: $("gd-guide-next"),
+		guideNextLabel: $("gd-guide-next-label"),
 		shortcuts: $("gd-shortcuts"),
 		shortcutsClose: $("gd-shortcuts-close"),
 		nav: $("gd-nav"),
@@ -1066,8 +1133,7 @@
 		tabs: $("gd-tabs"),
 		tabsPrev: $("gd-tabs-prev"),
 		tabsNext: $("gd-tabs-next"),
-		tabHistory: $("gd-tab-history"),
-		countHistory: $("gd-count-history"),
+		panelMore: $("gd-panel-more"),
 		history: $("gd-history"),
 		versions: $("gd-versions"),
 		versionsTitle: $("gd-versions-title"),
@@ -1090,7 +1156,6 @@
 		mixClear: $("gd-mix-clear"),
 		mixAdd: $("gd-popover-mix"),
 		mixShow: $("gd-popover-show-mix"),
-		tabBrief: $("gd-tab-brief"),
 		countOpen: $("gd-count-open"),
 		tabPanel: $("gd-tabpanel"),
 		brief: $("gd-brief"),
@@ -1133,6 +1198,8 @@
 		commentFilter: $("gd-comment-filter"),
 		filterOpen: $("gd-filter-open"),
 		filterResolved: $("gd-filter-resolved"),
+		filterAll: $("gd-filter-all"),
+		commentsEmpty: $("gd-comments-empty"),
 		panelEmpty: $("gd-panel-empty"),
 		list: $("gd-comment-list"),
 		toast: $("gd-toast"),
@@ -1206,12 +1273,15 @@
 		comments: [],
 		// Whether the navigator hides the discarded artboards while one is chosen.
 		hideDiscarded: false,
-		// The review tab (TAB_NAMES), and which comments the Comments tab lists: "open" or "resolved".
+		// The review tab (TAB_NAMES) or More view ("history", "brief"), and which comments the Comments tab lists: "open", "resolved" or "all".
 		tab: "comments",
 		filter: "open",
 		mode: storedMode(),
 		// Technical details: selectors on the cards and the token inspector, off unless switched on (TECHNICAL_KEY).
 		technical: storedTechnical(),
+		// The open first-run guide: { step, returnFocus }, or null; and whether it already opened on its own in this page.
+		guide: null,
+		guideStarted: false,
 		activeId: null,
 		designCount: 0,
 		// The minimap's switch (M); it also hides in focus mode, Compare and a version comparison.
@@ -1394,6 +1464,7 @@
 		for (const board of allBoards()) board.wrapper.classList.toggle("gd-compact", board.artboard.width * state.zoom < COMPACT_BOARD_WIDTH);
 		closeMenu(false);
 		renderMinimap();
+		placeGuide();
 	}
 
 	/** Zoom so the world point under (px, py) in viewport coordinates stays put. */
@@ -1743,6 +1814,10 @@
 			board.wrapper.inert = Boolean(focused) && !active;
 			board.shield.hidden = active;
 			board.wrapper.classList.toggle("gd-all-sizes", active && state.size.kind === "all");
+			if (board.openButton) {
+				board.openButton.hidden = active;
+				board.implement.root.hidden = !active;
+			}
 			if (!active) {
 				// Leaving focus mode, or focusing another artboard, restores the manifest size.
 				setFrameSize(board, board.artboard.width, board.artboard.height);
@@ -1755,12 +1830,13 @@
 		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit]) control.disabled = Boolean(focused);
 		els.design.disabled = Boolean(focused) || state.designCount === 0;
 		els.back.hidden = !focused;
-		els.railSystem.disabled = !state.systemBoard;
 		els.compareApp.disabled = Boolean(state.compare);
 		renderNav();
 		renderHistory();
 		renderNavMode();
+		renderSteps();
 		renderMinimap();
+		renderGuide(false);
 	}
 
 	/** The floating chip: focus mode, comment mode or plain navigation. */
@@ -1822,7 +1898,6 @@
 		els.world.replaceChildren();
 		state.boards = [];
 		clearMark();
-		els.railSystem.disabled = !state.systemBoard;
 		renderHandoffViews();
 		renderMinimap();
 		loc(els.empty, "text", key, params);
@@ -1905,11 +1980,19 @@
 		handoff.hidden = true;
 		if (sizeControl) label.append(sizeControl.root);
 		let implement = null;
+		let openButton = null;
 		if (!system) {
 			const actions = document.createElement("div");
 			actions.className = "gd-board-actions";
+			// Open in the overview (comparing); Implement this only inside the direction, in focus mode (reviewing).
+			openButton = document.createElement("button");
+			openButton.type = "button";
+			openButton.className = "gd-board-open gd-small";
+			loc(openButton, "text", "board.open");
+			loc(openButton, "aria-label", "board.openAria", { number: String(number).padStart(2, "0"), title: artboard.title });
 			implement = createImplementControl(slug, artboard);
-			actions.append(handoff, implement.root);
+			implement.root.hidden = true;
+			actions.append(handoff, openButton, implement.root);
 			label.append(actions);
 		}
 		if (system) {
@@ -1943,13 +2026,14 @@
 		pins.className = "gd-pins";
 		// rects: null until the artboard reports where each commented element is.
 		const flag = createOverflowFlag();
-		const board = { slug, artboard, number, frame, wrapper, shield, hint, pins, handoff, stateChip, rects: null, system, viewWidth: artboard.width, viewHeight: artboard.height, flag, overflow: null, sizeControl, sizeFrames: [], sizesView: null, checks: null, menuButton, implement };
+		const board = { slug, artboard, number, frame, wrapper, shield, hint, pins, handoff, stateChip, rects: null, system, viewWidth: artboard.width, viewHeight: artboard.height, flag, overflow: null, sizeControl, sizeFrames: [], sizesView: null, checks: null, menuButton, implement, openButton };
 		setFrameSize(board, artboard.width, artboard.height);
 		renderShield(board);
 		renderHandoff(board);
 		// The system board is not listed in the navigator, so it has no item or thumbnail.
 		if (!system) board.nav = createNavItem(board);
 		if (menuButton) wireMenuButton(board);
+		if (openButton) openButton.addEventListener("click", () => enterFocus(board));
 		shield.addEventListener("keydown", (event) => {
 			if (event.key !== "Enter" && event.key !== " ") return;
 			event.preventDefault();
@@ -2332,7 +2416,7 @@
 
 	// ---- artboard menu ---------------------------------------------------------
 	// A ⋯ button in each design artboard's header opens one shared menu (index.html). It is built each
-	// time it opens, so it follows the handoff state. Implement this stays in the header as well.
+	// time it opens, so it follows the handoff state. Implement this is also in the header, in focus mode.
 
 	let menuNotes = 0;
 
@@ -2360,7 +2444,8 @@
 			{ label: "menu.exportPng2x", icon: "i-image", run: () => exportArtboard(board, 2) },
 			{ label: "menu.exportPdf", icon: "i-image", run: () => exportPdf(board) },
 			{ label: "menu.downloadHtml", icon: "i-download", run: () => downloadHtml(board) },
-			{ label: board.implement.isDiscarded() ? "menu.switch" : "menu.implement", separator: true, off: off(DELIVERY.implement, "implement-unavailable"), run: () => board.implement.open() },
+			// Implement this lives inside the direction: from the overview the menu opens it first, then the confirm step.
+			{ label: board.implement.isDiscarded() ? "menu.switch" : "menu.implement", separator: true, off: off(DELIVERY.implement, "implement-unavailable"), run: () => { enterFocus(board); board.implement.open(); } },
 		);
 		return actions;
 	}
@@ -2537,6 +2622,18 @@
 		item.setAttribute("tabindex", "-1");
 		if (action.icon) item.append(icon(action.icon, "gd-i gd-i-s"));
 		item.append(chip("gd-menu-label", t(action.label)));
+		if (typeof action.count === "number") item.append(chip("gd-count", String(action.count)));
+		// A single-key shortcut that does the same, shown at the end of the item.
+		if (action.shortcut) {
+			item.setAttribute("aria-keyshortcuts", action.shortcut);
+			const key = document.createElement("kbd");
+			key.className = "gd-menu-kbd";
+			key.setAttribute("aria-hidden", "true");
+			key.textContent = action.shortcut;
+			item.append(key);
+		}
+		// Nothing to act on (no design system board): announced as unavailable, choosing it does nothing.
+		if (action.disabled) item.setAttribute("aria-disabled", "true");
 		if (action.off) {
 			// Like the disabled Implement this: a short visible line, the full way out in its tooltip and for screen readers.
 			item.setAttribute("aria-disabled", "true");
@@ -2551,24 +2648,31 @@
 		return item;
 	}
 
-	/** Puts `menu` (the artboard menu or the language menu) under `button`, inside the window. */
-	function placeMenu(button, menu) {
+	/**
+	 * Puts `menu` (an action menu or the language menu) under `button`, inside the window; `beside` puts it right of
+	 * the button instead (the rail's More, at the bottom left), bottom-aligned with it when there is no room below.
+	 */
+	function placeMenu(button, menu, beside = false) {
 		const rect = button.getBoundingClientRect();
 		// A fixed box without a width shrinks to the room right of its left edge: measure it where nothing narrows it.
 		menu.style.left = "0px";
 		const width = menu.offsetWidth;
 		const height = menu.offsetHeight;
-		const left = Math.max(0, Math.min(rect.left, window.innerWidth - width - 12));
-		let top = rect.bottom + 4;
-		if (top + height > window.innerHeight - 12) top = Math.max(0, rect.top - height - 4);
+		const left = Math.max(0, Math.min(beside ? rect.left + rect.width + 8 : rect.left, window.innerWidth - width - 12));
+		let top = beside ? rect.top : rect.bottom + 4;
+		if (top + height > window.innerHeight - 12) top = Math.max(0, beside ? rect.top + rect.height - height : rect.top - height - 4);
 		menu.style.left = `${left}px`;
 		menu.style.top = `${top}px`;
 	}
 
 	function openMenu(board, button, last) {
+		showMenu(button, menuActions(board), t("menu.aria", { title: board.artboard.title }), last);
+	}
+
+	/** Builds the shared menu (#gd-menu) from `actions` under `button`, named `label`, with focus on its first (or `last`) item. */
+	function showMenu(button, actions, label, last, beside = false) {
 		closeMenu(false);
 		closeLangMenu(false);
-		const actions = menuActions(board);
 		const nodes = [];
 		const items = [];
 		const byItem = new Map();
@@ -2585,13 +2689,14 @@
 			items.push(item);
 			nodes.push(item);
 		}
-		els.menu.setAttribute("aria-label", t("menu.aria", { title: board.artboard.title }));
+		els.menu.setAttribute("aria-label", label);
 		els.menu.replaceChildren(...nodes);
 		els.menu.hidden = false;
 		button.setAttribute("aria-expanded", "true");
-		state.menu = { board, button, items, byItem };
-		placeMenu(button, els.menu);
+		state.menu = { button, items, byItem };
+		placeMenu(button, els.menu, beside);
 		(last ? items[items.length - 1] : items[0]).focus();
+		renderGuide(false);
 	}
 
 	/** Closes the menu; focus goes back to its button when it was inside the menu (or `refocus`). */
@@ -2604,27 +2709,32 @@
 		els.menu.replaceChildren();
 		open.button.setAttribute("aria-expanded", "false");
 		if (refocus || inside) open.button.focus();
+		renderGuide(false);
 	}
 
 	function chooseMenuItem(item) {
 		const open = state.menu;
 		const action = open && open.byItem.get(item);
-		if (!action || action.off) return;
+		if (!action || action.off || action.disabled) return;
 		// Back on the button first: the action then moves focus where it needs it (the dialog, the confirm step).
 		closeMenu(true);
 		action.run(open.button);
 	}
 
 	function wireMenuButton(board) {
-		const button = board.menuButton;
+		wireMenu(board.menuButton, (last) => openMenu(board, board.menuButton, last));
+	}
+
+	/** A button that opens the shared menu: a click toggles it, the arrows open it on the first or the last item, Escape closes it. */
+	function wireMenu(button, open) {
 		button.addEventListener("click", () => {
 			if (state.menu && state.menu.button === button) closeMenu(true);
-			else openMenu(board, button, false);
+			else open(false);
 		});
 		button.addEventListener("keydown", (event) => {
 			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 				event.preventDefault();
-				openMenu(board, button, event.key === "ArrowUp");
+				open(event.key === "ArrowUp");
 			} else if (event.key === "Escape" && state.menu && state.menu.button === button) {
 				event.preventDefault();
 				event.stopPropagation();
@@ -2702,6 +2812,7 @@
 		state.langMenu = { items };
 		placeMenu(els.lang, els.langMenu);
 		(last ? items[items.length - 1] : items[0]).focus();
+		renderGuide(false);
 	}
 
 	/** Closes the language menu; focus goes back to its button when it was inside the menu (or `refocus`). */
@@ -2714,6 +2825,7 @@
 		els.langMenu.replaceChildren();
 		els.lang.setAttribute("aria-expanded", "false");
 		if (refocus || inside) els.lang.focus();
+		renderGuide(false);
 	}
 
 	function chooseLangItem(item) {
@@ -2782,6 +2894,7 @@
 		refreshLoc();
 		if (state.systemBoard) Object.assign(state.systemBoard.artboard, { title: t("system.title"), tradeoff: t("system.tradeoff") });
 		renderNavMode();
+		renderConnection();
 		renderComments();
 		renderHandoffs();
 		renderBrief();
@@ -2790,6 +2903,7 @@
 		renderCompareText();
 		renderVersionText();
 		renderMark();
+		renderGuide(false);
 		if (state.inspect && !els.inspector.hidden) showInspector(state.inspect.surface, state.inspect.measure);
 	}
 
@@ -2824,6 +2938,7 @@
 			if (typeof els.variantDialog.showModal === "function") els.variantDialog.showModal();
 			else els.variantDialog.setAttribute("open", "");
 		}
+		renderGuide(false);
 		els.variantText.focus();
 	}
 
@@ -2834,11 +2949,13 @@
 			if (typeof els.variantDialog.close === "function") els.variantDialog.close();
 			else els.variantDialog.removeAttribute("open");
 		}
+		renderGuide(false);
 		if (open) open.button.focus();
 	}
 
 	// The browser closes a modal dialog on Esc and reports it here.
 	els.variantDialog.addEventListener("close", () => {
+		renderGuide(false);
 		const open = state.variant;
 		if (!open) return;
 		state.variant = null;
@@ -3089,6 +3206,7 @@
 	/** Everything outside the artboards that follows handoffs, boards and comments: navigator, Compare with app, timeline. */
 	function renderHandoffViews() {
 		renderMinimap();
+		renderSteps();
 		renderWork();
 		renderCompareApp();
 		renderTimeline();
@@ -3131,8 +3249,8 @@
 	}
 
 	/**
-	 * The top-bar status of the chosen direction: what is being built, its state since when, the agent's last note,
-	 * and Show to open it in focus mode. Implemented leaves comparing to the bar's Compare with app.
+	 * The top-bar status of the chosen direction, step 4's detail: what is being built, its state since when, the agent's
+	 * last note, and Show to open it in focus mode. Implemented leaves comparing to the bar's Compare with app.
 	 */
 	function renderWork() {
 		const board = chosenBoard();
@@ -3147,8 +3265,6 @@
 		const dot = chip("gd-work-dot", "");
 		dot.setAttribute("aria-hidden", "true");
 		dot.dataset.status = kind ?? "chosen";
-		const leadKey = !kind ? "choice.chosen" : kind === "implemented" ? "handoff.implemented" : "work.implementing";
-		const lead = chip("gd-work-lead", t(leadKey));
 		const title = chip("gd-work-title", t("work.title", { title: board.artboard.title }));
 		let stateText;
 		if (!kind) stateText = t("work.notSent");
@@ -3159,7 +3275,8 @@
 			const time = clockOrDate(kind === "in_progress" ? entry.startedAt ?? entry.sentAt : entry.sentAt);
 			stateText = time ? t("work.since", { state: t(`handoff.${kind}`), time }) : t(`handoff.${kind}`);
 		}
-		const parts = [dot, lead, title];
+		// Step 4 of the breadcrumb already says Implement, current or done: the status starts at the title.
+		const parts = [dot, title];
 		if (stateText) parts.push(chip("gd-work-state", stateText));
 		if (kind && typeof entry.note === "string" && entry.note) {
 			const note = chip("gd-work-note", entry.note);
@@ -3176,6 +3293,228 @@
 		els.work.replaceChildren(...parts);
 		if (hadFocus) show.focus();
 	}
+
+	// ---- step breadcrumb (canvas-progressive S2) -----------------------------------------
+	// 1 Compare · 2 Review · 3 Choose · 4 Implement after the design selector: where the review stands and what comes next.
+	// Compare goes to the overview and Review opens the chosen direction (or the first); Choose and Implement are not
+	// actions of their own. The top-bar status (#gd-work) right after it is step 4's detail.
+
+	const STEP_KEYS = ["steps.compare", "steps.review", "steps.choose", "steps.implement"];
+	let stepParts = null;
+
+	function createSteps() {
+		stepParts = STEP_KEYS.map((key, index) => {
+			const item = document.createElement("li");
+			item.className = "gd-steps-item";
+			const link = document.createElement(index < 2 ? "button" : "span");
+			link.className = "gd-steps-link";
+			if (index < 2) link.type = "button";
+			const label = chip("gd-steps-label", "");
+			// Never color alone: the state is also in words for assistive technology.
+			const words = chip("gd-visually-hidden gd-steps-state", "");
+			link.append(chip("gd-steps-num", String(index + 1)), label, words);
+			item.append(link);
+			return { item, link, label, words };
+		});
+		stepParts[0].link.addEventListener("click", () => {
+			exitCompare(false);
+			if (state.focus) exitFocus();
+			else fit();
+		});
+		stepParts[1].link.addEventListener("click", () => {
+			const board = chosenBoard() ?? state.boards[0];
+			if (!board) return;
+			exitCompare(false);
+			enterFocus(board);
+		});
+		els.stepsList.replaceChildren(...stepParts.map((part) => part.item));
+	}
+
+	/** The index of the current step: a handoff is at 4 (all done once implemented), focus on a direction at 2, else 1. */
+	function currentStep() {
+		const board = chosenBoard();
+		if (board) {
+			const entry = handoffOf(board).entry;
+			return entry && handoffKind(entry) === "implemented" ? STEP_KEYS.length : 3;
+		}
+		return state.focus && !state.focus.system ? 1 : 0;
+	}
+
+	function renderSteps() {
+		if (!stepParts) createSteps();
+		const at = currentStep();
+		stepParts.forEach(({ item, link, label, words }, index) => {
+			const status = index < at ? "done" : index === at ? "current" : "pending";
+			item.dataset.state = status;
+			if (status === "current") link.setAttribute("aria-current", "step");
+			else link.removeAttribute("aria-current");
+			label.textContent = t(STEP_KEYS[index]);
+			words.textContent = ` ${t(status === "done" ? "timeline.done" : status === "current" ? "timeline.current" : "timeline.pending")}`;
+		});
+		stepParts[1].link.disabled = state.boards.length === 0;
+	}
+
+	// ---- connection (canvas-progressive S3) ----------------------------------------------
+	// Connected while every delivery the page config names exists; otherwise Not connected in the warning style, with the
+	// way out (the S15 wording) in its tooltip and, for screen readers, in a visually hidden sentence.
+
+	let connectionParts = null;
+
+	function renderConnection() {
+		if (!connectionParts) {
+			const dot = chip("gd-connection-dot", "");
+			dot.setAttribute("aria-hidden", "true");
+			connectionParts = { label: chip("gd-connection-label", ""), hidden: chip("gd-visually-hidden", "") };
+			els.connection.replaceChildren(dot, connectionParts.label, connectionParts.hidden);
+		}
+		const online = Object.values(DELIVERY).every(Boolean);
+		els.connection.dataset.state = online ? "on" : "off";
+		connectionParts.label.textContent = t(online ? "connection.on" : "connection.off");
+		const sentence = online ? t("connection.onTitle") : t("connection.offTitle", { slug: state.slug ?? "<slug>" });
+		els.connection.title = sentence;
+		connectionParts.hidden.textContent = online ? "" : ` ${sentence}`;
+	}
+
+	// ---- first-run guide (canvas-progressive S6) -------------------------------------------
+	// Three short steps over the canvas: the directions, an Open button, and step 4 of the breadcrumb (Implement this is only
+	// inside a direction). It opens by itself once per browser (GUIDE_KEY), never over focus mode, Compare, the comment box,
+	// a dialog or a menu: it waits while one is open and comes back at the same step. Esc or Skip the guide ends it; the
+	// rail's More shows it again. A non-modal card: focus moves into it and returns where it was.
+
+	const GUIDE_STEPS = [
+		{ name: "directions", title: "guide.compare.title", text: "guide.compare.text", target: () => els.world },
+		{ name: "open", title: "guide.open.title", text: "guide.open.text", target: () => state.boards[0]?.openButton ?? null },
+		{ name: "implement", title: "guide.implement.title", text: "guide.implement.text", target: () => (stepParts ? stepParts[3].item : null) },
+	];
+	// The room the spotlight leaves around its target, and between the target and the card (where its arrow is).
+	const GUIDE_PAD = 8;
+	const GUIDE_GAP = 16;
+
+	/** "done" (skipped or finished), "new", or "unknown" when storage cannot be read: then it never opens by itself. */
+	function storedGuide() {
+		try {
+			return localStorage.getItem(GUIDE_KEY) === "done" ? "done" : "new";
+		} catch {
+			return "unknown";
+		}
+	}
+
+	function guideBlocked() {
+		return Boolean(state.focus || state.compare || state.menu || state.langMenu || !els.popover.hidden || els.shortcuts.hasAttribute("open") || els.variantDialog.hasAttribute("open"));
+	}
+
+	/** Once the first design with directions is shown, the first visit of this browser gets the guide. */
+	function maybeStartGuide() {
+		if (state.guideStarted || state.boards.length === 0) return;
+		state.guideStarted = true;
+		if (storedGuide() === "new") openGuide(null);
+	}
+
+	function openGuide(returnFocus) {
+		state.guideStarted = true;
+		state.guide = { step: 0, returnFocus: returnFocus ?? document.activeElement };
+		renderGuide(true);
+	}
+
+	function closeGuide() {
+		const guide = state.guide;
+		if (!guide) return;
+		state.guide = null;
+		try { localStorage.setItem(GUIDE_KEY, "done"); } catch { /* storage may be unavailable */ }
+		const inside = els.guide.contains(document.activeElement) || document.activeElement === els.guideNext || document.activeElement === els.guideSkip;
+		renderGuide(false);
+		const back = guide.returnFocus && guide.returnFocus !== document.body ? guide.returnFocus : els.viewport;
+		if (inside || document.activeElement === document.body) back.focus();
+	}
+
+	/** Shows the card and the spotlight at the current step, or hides them while something else is open; `moveFocus` puts the keyboard on Next. */
+	function renderGuide(moveFocus) {
+		const guide = state.guide;
+		const shown = Boolean(guide) && !guideBlocked();
+		els.guide.hidden = !shown;
+		els.guideSpot.hidden = !shown;
+		if (!shown) return;
+		const step = GUIDE_STEPS[guide.step];
+		const last = guide.step === GUIDE_STEPS.length - 1;
+		loc(els.guideEyebrow, "text", "guide.eyebrow", { n: guide.step + 1, total: GUIDE_STEPS.length });
+		loc(els.guideTitle, "text", step.title);
+		loc(els.guideText, "text", step.text);
+		loc(els.guideNextLabel, "text", last ? "guide.done" : "guide.next");
+		els.guideSteps.replaceChildren(...GUIDE_STEPS.map((entry, index) => {
+			const item = document.createElement("li");
+			loc(item, "text", entry.title);
+			if (index === guide.step) item.setAttribute("aria-current", "step");
+			return item;
+		}));
+		els.guide.dataset.target = step.name;
+		placeGuide();
+		if (moveFocus) els.guideNext.focus();
+	}
+
+	/** The spotlight around the step's target (the directions are clipped to the viewport) and the card below it, above it, or inside the viewport. */
+	function placeGuide() {
+		const guide = state.guide;
+		if (!guide || els.guide.hidden) return;
+		const view = els.viewport.getBoundingClientRect();
+		const element = GUIDE_STEPS[guide.step].target();
+		let rect = element ? element.getBoundingClientRect() : null;
+		if (!rect || (rect.width === 0 && rect.height === 0)) rect = view;
+		if (guide.step === 0) {
+			const left = Math.max(rect.left, view.left);
+			const top = Math.max(rect.top, view.top);
+			const right = Math.min(rect.left + rect.width, view.left + view.width);
+			const bottom = Math.min(rect.top + rect.height, view.top + view.height);
+			rect = right > left && bottom > top ? { left, top, width: right - left, height: bottom - top } : view;
+		}
+		const spot = { left: rect.left - GUIDE_PAD, top: rect.top - GUIDE_PAD, width: rect.width + GUIDE_PAD * 2, height: rect.height + GUIDE_PAD * 2 };
+		els.guideSpot.style.left = `${spot.left}px`;
+		els.guideSpot.style.top = `${spot.top}px`;
+		els.guideSpot.style.width = `${spot.width}px`;
+		els.guideSpot.style.height = `${spot.height}px`;
+		const width = els.guide.offsetWidth;
+		const height = els.guide.offsetHeight;
+		let side = "below";
+		let top = spot.top + spot.height + GUIDE_GAP;
+		if (top + height > window.innerHeight - 12) {
+			side = "above";
+			top = spot.top - GUIDE_GAP - height;
+		}
+		if (top < 12) {
+			side = "inside";
+			top = Math.max(12, view.top + view.height - height - 24);
+		}
+		const center = rect.left + rect.width / 2;
+		const left = Math.max(12, Math.min(center - width / 2, window.innerWidth - width - 12));
+		els.guide.dataset.side = side;
+		els.guide.style.left = `${left}px`;
+		els.guide.style.top = `${top}px`;
+		// The card's arrow points at the target's center, kept on the card.
+		els.guide.style.setProperty("--gd-guide-arrow", `${Math.max(20, Math.min(center - left, width - 20))}px`);
+	}
+
+	els.guideNext.addEventListener("click", () => {
+		const guide = state.guide;
+		if (!guide) return;
+		if (guide.step === GUIDE_STEPS.length - 1) {
+			closeGuide();
+			return;
+		}
+		guide.step += 1;
+		renderGuide(true);
+	});
+	els.guideSkip.addEventListener("click", closeGuide);
+	els.guide.addEventListener("keydown", (event) => {
+		if (event.key !== "Escape") return;
+		event.preventDefault();
+		event.stopPropagation();
+		closeGuide();
+	});
+	// Esc anywhere on the page skips the guide first, while it shows (it never shows over what else takes Esc).
+	document.addEventListener("keydown", (event) => {
+		if (event.defaultPrevented || event.key !== "Escape" || event.shiftKey || !state.guide || els.guide.hidden) return;
+		event.preventDefault();
+		closeGuide();
+	});
 
 	/** Chosen, Sent to the session, In progress, Implemented: done, current or pending, with timestamps. */
 	function renderTimeline() {
@@ -3292,7 +3631,7 @@
 	 */
 	function renderNav() {
 		loc(els.navTitle, "text", "nav.title", { count: state.boards.length });
-		els.navNote.hidden = !state.systemBoard;
+		els.navNote.hidden = state.boards.length === 0;
 		const refocus = els.navList.contains(document.activeElement) ? document.activeElement.dataset.file : null;
 		let discardedCount = 0;
 		let anyChosen = false;
@@ -3522,10 +3861,11 @@
 		els.comparePanes.replaceChildren(design.figure, running.figure, handle, shield);
 		els.compareFit.checked = false;
 		els.compare.hidden = false;
+		renderGuide(false);
 		els.viewport.inert = true;
 		els.panel.inert = true;
 		els.nav.inert = true;
-		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit, els.railSystem, els.design, els.compareApp]) control.disabled = true;
+		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit, els.design, els.compareApp]) control.disabled = true;
 		setCompareView(state.compareMode);
 		els.compareBack.focus();
 	}
@@ -3606,6 +3946,7 @@
 		}
 		if (slug !== state.slug) return;
 		closePopover();
+		renderConnection();
 		// A manifest change is the new artboard arriving (or any other edit): the placeholder has done its job.
 		state.placeholder = null;
 		state.manifest = manifest;
@@ -3634,6 +3975,7 @@
 		await loadHandoffs();
 		await loadComments();
 		loadHistory().catch(() => {});
+		if (slug === state.slug) maybeStartGuide();
 	}
 
 	function reloadBoard(board) {
@@ -4612,7 +4954,6 @@
 	function renderHistory() {
 		const board = historyBoard();
 		const versions = boardVersions(board);
-		els.countHistory.textContent = String(versions.length);
 		if (state.tab !== "history") return;
 		if (!state.historyAlert) {
 			state.historyAlert = createAlert();
@@ -5084,14 +5425,25 @@
 		loc(els.filterResolved, "text", "filter.resolved", { count: resolved.length });
 		els.filterOpen.setAttribute("aria-pressed", String(state.filter === "open"));
 		els.filterResolved.setAttribute("aria-pressed", String(state.filter === "resolved"));
+		els.filterAll.setAttribute("aria-pressed", String(state.filter === "all"));
 		// New counts change how wide the row is without resizing it.
 		updateTabFades();
+		// A More view (History, Original request) selects no tab; the first one then keeps the tablist in the tab order.
+		const tabIndex = TAB_NAMES.indexOf(state.tab);
 		TAB_NAMES.forEach((name, index) => {
 			const tab = tabButtons()[index];
-			tab.setAttribute("aria-selected", String(state.tab === name));
-			tab.setAttribute("tabindex", state.tab === name ? "0" : "-1");
+			tab.setAttribute("aria-selected", String(index === tabIndex));
+			tab.setAttribute("tabindex", index === Math.max(0, tabIndex) ? "0" : "-1");
 		});
-		els.tabPanel.setAttribute("aria-labelledby", tabButtons()[TAB_NAMES.indexOf(state.tab)].id);
+		if (tabIndex >= 0) {
+			els.tabPanel.setAttribute("aria-labelledby", tabButtons()[tabIndex].id);
+			loc(els.tabPanel, "aria-label", null);
+		} else {
+			const viewKey = state.tab === "history" ? "tab.history" : "tab.brief";
+			els.tabPanel.removeAttribute("aria-labelledby");
+			loc(els.tabPanel, "aria-label", viewKey);
+		}
+		els.panelMore.classList.toggle("gd-tab-more-current", tabIndex < 0);
 		const unsent = open.filter((comment) => comment.sentAt === null).length;
 		loc(els.sendAll, "text", "panel.sendAll", { count: unsent });
 		els.sendAll.disabled = unsent === 0 || !DELIVERY.batch;
@@ -5110,9 +5462,12 @@
 		renderChecks();
 		renderHistory();
 		renderMix();
-		const shown = state.filter === "resolved" ? resolved : open;
-		els.panelEmpty.hidden = brief || checks || history || mix || shown.length > 0;
-		loc(els.panelEmpty, "text", state.comments.length === 0 ? "panel.empty.none" : state.filter === "open" ? "panel.empty.open" : "panel.empty.resolved");
+		const shown = state.filter === "resolved" ? resolved : state.filter === "all" ? state.comments : open;
+		// No comments at all: how to add one; comments but none under this filter: one line.
+		const none = state.comments.length === 0;
+		els.commentsEmpty.hidden = state.tab !== "comments" || !none;
+		els.panelEmpty.hidden = state.tab !== "comments" || none || shown.length > 0;
+		loc(els.panelEmpty, "text", state.filter === "resolved" ? "panel.empty.resolved" : "panel.empty.open");
 		els.list.replaceChildren(...shown.map((comment) => {
 			const item = document.createElement("li");
 			item.className = "gd-comment-item";
@@ -5225,7 +5580,8 @@
 		renderComments();
 		const comment = state.comments.find((candidate) => candidate.id === id);
 		if (!comment) return;
-		if (options.focusList && (state.tab !== "comments" || state.filter !== comment.status)) setFilter(comment.status);
+		// All already lists every comment; Open or Resolved switches to the one that lists it.
+		if (options.focusList && (state.tab !== "comments" || (state.filter !== "all" && state.filter !== comment.status))) setFilter(state.filter === "all" ? "all" : comment.status);
 		const board = state.boards.find((candidate) => candidate.artboard.file === comment.file);
 		if (board) for (const surface of surfacesOf(board)) surface.frame.contentWindow?.postMessage({ type: "gd:highlight", id }, "*");
 		// Keyboard focus lands on the card's Show button, its first child.
@@ -5561,7 +5917,7 @@
 	els.technical.addEventListener("click", () => setTechnical(!state.technical));
 
 	function tabButtons() {
-		return [els.tabComments, els.tabHistory, els.tabChecks, els.tabMix, els.tabBrief];
+		return [els.tabComments, els.tabChecks, els.tabMix];
 	}
 
 	function setTab(name) {
@@ -5570,7 +5926,7 @@
 		updateTabFades();
 	}
 
-	/** The Comments tab's filter, "open" or "resolved"; it shows the Comments tab too. */
+	/** The Comments tab's filter, "open", "resolved" or "all"; it shows the Comments tab too. */
 	function setFilter(filter) {
 		state.filter = filter;
 		setTab("comments");
@@ -5578,6 +5934,17 @@
 
 	els.filterOpen.addEventListener("click", () => setFilter("open"));
 	els.filterResolved.addEventListener("click", () => setFilter("resolved"));
+	els.filterAll.addEventListener("click", () => setFilter("all"));
+
+	/** The review panel's More: History (with its count) and Original request, which open in the panel. */
+	function panelMoreActions() {
+		return [
+			{ label: "tab.history", count: boardVersions(historyBoard()).length, run: () => setTab("history") },
+			{ label: "tab.brief", run: () => setTab("brief") },
+		];
+	}
+
+	wireMenu(els.panelMore, (last) => showMenu(els.panelMore, panelMoreActions(), t("panel.more"), last));
 
 	/** The tab row scrolls when it is wider than the panel; each edge with tabs behind it fades and shows its arrow (L10, A2). */
 	function updateTabFades() {
@@ -5613,9 +5980,10 @@
 	tabButtons().forEach((tab, index) => tab.addEventListener("click", () => setTab(TAB_NAMES[index])));
 	// Arrow keys, Home and End move between the tabs, wrapping around.
 	els.tabs.addEventListener("keydown", (event) => {
+		// From a More view (no tab selected), ArrowRight comes back to the first tab and ArrowLeft to the last.
 		const current = TAB_NAMES.indexOf(state.tab);
 		const count = TAB_NAMES.length;
-		const next = { ArrowRight: (current + 1) % count, ArrowLeft: (current + count - 1) % count, Home: 0, End: count - 1 }[event.key];
+		const next = { ArrowRight: (current + 1) % count, ArrowLeft: current < 0 ? count - 1 : (current + count - 1) % count, Home: 0, End: count - 1 }[event.key];
 		if (next === undefined) return;
 		event.preventDefault();
 		setTab(TAB_NAMES[next]);
@@ -5635,20 +6003,35 @@
 	}
 
 	els.navToggle.addEventListener("click", () => setNav(els.nav.hidden));
-	els.railSystem.addEventListener("click", () => { if (state.systemBoard) enterFocus(state.systemBoard); });
+
+	/** What the rail's More offers: the design system board (when there is one, and not over Compare), the keyboard shortcuts and the guide. */
+	function moreActions() {
+		return [
+			{ label: "rail.system", icon: "i-palette", disabled: !state.systemBoard || Boolean(state.compare), run: () => enterFocus(state.systemBoard) },
+			{ label: "rail.keys", icon: "i-keys", shortcut: "?", run: openShortcuts },
+			// The guide never shows over focus mode or Compare: leave them first.
+			{ label: "rail.guide", icon: "i-help", run: () => { exitCompare(false); exitFocus(); openGuide(els.railMore); } },
+		];
+	}
+
+	wireMenu(els.railMore, (last) => showMenu(els.railMore, moreActions(), t("rail.more"), last, true));
 
 	function openShortcuts() {
 		if (typeof els.shortcuts.showModal === "function") els.shortcuts.showModal();
 		else els.shortcuts.setAttribute("open", "");
+		renderGuide(false);
 	}
 
 	function closeShortcuts() {
 		if (typeof els.shortcuts.close === "function") els.shortcuts.close();
 		else els.shortcuts.removeAttribute("open");
-		els.shortcutsOpen.focus();
+		renderGuide(false);
+		els.railMore.focus();
 	}
 
-	els.shortcutsOpen.addEventListener("click", openShortcuts);
+	// The browser closes the modal list on Esc too.
+	els.shortcuts.addEventListener("close", () => renderGuide(false));
+
 	els.shortcutsClose.addEventListener("click", closeShortcuts);
 
 	function readRects(data) {
@@ -5741,6 +6124,7 @@
 		els.mixShow.hidden = true;
 		els.send.disabled = false;
 		els.popover.hidden = false;
+		renderGuide(false);
 		// Beside the element in the frame it was picked in, which may be scaled (All sizes) or resized (a single size).
 		const frameRect = surface.frame.getBoundingClientRect();
 		const scale = frameRect.width / surface.viewWidth || 1;
@@ -5834,6 +6218,7 @@
 		state.pick = null;
 		clearShot();
 		els.popover.hidden = true;
+		renderGuide(false);
 		surface?.frame.contentWindow?.postMessage({ type: "gd:clear" }, "*");
 		if (els.popover.contains(document.activeElement) || document.activeElement === document.body) (state.focus ? state.focus.frame : els.comment).focus();
 	}
@@ -6010,15 +6395,18 @@
 	window.addEventListener("resize", layoutVersions);
 	window.addEventListener("resize", renderMinimap);
 	window.addEventListener("resize", updateTabFades);
+	window.addEventListener("resize", placeGuide);
 	// The viewport also changes size when the comments panel opens or closes.
 	if (typeof ResizeObserver === "function") new ResizeObserver(() => { centerFocus(); layoutVersions(); renderMinimap(); }).observe(els.viewport);
 	// Fires once on observe, then when fonts or the panel change the row: the fades are right from the first layout.
 	if (typeof ResizeObserver === "function") new ResizeObserver(updateTabFades).observe(els.tabs);
 	else window.addEventListener("resize", () => centerFocus());
 
-	// index.html starts both hidden; the menus are built when they open.
+	// index.html starts both hidden; the menus are built when they open. The guide too, until it opens.
 	els.menu.hidden = true;
 	els.langMenu.hidden = true;
+	els.guide.hidden = true;
+	els.guideSpot.hidden = true;
 	setMode(state.mode);
 	renderTools();
 	renderTechnical();
