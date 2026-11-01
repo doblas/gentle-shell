@@ -124,7 +124,8 @@ class FakeElement {
 	focus() { this.doc.activeElement = this; }
 	getBoundingClientRect() { return this.rect; }
 	setPointerCapture() {}
-	scrollIntoView() {}
+	scrollLeft = 0;
+	scrollIntoView(_options?: unknown): unknown { return undefined; }
 }
 
 class FakeDocument {
@@ -4241,7 +4242,8 @@ test("T1/S4: the loopback hints and the Open in new tab link do not change with 
 
 test("T1/S4: the canvas never reads either Compare frame's pixels or document", () => {
 	const js = read("canvas.js");
-	assert.ok(!/contentDocument|getImageData|toDataURL|toBlob|drawImage|createImageBitmap|captureStream/.test(js), "no pixel or DOM access to a frame");
+	const compare = js.slice(js.indexOf("// ---- compare ---"), js.indexOf("// ---- live reload ---"));
+	assert.ok(!/contentDocument|getImageData|toDataURL|toBlob|drawImage|createImageBitmap|captureStream/.test(compare), "no pixel or DOM access to a frame");
 });
 
 test("T1/S1-S3: index.html has the mode control and the opacity field in the Compare bar, with no Difference mode", () => {
@@ -4290,4 +4292,988 @@ test("T1/S5: docs/gentle-shell.md describes the Compare modes and says the canva
 	assert.ok(line, "the Compare paragraph is there");
 	for (const needle of ["**Side by side**", "**Overlay**", "**App opacity**", "**Slider**", "**Design**", "**App**", "`Shift`", "remembers"]) assert.ok(line.includes(needle), needle);
 	assert.match(line, /cannot detect differences[^.]*each frame is its own origin/);
+});
+
+// ---- Minimap (canvas-minimap-variants-export T1/S1)
+
+const SYSTEM_REPLY = { "/t/api/system": { exists: true, file: "system.html", width: 800, height: 600 } };
+const miniPanel = (canvas: Canvas) => canvas.document.getElementById("gd-minimap");
+const miniMap = (canvas: Canvas) => canvas.document.getElementById("gd-minimap-map");
+const miniView = (canvas: Canvas) => canvas.document.getElementById("gd-minimap-view");
+const miniBlocks = (canvas: Canvas) => withClass(miniMap(canvas), "gd-minimap-block");
+const miniBox = (element: FakeElement) => ["left", "top", "width", "height"].map((key) => Number.parseFloat(element.style[key]));
+const near = (actual: number[], expected: number[]) => {
+	assert.equal(actual.length, expected.length);
+	actual.forEach((value, index) => assert.ok(Math.abs(value - expected[index]) < 0.05, `${JSON.stringify(actual)} is not ${JSON.stringify(expected)}`));
+};
+/** The fake DOM has no layout: give each world child its box in world px (the real page reads offsets). */
+function layoutWorld(canvas: Canvas, rects: number[][]) {
+	canvas.world.children.forEach((wrapper, index) => {
+		const [x, y, width, height] = rects[index];
+		wrapper.offsetLeft = x;
+		wrapper.offsetTop = y;
+		Object.defineProperty(wrapper, "offsetWidth", { value: width, configurable: true });
+		Object.defineProperty(wrapper, "offsetHeight", { value: height, configurable: true });
+	});
+}
+// 1920 x 840 world bounds into the 204 x 96 map with a 6 px pad: a scale of exactly 0.1 and a 6 px offset.
+const MINI_RECTS = [[0, 0, 800, 600], [880, 0, 400, 300], [1360, 0, 560, 840]];
+async function minimapCanvas(extraReplies: Record<string, unknown> = {}) {
+	const canvas = await loadRail(300, { ...SYSTEM_REPLY, ...extraReplies });
+	layoutWorld(canvas, MINI_RECTS);
+	// The map sits at (1000, 600) on the page.
+	miniMap(canvas).rect = { left: 1000, top: 600, width: 204, height: 96 };
+	canvas.windowEvent("resize");
+	return canvas;
+}
+const mapPointer = (canvas: Canvas, type: string, worldX: number, worldY: number, init: Record<string, unknown> = {}) =>
+	miniMap(canvas).dispatch(type, { button: 0, pointerId: 7, clientX: 1000 + 6 + worldX * 0.1, clientY: 600 + 6 + worldY * 0.1, ...init });
+
+test("T1/S1: the minimap draws every board as a block at its relative position and size, the system board first", async () => {
+	const canvas = await minimapCanvas();
+	const blocks = miniBlocks(canvas);
+	assert.equal(blocks.length, 3, "the system board and both artboards");
+	near(miniBox(blocks[0]), [6, 6, 80, 60]);
+	near(miniBox(blocks[1]), [94, 6, 40, 30]);
+	near(miniBox(blocks[2]), [142, 6, 56, 84]);
+	assert.ok(blocks[0].classes.has("gd-minimap-system"), "the first block is the system board");
+	assert.ok(!blocks[1].classes.has("gd-minimap-system") && !blocks[2].classes.has("gd-minimap-system"));
+	assert.equal(miniPanel(canvas).hidden, false);
+});
+
+test("T1/S1: blocks keep the world's aspect and are centered in the map", async () => {
+	const canvas = await loadRail(300, SYSTEM_REPLY);
+	// Wide and short bounds (4000 x 400): the width limits the scale to 0.048 and the height is centered.
+	layoutWorld(canvas, [[0, 0, 2000, 400], [2200, 0, 800, 400], [3200, 0, 800, 400]]);
+	canvas.windowEvent("resize");
+	const blocks = miniBlocks(canvas);
+	near(miniBox(blocks[0]), [6, 38.4, 96, 19.2]);
+	near(miniBox(blocks[2]), [159.6, 38.4, 38.4, 19.2]);
+});
+
+test("T1/S1: the chosen artboard's block is the accent one, live, and the others are not", async () => {
+	const canvas = await minimapCanvas();
+	assert.deepEqual(miniBlocks(canvas).map((block) => block.classes.has("gd-minimap-chosen")), [false, false, false]);
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": {} }));
+	assert.deepEqual(miniBlocks(canvas).map((block) => block.classes.has("gd-minimap-chosen")), [false, false, true]);
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.deepEqual(miniBlocks(canvas).map((block) => block.classes.has("gd-minimap-chosen")), [false, false, false]);
+});
+
+test("T1/S1: a placeholder board in the world is a dashed block, not an artboard", async () => {
+	const canvas = await minimapCanvas();
+	const placeholder = canvas.document.createElement("section");
+	placeholder.classList.add("gd-placeholder");
+	canvas.world.append(placeholder);
+	// Bounds grow to 2400 wide: the scale is 0.08.
+	layoutWorld(canvas, [...MINI_RECTS, [1960, 100, 440, 300]]);
+	canvas.windowEvent("resize");
+	const blocks = miniBlocks(canvas);
+	assert.equal(blocks.length, 4);
+	assert.ok(blocks[3].classes.has("gd-minimap-placeholder"));
+	assert.ok(blocks.slice(0, 3).every((block) => !block.classes.has("gd-minimap-placeholder")));
+	near(miniBox(blocks[3]), [162.8, 22.4, 35.2, 24]);
+});
+
+test("T1/S1: a board with no laid-out size draws no block", async () => {
+	const canvas = await loadRail(300, SYSTEM_REPLY);
+	canvas.windowEvent("resize");
+	assert.equal(miniBlocks(canvas).length, 0);
+	assert.equal(miniPanel(canvas).hidden, false, "the panel itself still shows while boards exist");
+});
+
+test("T1/S1: the visible area is an outlined rectangle that follows pan and zoom", async () => {
+	const canvas = await minimapCanvas();
+	// Initial view: world offset (48, 48) at 100% in a 1000 x 700 viewport shows world x -48..952, y -48..652.
+	canvas.viewport.dispatch("keydown", { key: "ArrowRight" });
+	canvas.viewport.dispatch("keydown", { key: "ArrowLeft" });
+	near(miniBox(miniView(canvas)), [1.2, 1.2, 100, 70]);
+	// A key pan of 50 px to the left moves the view 50 world px right.
+	canvas.viewport.dispatch("keydown", { key: "ArrowRight" });
+	near(miniBox(miniView(canvas)), [6.2, 1.2, 100, 70]);
+	canvas.viewport.dispatch("keydown", { key: "ArrowLeft" });
+	// Zoom in 25% around the center: x = -65, y = -27.5 shows world x 52..852, y 22..582.
+	canvas.viewport.dispatch("keydown", { key: "+" });
+	near(miniBox(miniView(canvas)), [11.2, 8.2, 80, 56]);
+	assert.equal(miniView(canvas).getAttribute("aria-hidden"), null, "the rectangle lives inside the map, which carries the name");
+});
+
+test("T1/S1: the visible-area rectangle is clipped to the map when the view is away from the boards", async () => {
+	const canvas = await minimapCanvas();
+	for (let i = 0; i < 40; i++) canvas.viewport.dispatch("keydown", { key: "ArrowRight", shiftKey: true });
+	const [left, top, width, height] = miniBox(miniView(canvas));
+	assert.ok(left >= 0 && top >= 0 && left + width <= 204.01 && top + height <= 96.01, "never outside the map");
+	assert.ok(left + width > 203.9 && width < 1, "pinned to the right edge, pointing to where the view went");
+	assert.ok(height > 60);
+});
+
+test("T1/S1: a click in the minimap centers the view on that world point; zoom stays", async () => {
+	const canvas = await minimapCanvas();
+	canvas.viewport.dispatch("keydown", { key: "+" });
+	const zoom = canvas.zoomLevel.textContent;
+	// Click world point (400, 300): at 125% the viewport's center (500, 350) goes there.
+	mapPointer(canvas, "pointerdown", 400, 300);
+	assert.equal(canvas.world.style.transform, "translate(0px, -25px) scale(1.25)");
+	mapPointer(canvas, "pointerup", 400, 300);
+	assert.equal(canvas.zoomLevel.textContent, zoom);
+	near(miniBox(miniView(canvas)), [6 + 0.1 * 0, 6 + 0.1 * 20, 80, 56]);
+	assert.equal(canvas.navMode.textContent, "Navigating", "a click in the map never focuses an artboard");
+});
+
+test("T1/S1: dragging in the minimap pans with the pointer until it is released", async () => {
+	const canvas = await minimapCanvas();
+	mapPointer(canvas, "pointerdown", 400, 300);
+	assert.equal(canvas.world.style.transform, "translate(100px, 50px) scale(1)");
+	mapPointer(canvas, "pointermove", 600, 400);
+	assert.equal(canvas.world.style.transform, "translate(-100px, -50px) scale(1)");
+	near(miniBox(miniView(canvas)), [16, 11, 100, 70]);
+	mapPointer(canvas, "pointerup", 600, 400);
+	mapPointer(canvas, "pointermove", 1000, 700);
+	assert.equal(canvas.world.style.transform, "translate(-100px, -50px) scale(1)", "moves after the release do nothing");
+});
+
+test("T1/S1: only the primary button pans, and another pointer's moves are ignored", async () => {
+	const canvas = await minimapCanvas();
+	const before = canvas.world.style.transform;
+	mapPointer(canvas, "pointerdown", 400, 300, { button: 2 });
+	assert.equal(canvas.world.style.transform, before);
+	mapPointer(canvas, "pointerdown", 400, 300);
+	const after = canvas.world.style.transform;
+	mapPointer(canvas, "pointermove", 900, 500, { pointerId: 8 });
+	assert.equal(canvas.world.style.transform, after);
+	mapPointer(canvas, "pointercancel", 400, 300);
+	mapPointer(canvas, "pointermove", 900, 500);
+	assert.equal(canvas.world.style.transform, after, "a cancelled drag ends too");
+});
+
+test("T1/S1: the minimap follows the view for every kind of pan, a resize and a change of boards", async () => {
+	const canvas = await minimapCanvas();
+	const view = () => miniBox(miniView(canvas));
+	canvas.viewport.dispatch("wheel", { deltaX: 100, deltaY: 0, deltaMode: 0, ctrlKey: false, metaKey: false, shiftKey: false, clientX: 300, clientY: 300 });
+	near(view(), [1.2 + 10, 1.2, 100, 70]);
+	canvas.viewport.rect = { left: 0, top: 50, width: 500, height: 700 };
+	canvas.windowEvent("resize");
+	near(view(), [11.2, 1.2, 50, 70]);
+	// A third artboard widens the world to 2400: everything is redrawn at 0.08.
+	(canvas.replies["/t/api/designs/alpha"] as { artboards: unknown[] }).artboards.push({ file: "03-c.html", title: "Third", tradeoff: "", width: 400, height: 300 });
+	await canvas.serverEvent("show", { slug: "alpha" });
+	// The reload replaced the artboards: the old blocks are gone and the new boards draw once the page has laid them out.
+	assert.equal(miniBlocks(canvas).length, 1, "only the system board, which survives the reload");
+	layoutWorld(canvas, [...MINI_RECTS, [1960, 0, 440, 300]]);
+	canvas.windowEvent("resize");
+	assert.equal(miniBlocks(canvas).length, 4);
+	near(miniBox(miniBlocks(canvas)[3]), [162.8, 14.4, 35.2, 24]);
+	assert.match(miniMap(canvas).getAttribute("aria-label")!, /among 3 artboards/);
+});
+
+test("T1/S1: M toggles the minimap with the other single keys' rules", async () => {
+	const canvas = await minimapCanvas();
+	assert.equal(press(canvas, "m").defaultPrevented, true);
+	assert.equal(miniPanel(canvas).hidden, true);
+	press(canvas, "M");
+	assert.equal(miniPanel(canvas).hidden, false, "case does not matter");
+	press(canvas, "m");
+	assert.equal(miniPanel(canvas).hidden, true);
+	press(canvas, "m");
+	assert.equal(miniPanel(canvas).hidden, false);
+	// Drawing continues while it was hidden, so it is right when it comes back.
+	press(canvas, "m");
+	canvas.viewport.dispatch("keydown", { key: "+" });
+	press(canvas, "m");
+	near(miniBox(miniView(canvas)), [11.2, 8.2, 80, 56]);
+});
+
+test("T1/S1: M is ignored while typing, with a chord, with the comment box or the shortcuts open, and in focus mode", async () => {
+	const canvas = await minimapCanvas();
+	for (const tag of ["input", "textarea", "select"]) press(canvas, "m", {}, canvas.document.createElement(tag));
+	for (const chord of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }]) press(canvas, "m", chord);
+	assert.equal(miniPanel(canvas).hidden, false, "typing and browser chords never toggle it");
+	canvas.document.getElementById("gd-popover").hidden = false;
+	press(canvas, "m");
+	canvas.document.getElementById("gd-popover").hidden = true;
+	canvas.document.getElementById("gd-shortcuts").setAttribute("open", "");
+	press(canvas, "m");
+	canvas.document.getElementById("gd-shortcuts").removeAttribute("open");
+	assert.equal(miniPanel(canvas).hidden, false, "the open comment box and shortcuts list leave it alone");
+
+	click(canvas.boards[1].shield!, 200, 200);
+	const event = press(canvas, "m");
+	assert.equal(event.defaultPrevented, false, "the focused artboard owns the keyboard");
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(miniPanel(canvas).hidden, false, "M in focus mode did not switch it off behind the scenes");
+});
+
+test("T1/S1: the minimap is hidden in focus mode and comes back, as it was, on Back to canvas", async () => {
+	const canvas = await minimapCanvas();
+	click(canvas.boards[1].shield!, 200, 200);
+	assert.equal(miniPanel(canvas).hidden, true);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(miniPanel(canvas).hidden, false);
+	press(canvas, "m");
+	click(canvas.boards[1].shield!, 200, 200);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(miniPanel(canvas).hidden, true, "a minimap switched off with M stays off after focus");
+});
+
+test("T1/S1: the minimap is hidden while Compare is open and returns when it closes", async () => {
+	const canvas = await loadRail(300, { ...SYSTEM_REPLY, "/t/api/designs/alpha/handoffs": handoffDoc("01-a.html", { "01-a.html": { status: "implemented", previewUrl: "http://localhost:5173/login" } }) });
+	layoutWorld(canvas, MINI_RECTS);
+	canvas.windowEvent("resize");
+	assert.equal(miniPanel(canvas).hidden, false);
+	withClass(canvas.world.children[1], "gd-compare-start")[0].dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-compare").hidden, false);
+	assert.equal(miniPanel(canvas).hidden, true);
+	canvas.document.getElementById("gd-compare-back").dispatch("click");
+	assert.equal(miniPanel(canvas).hidden, false);
+});
+
+test("T1/S1: the minimap is hidden while a version comparison is open and returns when it closes", async () => {
+	const canvas = await withHistory(HISTORY, SYSTEM_REPLY);
+	layoutWorld(canvas, MINI_RECTS);
+	canvas.windowEvent("resize");
+	assert.equal(miniPanel(canvas).hidden, false);
+	openHistory(canvas);
+	cardButton(canvas, "gd-version-compare", 3).dispatch("click");
+	assert.equal(versionsPanel(canvas).hidden, false);
+	assert.equal(miniPanel(canvas).hidden, true);
+	canvas.document.getElementById("gd-versions-close").dispatch("click");
+	assert.equal(versionsPanel(canvas).hidden, true);
+	// The comparison put the artboard in focus mode and closing it leaves it again.
+	assert.equal(miniPanel(canvas).hidden, false);
+});
+
+test("T1/S1: the minimap is hidden when there is nothing to show", async () => {
+	const canvas = await loadRail(300, { "/t/api/designs": { designs: [] } }, { slug: null });
+	assert.equal(miniPanel(canvas).hidden, true);
+});
+
+test("T1/S1: the map carries an accessible name with the artboard count, blocks are not focusable and the artboard list stays the keyboard path", async () => {
+	const canvas = await minimapCanvas();
+	const map = miniMap(canvas);
+	assert.match(map.getAttribute("aria-label")!, /^Position of the visible area among 2 artboards\. Click or drag to move the view; use the artboard list with the keyboard\.$/);
+	for (const block of miniBlocks(canvas)) {
+		assert.equal(block.getAttribute("tabindex"), null);
+		assert.notEqual(block.localName, "button");
+		assert.equal(block.getAttribute("role"), null);
+		assert.equal(block.getAttribute("aria-hidden"), "true");
+	}
+	assert.notEqual(miniView(canvas).localName, "button");
+	assert.equal(miniView(canvas).getAttribute("tabindex"), null);
+	assert.equal(navItems(canvas).length, 2, "the artboard list is still there");
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.equal(withClass(canvas.world, "gd-minimap-block").length, 0, "blocks live in the minimap, not in the world");
+});
+
+test("T1/S1: the label says 1 artboard in the singular", async () => {
+	const canvas = await loadRail(300, { "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "", artboards: [{ file: "01-a.html", title: "First", tradeoff: "", width: 400, height: 300 }] } });
+	layoutWorld(canvas, [[0, 0, 400, 300]]);
+	canvas.windowEvent("resize");
+	assert.match(miniMap(canvas).getAttribute("aria-label")!, /among 1 artboard\./);
+});
+
+test("T1/S1: a ResizeObserver on the viewport redraws the minimap too", async () => {
+	const observers: Array<() => void> = [];
+	class FakeResizeObserver {
+		constructor(callback: () => void) { observers.push(callback); }
+		observe() {}
+	}
+	const canvas = await loadRail(300, SYSTEM_REPLY, {}, { ResizeObserver: FakeResizeObserver });
+	layoutWorld(canvas, MINI_RECTS);
+	miniMap(canvas).rect = { left: 1000, top: 600, width: 204, height: 96 };
+	assert.equal(miniBlocks(canvas).length, 0, "nothing was drawn before a layout existed");
+	for (const callback of observers) callback();
+	assert.equal(miniBlocks(canvas).length, 3);
+});
+
+test("T1/S1: the shortcuts dialog lists M, and the markup carries the minimap", () => {
+	const html = read("index.html");
+	assert.match(html, /<dt><kbd>M<\/kbd><\/dt><dd>Show or hide the minimap<\/dd>/);
+	const section = html.match(/<section id="gd-minimap"[^>]*>[^]*?<\/section>/)![0];
+	assert.match(section, /^<section id="gd-minimap" class="gd-minimap" aria-labelledby="gd-minimap-title">/);
+	assert.match(section, /<h2 id="gd-minimap-title" class="gd-minimap-title"><span>Minimap<\/span><kbd[^>]*>M<\/kbd><\/h2>/);
+	assert.match(section, /<div id="gd-minimap-map" class="gd-minimap-map" role="img" aria-label="[^"]+">/);
+	assert.match(section, /<b id="gd-minimap-view" class="gd-minimap-view"><\/b>/);
+	assert.ok(!/tabindex|<button/.test(section), "nothing in the minimap takes the keyboard");
+	const viewport = html.slice(html.indexOf('<main id="gd-viewport"'), html.indexOf("</main>"));
+	assert.ok(viewport.includes('id="gd-minimap"'), "the minimap is inside the viewport, at its bottom right");
+	assert.ok(html.indexOf('id="gd-minimap"') < html.indexOf('id="gd-nav-mode"'), "before the mode chip, so the sibling rule can make room for it");
+	assert.ok(html.indexOf('id="gd-minimap"') < html.indexOf('id="gd-inspector"'), "the inspector panel paints over it");
+});
+
+test("T1/S1: canvas.css styles the minimap with tokens only, clear of the mode chip and the Back button, with no motion", () => {
+	const css = read("canvas.css");
+	const block = (selector: string) => {
+		const start = css.indexOf(`${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	for (const selector of [".gd-minimap", ".gd-minimap-title", ".gd-minimap-map", ".gd-minimap-block", ".gd-minimap-system", ".gd-minimap-chosen", ".gd-minimap-placeholder", ".gd-minimap-view"]) {
+		const text = block(selector);
+		assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(text), `${selector}: tokens only`);
+		assert.ok(!/transition|animation/.test(text), `${selector}: no motion`);
+	}
+	assert.match(block(".gd-minimap"), /position:\s*absolute[^}]*right:\s*16px[^}]*bottom:\s*16px/);
+	assert.match(block(".gd-minimap"), /background:\s*var\(--surface\)/);
+	assert.match(block(".gd-minimap-map"), /width:\s*204px[^}]*height:\s*96px/);
+	assert.match(block(".gd-minimap-map"), /overflow:\s*hidden/);
+	assert.match(block(".gd-minimap-map"), /touch-action:\s*none/);
+	assert.match(block(".gd-minimap-chosen"), /var\(--accent\)/);
+	assert.match(block(".gd-minimap-placeholder"), /dashed var\(--accent\)/);
+	assert.match(block(".gd-minimap-view"), /var\(--warning\)/);
+	assert.match(block(".gd-minimap-view"), /pointer-events:\s*none/);
+	// The centered mode chip gives way to the minimap while it shows.
+	assert.match(css, /\.gd-minimap:not\(\[hidden\]\) ~ \.gd-nav-mode\s*{[^}]*max-width:/);
+});
+
+// ---- Artboard menu and another direction (canvas-minimap-variants-export T2/S2, S3)
+
+const VARIANT_URL = "/t/api/designs/alpha/variant";
+const menuEl = (canvas: Canvas) => canvas.document.getElementById("gd-menu");
+const menuItems = (canvas: Canvas) => findAll(menuEl(canvas), (element) => element.getAttribute("role") === "menuitem");
+const itemLabels = (canvas: Canvas) => menuItems(canvas).map((item) => texts(item, "gd-menu-label")[0]);
+const menuButtonOf = (wrapper: FakeElement) => withClass(wrapper, "gd-menu-button")[0];
+const keyOn = (target: FakeElement, key: string, init: Record<string, unknown> = {}) => target.dispatch("keydown", { key, shiftKey: false, ...init });
+const openMenu = (canvas: Canvas, index = 0) => {
+	const button = menuButtonOf(boardsOf(canvas)[index]);
+	button.dispatch("click");
+	return button;
+};
+const itemNamed = (canvas: Canvas, label: string) => menuItems(canvas).find((item) => texts(item, "gd-menu-label")[0] === label)!;
+const dialogEl = (canvas: Canvas) => canvas.document.getElementById("gd-variant");
+const variantField = (canvas: Canvas) => canvas.document.getElementById("gd-variant-text");
+const variantMessage = (canvas: Canvas) => canvas.document.getElementById("gd-variant-message");
+const submitVariant = async (canvas: Canvas) => {
+	canvas.document.getElementById("gd-variant-form").dispatch("submit");
+	for (let i = 0; i < 5; i++) await flush();
+};
+/** Opens the menu of the artboard at `index` of the world and chooses Try another direction from this…. */
+async function openVariant(canvas: Canvas, index = 0) {
+	const button = openMenu(canvas, index);
+	itemNamed(canvas, "Try another direction from this…").dispatch("click");
+	return button;
+}
+const implementedDoc = (file = "01-a.html") => handoffDoc(file, { [file]: { status: "implemented", previewUrl: "http://localhost:3000/" } });
+
+test("T2/S2: each design artboard has a ⋯ menu button named after it, collapsed; the system board has none", async () => {
+	const canvas = await loadRail(300, SYSTEM_REPLY);
+	const [system, first, second] = boardsOf(canvas);
+	assert.equal(withClass(system, "gd-menu-button").length, 0, "the system board has no menu");
+	for (const [wrapper, title] of [[first, "First"], [second, "Second"]] as const) {
+		const buttons = withClass(wrapper, "gd-menu-button");
+		assert.equal(buttons.length, 1);
+		const button = buttons[0];
+		assert.equal(button.localName, "button");
+		assert.equal(button.type, "button");
+		assert.equal(button.getAttribute("aria-label"), `More actions for ${title}`);
+		assert.equal(button.getAttribute("aria-haspopup"), "menu");
+		assert.equal(button.getAttribute("aria-expanded"), "false");
+		assert.equal(button.textContent, "", "an icon, not text");
+		assert.ok(withClass(wrapper, "gd-artboard-head")[0].contains(button), "in the artboard header");
+	}
+	assert.equal(menuEl(canvas).hidden, true);
+});
+
+test("T2/S2: opening the menu lists the actions, marks the button expanded and focuses the first item", async () => {
+	const canvas = await loadRail();
+	const button = openMenu(canvas, 1);
+	assert.equal(menuEl(canvas).hidden, false);
+	assert.equal(button.getAttribute("aria-expanded"), "true");
+	assert.equal(menuEl(canvas).getAttribute("aria-label"), "Second actions");
+	// Compare with app is offered only when the app can be compared.
+	assert.deepEqual(itemLabels(canvas), ["Try another direction from this…", "Export as PNG", "Export as PNG at 2×", "Implement this"]);
+	assert.ok(menuItems(canvas).every((item) => item.localName === "button" && item.getAttribute("tabindex") === "-1"));
+	assert.ok(canvas.document.activeElement === menuItems(canvas)[0]);
+	assert.equal(menuEl(canvas).style.left, "0px", "placed at the button");
+	// The button toggles it.
+	button.dispatch("click");
+	assert.equal(menuEl(canvas).hidden, true);
+	assert.equal(button.getAttribute("aria-expanded"), "false");
+	assert.ok(canvas.document.activeElement === button, "closing with the button keeps focus on it");
+});
+
+test("T2/S2: Compare with app is in the menu only for an implemented artboard with a preview, and opens Compare", async () => {
+	const canvas = await loadRail(300, { "/t/api/designs/alpha/handoffs": implementedDoc("01-a.html") });
+	openMenu(canvas, 0);
+	assert.deepEqual(itemLabels(canvas), ["Try another direction from this…", "Compare with app", "Export as PNG", "Export as PNG at 2×", "Implement this"]);
+	itemNamed(canvas, "Compare with app").dispatch("click");
+	assert.equal(menuEl(canvas).hidden, true, "choosing closes the menu");
+	assert.equal(canvas.document.getElementById("gd-compare").hidden, false, "Compare is open");
+	const other = await loadRail(300, { "/t/api/designs/alpha/handoffs": implementedDoc("01-a.html") });
+	openMenu(other, 1);
+	assert.ok(!itemLabels(other).includes("Compare with app"), "the other artboard has no running app");
+});
+
+test("T2/S2: the keyboard opens the menu with Enter, Space or the arrows, and moves with arrows, Home and End", async () => {
+	const canvas = await loadRail();
+	const button = menuButtonOf(boardsOf(canvas)[0]);
+	// Enter and Space on the button are its click; ArrowDown and ArrowUp open it on the first or the last item.
+	const down = keyOn(button, "ArrowDown");
+	assert.equal(down.defaultPrevented, true);
+	assert.equal(menuEl(canvas).hidden, false);
+	assert.ok(canvas.document.activeElement === menuItems(canvas)[0]);
+	keyOn(button, "Escape");
+	assert.equal(menuEl(canvas).hidden, true);
+	keyOn(button, "ArrowUp");
+	const items = menuItems(canvas);
+	assert.ok(canvas.document.activeElement === items[items.length - 1], "ArrowUp opens on the last item");
+
+	const at = () => items.findIndex((item) => item === canvas.document.activeElement);
+	keyOn(items[at()], "ArrowDown");
+	assert.equal(at(), 0, "ArrowDown wraps to the first");
+	keyOn(items[at()], "ArrowUp");
+	assert.equal(at(), items.length - 1, "ArrowUp wraps to the last");
+	keyOn(items[at()], "Home");
+	assert.equal(at(), 0);
+	keyOn(items[at()], "ArrowDown");
+	assert.equal(at(), 1);
+	keyOn(items[at()], "End");
+	assert.equal(at(), items.length - 1);
+	assert.equal(menuEl(canvas).hidden, false, "moving never closes it");
+});
+
+test("T2/S2: Enter and Space on an item choose it; Escape returns focus to the button; Tab closes", async () => {
+	const canvas = await loadRail();
+	const button = openMenu(canvas, 0);
+	const escape = keyOn(menuItems(canvas)[1], "Escape");
+	assert.equal(escape.defaultPrevented, true);
+	assert.equal(menuEl(canvas).hidden, true);
+	assert.equal(button.getAttribute("aria-expanded"), "false");
+	assert.ok(canvas.document.activeElement === button, "Esc returns focus to the button");
+
+	for (const key of ["Enter", " "]) {
+		openMenu(canvas, 0);
+		const chosen = keyOn(itemNamed(canvas, "Try another direction from this…"), key);
+		assert.equal(chosen.defaultPrevented, true, key);
+		assert.equal(menuEl(canvas).hidden, true, key);
+		assert.equal(dialogEl(canvas).hasAttribute("open"), true, `${key} chose the item`);
+		dialogEl(canvas).removeAttribute("open");
+	}
+
+	openMenu(canvas, 0);
+	const tab = keyOn(menuItems(canvas)[0], "Tab");
+	assert.equal(tab.defaultPrevented, false, "Tab keeps its move");
+	assert.equal(menuEl(canvas).hidden, true);
+	assert.equal(button.getAttribute("aria-expanded"), "false");
+});
+
+test("T2/S2: a click outside, a pan or zoom, or opening another menu closes it; a click inside does not", async () => {
+	const canvas = await loadRail();
+	const first = openMenu(canvas, 0);
+	const pointerdown = (target: FakeElement) => (canvas.document.listeners.get("pointerdown") ?? []).forEach((listener) => listener({ target, button: 0 }));
+	pointerdown(menuEl(canvas));
+	pointerdown(menuItems(canvas)[0]);
+	assert.equal(menuEl(canvas).hidden, false, "inside the menu");
+	pointerdown(first);
+	assert.equal(menuEl(canvas).hidden, false, "the button toggles on its own click, not on pointerdown");
+	pointerdown(canvas.viewport);
+	assert.equal(menuEl(canvas).hidden, true, "outside");
+	assert.equal(first.getAttribute("aria-expanded"), "false");
+
+	openMenu(canvas, 0);
+	canvas.viewport.dispatch("keydown", { key: "+" });
+	assert.equal(menuEl(canvas).hidden, true, "a zoom closes it");
+
+	const one = openMenu(canvas, 0);
+	const two = openMenu(canvas, 1);
+	assert.equal(one.getAttribute("aria-expanded"), "false");
+	assert.equal(two.getAttribute("aria-expanded"), "true");
+	assert.equal(menuEl(canvas).getAttribute("aria-label"), "Second actions");
+});
+
+test("T2/S2: single-key shortcuts stay off while the menu is open", async () => {
+	const canvas = await loadRail();
+	openMenu(canvas, 0);
+	const before = pressed(canvas, "gd-comment");
+	press(canvas, "c", {}, menuItems(canvas)[0]);
+	press(canvas, "m", {}, menuItems(canvas)[0]);
+	assert.equal(pressed(canvas, "gd-comment"), before, "C did nothing");
+	assert.equal(miniPanel(canvas).hidden, false, "M did nothing");
+	keyOn(menuItems(canvas)[0], "Escape");
+	press(canvas, "m");
+	assert.equal(miniPanel(canvas).hidden, true, "back to normal after it closes");
+});
+
+test("T2/S2: Implement this stays visible in the header and the menu item opens the same confirm step", async () => {
+	const canvas = await loadRail();
+	const wrapper = boardsOf(canvas)[0];
+	const control = withClass(wrapper, "gd-implement")[0];
+	const start = withClass(control, "gd-implement-start")[0];
+	const confirm = withClass(control, "gd-implement-confirm")[0];
+	assert.equal(start.hidden, false);
+	assert.equal(start.textContent, "Implement this");
+	assert.ok(!menuEl(canvas).contains(start), "the header button is not moved into the menu");
+	assert.equal(confirm.hidden, true);
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Implement this").dispatch("click");
+	assert.equal(menuEl(canvas).hidden, true);
+	assert.equal(confirm.hidden, false, "the confirm step is open");
+	assert.equal(start.hidden, true);
+	assert.equal(canvas.fetched.filter((url) => url === IMPLEMENT).length, 0, "nothing is sent before confirming");
+	withClass(control, "gd-primary")[0].dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.deepEqual(canvas.posts.filter((post) => post.url === IMPLEMENT), [{ url: IMPLEMENT, body: { file: "01-a.html" } }]);
+});
+
+for (const [name, navigator] of [
+	["missing", {}],
+	["denied", { mediaDevices: { getDisplayMedia: async () => { throw new Error("denied"); } } }],
+] as const) test(`T3/S4: ${name} tab capture reports an inline alert and suggests the browser screenshot tool`, async () => {
+	const canvas = await loadRail(300, {}, {}, { navigator, confirm: () => true });
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Export as PNG").dispatch("click");
+	await flush();
+	await flush();
+	const alerts = withClass(canvas.world, "gd-alert");
+	assert.ok(alerts.some((alert) => !alert.hidden && texts(alert, "gd-alert-text").some((text) => /screenshot/i.test(text))));
+	assert.equal(canvas.posts.length, 0);
+});
+
+for (const scale of [1, 2]) test(`T3/S4: export ${scale}× crops the selected tab and stops its track`, async () => {
+	const calls: string[] = [];
+	const draw: number[][] = [];
+	const names: string[] = [];
+	const during: Array<{ exporting: boolean; transform: string }> = [];
+	let output: any;
+	const stream = { getTracks: () => [{ stop: () => calls.push("stop") }] };
+	const canvas = await loadRail(300, {}, {}, {
+		confirm: (message: string) => { calls.push(message); return true; },
+		navigator: { mediaDevices: { getDisplayMedia: async () => { calls.push("capture"); return stream; } } },
+		URL: { createObjectURL: () => "blob:test", revokeObjectURL: () => calls.push("revoke") },
+	});
+	canvas.boards[0].frame.rect = { left: 100, top: 100, width: 400, height: 300, right: 500, bottom: 400 } as Rect;
+	const create = canvas.document.createElement.bind(canvas.document);
+	canvas.document.createElement = ((tag: string) => {
+		if (tag === "video") return { videoWidth: 1200, videoHeight: 800, play: async () => { calls.push("play"); }, requestVideoFrameCallback: (done: () => void) => { calls.push("frame"); done(); } };
+		if (tag === "canvas") return output = { getContext: () => ({ drawImage: (_video: unknown, ...args: number[]) => {
+			draw.push(args);
+			during.push({ exporting: canvas.document.body.classList.contains("gd-exporting"), transform: canvas.world.style.transform });
+			calls.push("draw");
+		} }), toBlob: (done: (blob: object) => void) => { calls.push("encode"); done({}); } };
+		if (tag === "a") return { click() { names.push(this.download); }, href: "", download: "" };
+		return create(tag);
+	}) as typeof canvas.document.createElement;
+	const before = canvas.world.style.transform;
+	openMenu(canvas, 0);
+	itemNamed(canvas, scale === 1 ? "Export as PNG" : "Export as PNG at 2×").dispatch("click");
+	for (let i = 0; i < 8; i++) await flush();
+	assert.match(calls[0], /choose this canvas tab/i);
+	assert.equal(calls[1], "capture");
+	assert.deepEqual(draw, [[100, 100, 400, 300, 0, 0, 400 * scale, 300 * scale]]);
+	assert.deepEqual(names, [`01-a${scale === 2 ? "@2x" : ""}.png`]);
+	assert.equal(output.width, 400 * scale);
+	assert.equal(output.height, 300 * scale);
+	assert.equal(calls.filter((c) => c === "stop").length, 1);
+	assert.ok(calls.indexOf("stop") < calls.indexOf("encode"), "capture stops immediately after grabbing the frame");
+	assert.ok(calls.indexOf("frame") > calls.indexOf("play") && calls.indexOf("frame") < calls.indexOf("draw"), "the frame is drawn after a new video frame, not the first one");
+	assert.equal(during.length, 1);
+	assert.equal(during[0].exporting, true, "the canvas chrome is hidden while the frame is grabbed");
+	assert.match(during[0].transform, /scale\(1\)/, "the artboard is at 100%");
+	assert.equal(canvas.document.body.classList.contains("gd-exporting"), false, "the chrome comes back");
+	assert.equal(canvas.world.style.transform, before);
+	assert.equal(canvas.posts.length, 0);
+	if (scale === 2) assert.match(canvas.document.getElementById("gd-toast").textContent, /upscaled/i);
+});
+
+test("T3/S4: an artboard bigger than the window names the window size it needs and grabs nothing", async () => {
+	let stopped = 0;
+	let drawn = 0;
+	const canvas = await loadRail(300, {}, {}, {
+		confirm: () => true,
+		navigator: { mediaDevices: { getDisplayMedia: async () => ({ getTracks: () => [{ stop: () => stopped++ }] }) } },
+	});
+	canvas.boards[0].frame.rect = { left: 0, top: 0, width: 1440, height: 900, right: 1440, bottom: 900 } as Rect;
+	const create = canvas.document.createElement.bind(canvas.document);
+	canvas.document.createElement = ((tag: string) => tag === "canvas" ? { getContext: () => ({ drawImage: () => drawn++ }) } : create(tag)) as typeof canvas.document.createElement;
+	const before = canvas.world.style.transform;
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Export as PNG").dispatch("click");
+	for (let i = 0; i < 8; i++) await flush();
+	assert.equal(drawn, 0);
+	assert.equal(stopped, 1);
+	const shown = withClass(canvas.world, "gd-alert").filter((alert) => !alert.hidden);
+	assert.equal(shown.length, 1);
+	assert.match(texts(shown[0], "gd-alert-detail").join(" "), /1440 × 900/);
+	assert.match(texts(shown[0], "gd-alert-detail").join(" "), /F11/);
+	assert.equal(canvas.document.body.classList.contains("gd-exporting"), false);
+	assert.equal(canvas.world.style.transform, before);
+	assert.equal(canvas.posts.length, 0);
+});
+
+test("T3/S4: canvas.css hides the canvas chrome and pins the viewport to the window while exporting", () => {
+	const css = read("canvas.css");
+	const rules = css.slice(css.indexOf(".gd-exporting"));
+	assert.match(rules, /\.gd-exporting \.gd-viewport\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;/);
+	assert.match(rules, /\.gd-exporting \.gd-viewport > :not\(\.gd-world\)/);
+	for (const hidden of ["gd-pins", "gd-overflow-flag", "gd-artboard:not(.gd-focus-board)"]) assert.ok(rules.includes(`.gd-exporting .${hidden}`), hidden);
+});
+
+test("T3: the artboard menu is measured at a neutral position, so a stale position cannot push it off the right edge", async () => {
+	const canvas = await loadRail(300);
+	const menu = canvas.document.getElementById("gd-menu");
+	// Like a fixed box without a width: it shrinks to the room left of its left edge, up to its content width.
+	Object.defineProperty(menu, "offsetWidth", { get: () => Math.min(500, 1200 - (parseFloat(menu.style.left) || 0)) });
+	menu.style.left = "1100px";
+	const button = withClass(canvas.world, "gd-menu-button")[0];
+	button.rect = { left: 1150, top: 40, width: 28, height: 28, right: 1178, bottom: 68 } as Rect;
+	button.dispatch("click");
+	const left = parseFloat(menu.style.left);
+	assert.equal(left, 1200 - 500 - 12);
+	assert.ok(left + menu.offsetWidth <= 1200 - 12);
+});
+
+for (const surface of ["window", "monitor"]) test(`T3/S4: sharing a ${surface} instead of the tab exports nothing and explains it`, async () => {
+	let stopped = 0;
+	let drawn = 0;
+	const track = { stop: () => stopped++, getSettings: () => ({ displaySurface: surface }) };
+	const canvas = await loadRail(300, {}, {}, {
+		confirm: () => true,
+		navigator: { mediaDevices: { getDisplayMedia: async () => ({ getTracks: () => [track], getVideoTracks: () => [track] }) } },
+	});
+	canvas.boards[0].frame.rect = { left: 100, top: 100, width: 400, height: 300, right: 500, bottom: 400 } as Rect;
+	const create = canvas.document.createElement.bind(canvas.document);
+	canvas.document.createElement = ((tag: string) => tag === "canvas" ? { getContext: () => ({ drawImage: () => drawn++ }) } : create(tag)) as typeof canvas.document.createElement;
+	const before = canvas.world.style.transform;
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Export as PNG").dispatch("click");
+	for (let i = 0; i < 8; i++) await flush();
+	assert.equal(drawn, 0);
+	assert.equal(stopped, 1);
+	const shown = withClass(canvas.world, "gd-alert").filter((alert) => !alert.hidden);
+	assert.equal(shown.length, 1);
+	assert.match(texts(shown[0], "gd-alert-text").join(" "), /screenshot/i);
+	assert.match(texts(shown[0], "gd-alert-detail").join(" "), /not this tab/i);
+	assert.equal(canvas.document.body.classList.contains("gd-exporting"), false);
+	assert.equal(canvas.world.style.transform, before);
+	assert.equal(canvas.posts.length, 0);
+});
+
+test("T3/S4: cancelling the tab-selection warning does not start a capture", async () => {
+	let captures = 0;
+	const canvas = await loadRail(300, {}, {}, {
+		confirm: () => false,
+		navigator: { mediaDevices: { getDisplayMedia: async () => { captures++; } } },
+	});
+	const before = canvas.world.style.transform;
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Export as PNG").dispatch("click");
+	await flush();
+	assert.equal(captures, 0);
+	assert.equal(canvas.world.style.transform, before);
+	assert.equal(canvas.posts.length, 0);
+});
+
+test("T3/S4: a capture failure stops the stream and restores the canvas view", async () => {
+	let stopped = 0;
+	const canvas = await loadRail(300, {}, {}, {
+		confirm: () => true,
+		navigator: { mediaDevices: { getDisplayMedia: async () => ({ getTracks: () => [{ stop: () => stopped++ }] }) } },
+	});
+	canvas.boards[0].frame.rect = { left: 100, top: 100, width: 400, height: 300, right: 500, bottom: 400 } as Rect;
+	const create = canvas.document.createElement.bind(canvas.document);
+	canvas.document.createElement = ((tag: string) => tag === "video" ? { play: async () => { throw new Error("capture failed"); } } : create(tag)) as typeof canvas.document.createElement;
+	const before = canvas.world.style.transform;
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Export as PNG").dispatch("click");
+	for (let i = 0; i < 8; i++) await flush();
+	assert.equal(stopped, 1);
+	assert.equal(canvas.world.style.transform, before);
+	assert.match(canvas.navMode.textContent, /Navigating/);
+	assert.ok(withClass(canvas.world, "gd-alert").some((alert) => !alert.hidden && texts(alert, "gd-alert-text").some((text) => /screenshot/i.test(text))));
+	assert.equal(canvas.posts.length, 0);
+});
+
+test("T2/S3: Try another direction opens a dialog named after the source artboard, empty, with the field focused", async () => {
+	const canvas = await loadRail();
+	assert.equal(dialogEl(canvas).hasAttribute("open"), false);
+	await openVariant(canvas, 1);
+	assert.equal(dialogEl(canvas).hasAttribute("open"), true);
+	assert.equal(canvas.document.getElementById("gd-variant-source").textContent, "Second");
+	assert.match(canvas.document.getElementById("gd-variant-note").textContent, /new artboard, 03, and keeps the others/);
+	assert.equal(variantField(canvas).value, "");
+	assert.ok(canvas.document.activeElement === variantField(canvas));
+	assert.equal(variantMessage(canvas).textContent, "");
+	assert.deepEqual(texts(canvas.document.getElementById("gd-variant-chips"), "gd-suggestion"), ["More compact", "Bolder", "Mobile first", "Calmer colors"]);
+	assert.equal(canvas.posts.length, 0, "opening sends nothing");
+});
+
+test("T2/S3: a suggestion chip fills the field, and a later one adds to it", async () => {
+	const canvas = await loadRail();
+	await openVariant(canvas);
+	const chips = withClass(canvas.document.getElementById("gd-variant-chips"), "gd-suggestion");
+	chips[1].dispatch("click");
+	assert.equal(variantField(canvas).value, "Bolder");
+	assert.ok(canvas.document.activeElement === variantField(canvas), "focus goes back to the field");
+	chips[3].dispatch("click");
+	assert.equal(variantField(canvas).value, "Bolder, calmer colors");
+	chips[3].dispatch("click");
+	assert.equal(variantField(canvas).value, "Bolder, calmer colors", "the same suggestion is not added twice");
+	variantField(canvas).value = "x".repeat(1995);
+	chips[0].dispatch("click");
+	assert.equal(variantField(canvas).value, "x".repeat(1995), "a suggestion that would pass 2000 characters is not added");
+	variantField(canvas).value = "";
+	chips[0].dispatch("click");
+	assert.equal(variantField(canvas).value, "More compact");
+});
+
+test("T2/S3: an empty, blank or over-long instruction is refused in the dialog and nothing is sent", async () => {
+	const canvas = await loadRail();
+	await openVariant(canvas);
+	for (const value of ["", "   \n\t ", "x".repeat(2001), `  ${"x".repeat(2001)}`]) {
+		variantField(canvas).value = value;
+		await submitVariant(canvas);
+		assert.match(variantMessage(canvas).textContent, /1 to 2000 characters/, JSON.stringify(value.slice(0, 5)));
+		assert.ok(variantMessage(canvas).classes.has("gd-error"));
+		assert.equal(variantField(canvas).getAttribute("aria-invalid"), "true");
+		assert.equal(dialogEl(canvas).hasAttribute("open"), true, "the dialog stays open");
+		assert.ok(canvas.document.activeElement === variantField(canvas));
+	}
+	assert.equal(canvas.posts.length, 0);
+	// Exactly 2000 characters, padded with blanks, is fine; typing clears the complaint.
+	canvas.replies[VARIANT_URL] = { ok: true, slug: "alpha", file: "01-a.html", queued: false };
+	variantField(canvas).value = `  ${"x".repeat(2000)}  `;
+	variantField(canvas).dispatch("input");
+	assert.equal(variantMessage(canvas).textContent, "");
+	assert.equal(variantField(canvas).getAttribute("aria-invalid"), null);
+	await submitVariant(canvas);
+	assert.equal(canvas.posts.length, 1);
+	assert.equal((canvas.posts[0].body as { instruction: string }).instruction.length, 2000);
+});
+
+test("T2/S3: Send posts the source file and the trimmed instruction, closes the dialog and shows the placeholder", async () => {
+	const canvas = await loadRail(300, SYSTEM_REPLY);
+	canvas.replies[VARIANT_URL] = { ok: true, slug: "alpha", file: "02-b.html", queued: false };
+	assert.equal(withClass(canvas.world, "gd-placeholder").length, 0);
+	const button = await openVariant(canvas, 2);
+	variantField(canvas).value = "  Same layout,\nbut calmer  ";
+	await submitVariant(canvas);
+	assert.deepEqual(canvas.posts, [{ url: VARIANT_URL, body: { file: "02-b.html", instruction: "Same layout,\nbut calmer" } }]);
+	assert.equal(dialogEl(canvas).hasAttribute("open"), false, "the dialog closes");
+	assert.ok(canvas.document.activeElement === button, "focus returns to the menu button");
+	assert.equal(canvas.document.getElementById("gd-toast").textContent, "Sent: the session is adding a new direction based on Second now.");
+
+	const placeholders = withClass(canvas.world, "gd-placeholder");
+	assert.equal(placeholders.length, 1);
+	assert.ok(canvas.world.children[canvas.world.children.length - 1] === placeholders[0], "after the last artboard");
+	assert.equal(placeholders[0].getAttribute("aria-label"), "03 · New direction");
+	assert.deepEqual(texts(placeholders[0], "gd-artboard-num"), ["03"]);
+	assert.deepEqual(texts(placeholders[0], "gd-artboard-title"), ["New direction"]);
+	assert.deepEqual(texts(placeholders[0], "gd-placeholder-state"), ["Designing…"]);
+	assert.equal(withClass(placeholders[0], "gd-placeholder-state")[0].getAttribute("role"), "status");
+	assert.equal(withClass(placeholders[0], "gd-menu-button").length, 0, "a placeholder has no menu");
+	assert.equal(withClass(placeholders[0], "gd-shield").length, 0, "nor can it be used");
+	await openVariant(canvas, 2);
+	assert.equal(variantField(canvas).value, "", "the field is empty the next time");
+});
+
+test("T2/S3: a queued request says so in the toast", async () => {
+	const canvas = await loadRail();
+	canvas.replies[VARIANT_URL] = { ok: true, slug: "alpha", file: "01-a.html", queued: true };
+	await openVariant(canvas);
+	variantField(canvas).value = "Bolder";
+	await submitVariant(canvas);
+	assert.equal(canvas.document.getElementById("gd-toast").textContent, "Queued: the session will add a new direction based on First after its current task.");
+	assert.equal(withClass(canvas.world, "gd-placeholder").length, 1);
+});
+
+test("T2/S3: a refused request keeps the dialog open with the reason, adds no placeholder and can be retried", async () => {
+	const canvas = await loadRail();
+	await openVariant(canvas);
+	variantField(canvas).value = "Bolder";
+	const send = canvas.document.getElementById("gd-variant-send");
+	const cases: Array<[Record<string, unknown>, RegExp, string]> = [
+		[{ __http: 501, error: "variant-unavailable" }, /not connected to a Pi session[^]*\/gentle:design open/, "variant-unavailable"],
+		[{ __http: 500, error: "delivery-failed" }, /did not accept the request[^]*nothing was sent/, "delivery-failed"],
+		[{ __http: 400, error: "invalid-instruction", reason: "instruction must have 1 to 2000 characters" }, /Write 1 to 2000 characters/, "invalid-instruction: instruction must have 1 to 2000 characters"],
+		[{ __throw: "Failed to fetch" }, /could not reach/i, "network: Failed to fetch"],
+	];
+	for (const [reply, text, detail] of cases) {
+		canvas.replies[VARIANT_URL] = reply;
+		await submitVariant(canvas);
+		assert.match(variantMessage(canvas).textContent, text, detail);
+		assert.equal(variantMessage(canvas).title, detail);
+		assert.ok(variantMessage(canvas).classes.has("gd-error"));
+		assert.equal(dialogEl(canvas).hasAttribute("open"), true);
+		assert.equal(send.disabled, false, "Send works again");
+		assert.equal(variantField(canvas).value, "Bolder", "what was typed is kept");
+		assert.equal(withClass(canvas.world, "gd-placeholder").length, 0);
+	}
+	canvas.replies[VARIANT_URL] = { ok: true, slug: "alpha", file: "01-a.html", queued: false };
+	await submitVariant(canvas);
+	assert.equal(dialogEl(canvas).hasAttribute("open"), false);
+	assert.equal(variantMessage(canvas).textContent, "", "the complaint does not outlive the dialog");
+	assert.equal(withClass(canvas.world, "gd-placeholder").length, 1);
+});
+
+test("T2/S3: Send is disabled while the request is in flight, so a double click sends once", async () => {
+	const canvas = await loadRail();
+	await openVariant(canvas);
+	variantField(canvas).value = "Bolder";
+	canvas.replies[VARIANT_URL] = { ok: true, slug: "alpha", file: "01-a.html", queued: false };
+	const form = canvas.document.getElementById("gd-variant-form");
+	form.dispatch("submit");
+	assert.equal(canvas.document.getElementById("gd-variant-send").disabled, true);
+	form.dispatch("submit");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.equal(canvas.posts.length, 1);
+});
+
+test("T2/S3: Cancel and a closed dialog (Esc) send nothing and return focus to the menu button", async () => {
+	const canvas = await loadRail();
+	const button = await openVariant(canvas, 1);
+	variantField(canvas).value = "Bolder";
+	canvas.document.getElementById("gd-variant-cancel").dispatch("click");
+	assert.equal(dialogEl(canvas).hasAttribute("open"), false);
+	assert.ok(canvas.document.activeElement === button);
+	assert.equal(canvas.posts.length, 0);
+	assert.equal(withClass(canvas.world, "gd-placeholder").length, 0);
+
+	await openVariant(canvas, 1);
+	assert.equal(variantField(canvas).value, "", "a cancelled instruction is not kept");
+	// The browser closes a modal dialog on Esc and reports it with a close event.
+	dialogEl(canvas).removeAttribute("open");
+	canvas.document.body.focus();
+	dialogEl(canvas).dispatch("close");
+	assert.ok(canvas.document.activeElement === button);
+	assert.equal(canvas.posts.length, 0);
+});
+
+test("T2/S3: single-key shortcuts stay off while the dialog is open", async () => {
+	const canvas = await loadRail();
+	await openVariant(canvas);
+	press(canvas, "m", {}, withClass(canvas.document.getElementById("gd-variant-chips"), "gd-suggestion")[0]);
+	assert.equal(miniPanel(canvas).hidden, false);
+});
+
+test("T2/S3: without delivery.variant the menu item is disabled and explained like Implement this", async () => {
+	const canvas = await loadRail(300, {}, { delivery: { comment: true, batch: true, implement: true, variant: false } });
+	openMenu(canvas, 0);
+	const item = itemNamed(canvas, "Try another direction from this…");
+	assert.equal(item.getAttribute("aria-disabled"), "true");
+	assert.ok(item.title.includes("variant-unavailable"));
+	const note = withClass(item, "gd-menu-note")[0];
+	assert.match(note.textContent, /not connected to a Pi session/);
+	assert.match(note.title, /\/gentle:design open/);
+	assert.equal(item.getAttribute("aria-describedby"), note.id);
+	assert.ok(menuItems(canvas).includes(item), "still in the menu, still reachable with the arrows");
+	item.dispatch("click");
+	keyOn(item, "Enter");
+	assert.equal(dialogEl(canvas).hasAttribute("open"), false, "it opens nothing");
+	assert.equal(canvas.posts.length, 0);
+	// The other actions are not affected.
+	assert.equal(itemNamed(canvas, "Implement this").getAttribute("aria-disabled"), null);
+	assert.equal(itemNamed(canvas, "Export as PNG").getAttribute("aria-disabled"), null);
+});
+
+test("T2/S3: without delivery.implement the menu's Implement this is disabled and explained too", async () => {
+	const canvas = await loadRail(300, {}, { delivery: { comment: true, batch: true, implement: false, variant: true } });
+	openMenu(canvas, 0);
+	const item = itemNamed(canvas, "Implement this");
+	assert.equal(item.getAttribute("aria-disabled"), "true");
+	assert.match(withClass(item, "gd-menu-note")[0].textContent, /not connected to a Pi session/);
+	item.dispatch("click");
+	assert.equal(withClass(withClass(boardsOf(canvas)[0], "gd-implement")[0], "gd-implement-confirm")[0].hidden, true);
+	assert.equal(itemNamed(canvas, "Try another direction from this…").getAttribute("aria-disabled"), null);
+});
+
+test("T2/S3: a page config without variant leaves the action available", async () => {
+	const canvas = await loadRail(300, {}, { delivery: { comment: true, batch: true, implement: true } });
+	openMenu(canvas, 0);
+	assert.equal(itemNamed(canvas, "Try another direction from this…").getAttribute("aria-disabled"), null);
+});
+
+test("T2/S3: the placeholder goes when the manifest changes, and only one is shown", async () => {
+	const canvas = await loadRail();
+	canvas.replies[VARIANT_URL] = { ok: true, slug: "alpha", file: "01-a.html", queued: false };
+	for (let round = 0; round < 2; round++) {
+		await openVariant(canvas, round);
+		variantField(canvas).value = "Bolder";
+		await submitVariant(canvas);
+	}
+	assert.equal(withClass(canvas.world, "gd-placeholder").length, 1, "a second request reuses the one placeholder");
+	assert.equal(canvas.world.children.length, 3);
+	(canvas.replies["/t/api/designs/alpha"] as { artboards: unknown[] }).artboards.push({ file: "03-c.html", title: "Third", tradeoff: "", width: 400, height: 300 });
+	await canvas.serverEvent("change", { slug: "alpha", file: "design.json" });
+	assert.equal(withClass(canvas.world, "gd-placeholder").length, 0, "the new artboard replaces it");
+	assert.equal(canvas.world.children.length, 3);
+	assert.equal(withClass(canvas.world.children[2], "gd-menu-button").length, 1, "the new artboard is a real one");
+
+	// A placeholder also goes with any other manifest reload (a show event, a change of design).
+	await openVariant(canvas, 0);
+	variantField(canvas).value = "Bolder";
+	await submitVariant(canvas);
+	assert.equal(withClass(canvas.world, "gd-placeholder").length, 1);
+	await canvas.serverEvent("show", { slug: "alpha" });
+	assert.equal(withClass(canvas.world, "gd-placeholder").length, 0);
+});
+
+test("T2/S3: a placeholder is not added when the design changed while the request was in flight", async () => {
+	const canvas = await loadRail();
+	await openVariant(canvas);
+	variantField(canvas).value = "Bolder";
+	canvas.replies[VARIANT_URL] = { ok: true, slug: "alpha", file: "01-a.html", queued: false };
+	const form = canvas.document.getElementById("gd-variant-form");
+	form.dispatch("submit");
+	canvas.document.getElementById("gd-design").value = "beta";
+	canvas.document.getElementById("gd-design").dispatch("change");
+	for (let i = 0; i < 12; i++) await flush();
+	assert.equal(withClass(canvas.world, "gd-placeholder").length, 0);
+});
+
+test("T2/S3: the minimap draws the placeholder as the dashed block and drops it with the placeholder", async () => {
+	const canvas = await minimapCanvas();
+	canvas.replies[VARIANT_URL] = { ok: true, slug: "alpha", file: "02-b.html", queued: false };
+	await openVariant(canvas, 2);
+	variantField(canvas).value = "Bolder";
+	await submitVariant(canvas);
+	assert.equal(canvas.world.children.length, 4);
+	layoutWorld(canvas, [...MINI_RECTS, [1960, 100, 440, 300]]);
+	canvas.windowEvent("resize");
+	const blocks = miniBlocks(canvas);
+	assert.equal(blocks.length, 4);
+	assert.ok(blocks[3].classes.has("gd-minimap-placeholder"));
+	assert.ok(blocks.slice(0, 3).every((block) => !block.classes.has("gd-minimap-placeholder")));
+	(canvas.replies["/t/api/designs/alpha"] as { artboards: unknown[] }).artboards.push({ file: "03-c.html", title: "Third", tradeoff: "", width: 400, height: 300 });
+	await canvas.serverEvent("change", { slug: "alpha", file: "design.json" });
+	layoutWorld(canvas, [...MINI_RECTS, [1960, 100, 400, 300]]);
+	canvas.windowEvent("resize");
+	assert.equal(miniBlocks(canvas).length, 4);
+	assert.ok(miniBlocks(canvas).every((block) => !block.classes.has("gd-minimap-placeholder")), "no dashed block once the manifest has the artboard");
+});
+
+test("T2/S2/S3: index.html carries the menu and the dialog with their names, field and actions", () => {
+	const html = read("index.html");
+	assert.match(html, /<div id="gd-menu" class="gd-menu" role="menu" hidden><\/div>/);
+	assert.match(html, /<div id="gd-variant-chips" class="gd-suggestions" role="group" aria-label="Suggestions"><\/div>/);
+	const dialog = html.match(/<dialog id="gd-variant"[^>]*>[^]*?<\/dialog>/)![0];
+	assert.match(dialog, /^<dialog id="gd-variant" class="gd-dialog gd-variant" aria-labelledby="gd-variant-title">/);
+	assert.match(dialog, /<h2 id="gd-variant-title"[^>]*>[^]*Another direction from <strong id="gd-variant-source"><\/strong><\/h2>/);
+	assert.match(dialog, /<label[^>]*for="gd-variant-text"[^>]*>What should change\?<\/label>/);
+	assert.match(dialog, /<textarea id="gd-variant-text"[^>]*maxlength="2000"[^>]*aria-describedby="[^"]*gd-variant-message[^"]*"/);
+	assert.match(dialog, /id="gd-variant-message"[^>]*role="status"/);
+	assert.match(dialog, /<button type="button" id="gd-variant-cancel"[^>]*>Cancel<\/button>/);
+	assert.match(dialog, /<button type="submit" id="gd-variant-send" class="gd-primary"[^>]*>[^]*Send to the session<\/button>/);
+	assert.ok(html.indexOf('id="gd-variant"') > html.indexOf('id="gd-shortcuts"') || html.indexOf('id="gd-variant"') > 0);
+	for (const icon of ["i-more", "i-sparkles"]) assert.match(html, new RegExp(`<symbol id="${icon}"`));
+});
+
+test("T2/S2/S3: canvas.css styles the menu, the dialog and the placeholder with tokens only, focus rings and no motion", () => {
+	const css = read("canvas.css");
+	const block = (selector: string) => {
+		const start = css.indexOf(`${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	for (const selector of [".gd-menu", ".gd-menu-item", ".gd-menu-note", ".gd-menu-separator", ".gd-menu-button", ".gd-variant-field", ".gd-suggestions", ".gd-suggestion", ".gd-placeholder-frame", ".gd-placeholder-state"]) {
+		const text = block(selector);
+		assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(text), `${selector}: tokens only`);
+		assert.ok(!/transition|animation/.test(text), `${selector}: no motion`);
+	}
+	assert.match(block(".gd-menu"), /position:\s*fixed/);
+	assert.match(block(".gd-menu"), /background:\s*var\(--surface\)/);
+	assert.match(block(".gd-menu-item"), /min-height:\s*(3[4-9]|[4-9]\d)px/, "a comfortable target");
+	assert.match(css, /\.gd-menu-item:focus-visible[^{]*{[^}]*outline:\s*2px solid var\(--accent\)/);
+	assert.match(css, /\.gd-menu-item\[aria-disabled="true"\][^{]*{[^}]*cursor:\s*not-allowed/);
+	assert.match(css, /\.gd-menu-button:focus-visible[^{]*{[^}]*outline:\s*2px solid var\(--accent\)/);
+	assert.match(css, /\.gd-suggestion:focus-visible[^{]*{[^}]*outline:\s*2px solid var\(--accent\)/);
+	assert.match(block(".gd-placeholder-frame"), /dashed var\(--accent\)|1px solid var\(--accent-line\)/);
 });

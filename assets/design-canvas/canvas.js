@@ -8,6 +8,7 @@
 // drags and clicks always reach the canvas; a click on a shield enters focus mode,
 // which shows that artboard at 100% and lets it own the pointer and the keyboard
 // until "Back to canvas" or Shift+Esc restores the previous view.
+// A minimap in the viewport's bottom right (M) shows every board and the visible area; clicking or dragging in it pans.
 // A left tool rail (Navigate, Comment, Overview, artboard list, design system, shortcuts) and the
 // single-key shortcuts behind it; the mode chip in the viewport names the active mode.
 // Handoffs (design/<slug>/handoffs.json) show live on each artboard's header: the
@@ -25,7 +26,9 @@
 	// Room below a focused artboard for the floating "Back to canvas" button.
 	const BACK_SPACE = 64;
 	const CLICK_SLOP = 4;
-	const LIMITS = { selector: 500, excerpt: 300, comment: 2000, pins: 500, tokens: 500, versions: 50, historyArtboards: 256, screenshotBytes: 5 * 1024 * 1024 };
+	// The minimap: its map box in CSS px (canvas.css gives .gd-minimap-map the same size) and the pad kept free around the blocks.
+	const MINIMAP = { width: 204, height: 96, pad: 6, minBlock: 2 };
+	const LIMITS = { selector: 500, excerpt: 300, comment: 2000, variant: 2000, pins: 500, tokens: 500, versions: 50, historyArtboards: 256, screenshotBytes: 5 * 1024 * 1024 };
 	const SCREENSHOT_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 	const MODE_KEY = "gentle-design:send-mode";
 	const SYSTEM_LABEL = { title: "Design system", tradeoff: "Project tokens (design/system.md)" };
@@ -62,12 +65,16 @@
 	const MIN_SIZES_SCALE = 0.05;
 	const TOAST_MS = 5000;
 	// What the server can deliver; an older page config without it means everything.
-	const DELIVERY = { comment: true, batch: true, implement: true, ...(config.delivery && typeof config.delivery === "object" ? config.delivery : {}) };
+	const DELIVERY = { comment: true, batch: true, implement: true, variant: true, ...(config.delivery && typeof config.delivery === "object" ? config.delivery : {}) };
 	const OPEN_HINT = "open the canvas from your session with /gentle:design open";
+	// Suggestions in the "another direction" dialog: each fills the field.
+	const VARIANT_SUGGESTIONS = ["More compact", "Bolder", "Mobile first", "Calmer colors"];
 	// Every reason code the canvas routes can answer: the cause and the way out. The raw code stays as the detail.
 	const REASONS = {
 		"batch-delivery-unavailable": `This canvas is not connected to a Pi session, so comments cannot be sent. They stay saved; ${OPEN_HINT}, then use Send all.`,
 		"implement-unavailable": `This canvas is not connected to a Pi session, so it cannot hand the artboard off. ${OPEN_HINT[0].toUpperCase()}${OPEN_HINT.slice(1)}.`,
+		"variant-unavailable": `This canvas is not connected to a Pi session, so it cannot ask for another direction. ${OPEN_HINT[0].toUpperCase()}${OPEN_HINT.slice(1)}.`,
+		"invalid-instruction": `This request was rejected by the server. Write 1 to ${LIMITS.variant} characters and try again.`,
 		"delivery-failed": "The session did not accept the message. Your comments stay saved and unsent; check that the session is running, then try again.",
 		"too-many-comments": "This design has too many comments. Resolve or delete some in comments.json, then try again.",
 		"too-many-handoffs": "This design has too many handoffs recorded. Remove old ones from handoffs.json, then try again.",
@@ -139,6 +146,9 @@
 		handoffTitle: $("gd-handoff-title"),
 		timeline: $("gd-timeline"),
 		back: $("gd-back"),
+		minimap: $("gd-minimap"),
+		minimapMap: $("gd-minimap-map"),
+		minimapView: $("gd-minimap-view"),
 		comment: $("gd-comment"),
 		status: $("gd-status"),
 		viewport: $("gd-viewport"),
@@ -188,6 +198,16 @@
 		inspectorNote: $("gd-inspector-note"),
 		inspectorFix: $("gd-inspector-fix"),
 		inspectorCopy: $("gd-inspector-copy"),
+		menu: $("gd-menu"),
+		variantDialog: $("gd-variant"),
+		variantForm: $("gd-variant-form"),
+		variantSource: $("gd-variant-source"),
+		variantNote: $("gd-variant-note"),
+		variantText: $("gd-variant-text"),
+		variantChips: $("gd-variant-chips"),
+		variantMessage: $("gd-variant-message"),
+		variantCancel: $("gd-variant-cancel"),
+		variantSend: $("gd-variant-send"),
 	};
 
 	function storedMode() {
@@ -219,6 +239,14 @@
 		mode: storedMode(),
 		activeId: null,
 		designCount: 0,
+		// The minimap's switch (M); it also hides in focus mode, Compare and a version comparison.
+		minimap: true,
+		// The open artboard menu: { board, button, items, actions }, or null.
+		menu: null,
+		// The open "another direction" dialog: { board, button, sending }, or null.
+		variant: null,
+		// The "<NN> · New direction" board shown until the manifest changes, or null.
+		placeholder: null,
 		// The focused board, and the view to restore when focus mode ends.
 		focus: null,
 		savedView: null,
@@ -268,6 +296,7 @@
 	// Sentences that depend on the action: a refused handoff is taken back, so it is not "unsent comments".
 	const ACTION_REASONS = {
 		implement: { "delivery-failed": "The session did not accept the handoff, so it was not recorded. Check that the session is running, then use Implement this again." },
+		variant: { "delivery-failed": "The session did not accept the request, so nothing was sent. Check that the session is running, then use Send to the session again." },
 		restore: {
 			"file-too-large": "The artboard is too large to save a copy before restoring (versions are limited to 8 MB), so nothing was changed. Make it smaller, then try again.",
 			"not-found": "That version is no longer kept, so nothing was changed. Choose another version.",
@@ -381,6 +410,8 @@
 		els.world.style.setProperty("--gd-inv-zoom", String(1 / state.zoom));
 		els.zoomLevel.textContent = `${Math.round(state.zoom * 100)}%`;
 		for (const board of allBoards()) board.wrapper.classList.toggle("gd-compact", board.artboard.width * state.zoom < COMPACT_BOARD_WIDTH);
+		closeMenu(false);
+		renderMinimap();
 	}
 
 	/** Zoom so the world point under (px, py) in viewport coordinates stays put. */
@@ -418,6 +449,124 @@
 		applyView();
 		closePopover();
 	}
+
+	// ---- minimap ----------------------------------------------------------
+
+	/** What the minimap shows is whatever the world lays out, in order: the boards and any placeholder board (class gd-placeholder). */
+	function minimapEntries() {
+		const boards = allBoards();
+		const entries = [];
+		for (const wrapper of Array.from(els.world.children)) {
+			const board = boards.find((candidate) => candidate.wrapper === wrapper);
+			if (board) entries.push({ wrapper, board });
+			else if (wrapper.classList.contains("gd-placeholder")) entries.push({ wrapper, board: null });
+		}
+		return entries;
+	}
+
+	/** Where the world box (0, 0) lands in the map, and how big a world px is there: the boards' bounds fitted to the map. */
+	function minimapScale(rects) {
+		const minX = Math.min(...rects.map((rect) => rect.x));
+		const minY = Math.min(...rects.map((rect) => rect.y));
+		const width = Math.max(...rects.map((rect) => rect.x + rect.width)) - minX;
+		const height = Math.max(...rects.map((rect) => rect.y + rect.height)) - minY;
+		const scale = Math.min((MINIMAP.width - MINIMAP.pad * 2) / width, (MINIMAP.height - MINIMAP.pad * 2) / height);
+		return { scale, x: (MINIMAP.width - width * scale) / 2 - minX * scale, y: (MINIMAP.height - height * scale) / 2 - minY * scale };
+	}
+
+	const rounded = (value) => `${Number(value.toFixed(2))}px`;
+
+	function minimapVisible() {
+		return state.minimap && !state.focus && !state.compare && !state.vcompare && allBoards().length > 0;
+	}
+
+	function minimapBlock(entry) {
+		const block = document.createElement("span");
+		block.className = "gd-minimap-block";
+		block.setAttribute("aria-hidden", "true");
+		block.title = entry.board ? `${entry.board.system ? "" : `${String(entry.board.number).padStart(2, "0")} · `}${entry.board.artboard.title}` : "New direction";
+		return block;
+	}
+
+	/** The world, the boards and the visible area, drawn small. Blocks are plain boxes: the artboard list stays the keyboard path. */
+	function renderMinimap() {
+		const visible = minimapVisible();
+		els.minimap.hidden = !visible;
+		if (!visible) return;
+		const chosen = chosenBoard();
+		const entries = minimapEntries()
+			.map((entry) => ({ ...entry, rect: { x: entry.wrapper.offsetLeft, y: entry.wrapper.offsetTop, width: entry.wrapper.offsetWidth, height: entry.wrapper.offsetHeight } }))
+			.filter((entry) => entry.rect.width > 0 && entry.rect.height > 0);
+		const count = state.boards.length;
+		els.minimapMap.setAttribute("aria-label", `Position of the visible area among ${count} ${count === 1 ? "artboard" : "artboards"}. Click or drag to move the view; use the artboard list with the keyboard.`);
+		const blocks = entries.map((entry, index) => {
+			const old = els.minimapMap.children[index];
+			const block = old && old !== els.minimapView && old.entry === entry.wrapper ? old : minimapBlock(entry);
+			block.entry = entry.wrapper;
+			return block;
+		});
+		const map = minimapScale(entries.length > 0 ? entries.map((entry) => entry.rect) : [{ x: 0, y: 0, width: 1, height: 1 }]);
+		entries.forEach((entry, index) => {
+			const block = blocks[index];
+			block.classList.toggle("gd-minimap-system", Boolean(entry.board && entry.board.system));
+			block.classList.toggle("gd-minimap-chosen", Boolean(entry.board && entry.board === chosen));
+			block.classList.toggle("gd-minimap-placeholder", !entry.board);
+			block.style.left = rounded(map.x + entry.rect.x * map.scale);
+			block.style.top = rounded(map.y + entry.rect.y * map.scale);
+			block.style.width = rounded(Math.max(MINIMAP.minBlock, entry.rect.width * map.scale));
+			block.style.height = rounded(Math.max(MINIMAP.minBlock, entry.rect.height * map.scale));
+		});
+		const children = [...blocks, els.minimapView];
+		// Only when the set of boards changed: a pan only moves the outline, and re-attaching nodes on every pointer move is wasted work.
+		if (Array.from(els.minimapMap.children).some((child, index) => child !== children[index]) || els.minimapMap.children.length !== children.length) els.minimapMap.replaceChildren(...children);
+		// The visible area in world px, pinned inside the map so it still points the way when the view is far away.
+		const viewport = els.viewport.getBoundingClientRect();
+		const clamp = (value, limit) => Math.min(limit, Math.max(0, value));
+		const left = clamp(map.x - (state.x / state.zoom) * map.scale, MINIMAP.width);
+		const top = clamp(map.y - (state.y / state.zoom) * map.scale, MINIMAP.height);
+		const right = clamp(map.x + ((viewport.width - state.x) / state.zoom) * map.scale, MINIMAP.width);
+		const bottom = clamp(map.y + ((viewport.height - state.y) / state.zoom) * map.scale, MINIMAP.height);
+		els.minimapView.style.left = rounded(left);
+		els.minimapView.style.top = rounded(top);
+		els.minimapView.style.width = rounded(right - left);
+		els.minimapView.style.height = rounded(bottom - top);
+		state.minimapMap = map;
+	}
+
+	function setMinimap(show) {
+		state.minimap = show;
+		renderMinimap();
+	}
+
+	/** Centers the view on the world point under a pointer in the map (zoom stays). */
+	function panToMinimap(event) {
+		const map = state.minimapMap;
+		if (!map || map.scale <= 0) return;
+		const rect = els.minimapMap.getBoundingClientRect();
+		const worldX = (event.clientX - rect.left - map.x) / map.scale;
+		const worldY = (event.clientY - rect.top - map.y) / map.scale;
+		const viewport = els.viewport.getBoundingClientRect();
+		state.x = viewport.width / 2 - worldX * state.zoom;
+		state.y = viewport.height / 2 - worldY * state.zoom;
+		applyView();
+		closePopover();
+	}
+
+	let minimapDrag = null;
+	els.minimapMap.addEventListener("pointerdown", (event) => {
+		if (event.button !== 0) return;
+		minimapDrag = event.pointerId;
+		els.minimapMap.setPointerCapture(event.pointerId);
+		panToMinimap(event);
+	});
+	els.minimapMap.addEventListener("pointermove", (event) => {
+		if (minimapDrag === event.pointerId) panToMinimap(event);
+	});
+	const endMinimapDrag = (event) => {
+		if (minimapDrag === event.pointerId) minimapDrag = null;
+	};
+	els.minimapMap.addEventListener("pointerup", endMinimapDrag);
+	els.minimapMap.addEventListener("pointercancel", endMinimapDrag);
 
 	function wheelPixels(delta, mode) {
 		return mode === 1 ? delta * 16 : mode === 2 ? delta * 400 : delta;
@@ -636,6 +785,7 @@
 		renderNav();
 		renderHistory();
 		renderNavMode();
+		renderMinimap();
 	}
 
 	/** The floating chip: focus mode, comment mode or plain navigation. */
@@ -692,10 +842,13 @@
 
 	function showEmpty(text) {
 		exitFocus();
+		closeMenu(false);
+		state.placeholder = null;
 		els.world.replaceChildren();
 		state.boards = [];
 		els.railSystem.disabled = !state.systemBoard;
 		renderHandoffViews();
+		renderMinimap();
 		els.empty.textContent = text;
 		els.empty.hidden = false;
 	}
@@ -743,6 +896,7 @@
 		title.className = "gd-artboard-title";
 		title.textContent = artboard.title;
 		let stateChip = null;
+		let menuButton = null;
 		if (!system) {
 			const num = chip("gd-artboard-num", String(number).padStart(2, "0"));
 			num.setAttribute("aria-hidden", "true");
@@ -750,7 +904,8 @@
 			stateChip = chip("gd-artboard-state", "");
 			stateChip.hidden = true;
 			stateChip.setAttribute("aria-hidden", "true");
-			head.append(num, title, stateChip);
+			menuButton = createMenuButton(artboard.title);
+			head.append(num, title, stateChip, menuButton);
 		} else head.append(title);
 		label.append(head);
 		if (artboard.tradeoff) {
@@ -766,10 +921,12 @@
 		handoff.className = "gd-handoff";
 		handoff.hidden = true;
 		if (sizeControl) label.append(sizeControl.root);
+		let implement = null;
 		if (!system) {
 			const actions = document.createElement("div");
 			actions.className = "gd-board-actions";
-			actions.append(handoff, createImplementControl(slug, artboard));
+			implement = createImplementControl(slug, artboard);
+			actions.append(handoff, implement.root);
 			label.append(actions);
 		}
 		if (system) {
@@ -802,11 +959,12 @@
 		pins.className = "gd-pins";
 		// rects: null until the artboard reports where each commented element is.
 		const flag = createOverflowFlag();
-		const board = { slug, artboard, number, frame, wrapper, shield, pins, handoff, stateChip, rects: null, system, viewWidth: artboard.width, viewHeight: artboard.height, flag, overflow: null, sizeControl, sizeFrames: [], sizesView: null, checks: null };
+		const board = { slug, artboard, number, frame, wrapper, shield, pins, handoff, stateChip, rects: null, system, viewWidth: artboard.width, viewHeight: artboard.height, flag, overflow: null, sizeControl, sizeFrames: [], sizesView: null, checks: null, menuButton, implement };
 		setFrameSize(board, artboard.width, artboard.height);
 		renderHandoff(board);
 		// The system board is not listed in the navigator, so it has no item or thumbnail.
 		if (!system) board.nav = createNavItem(board);
+		if (menuButton) wireMenuButton(board);
 		shield.addEventListener("keydown", (event) => {
 			if (event.key !== "Enter" && event.key !== " ") return;
 			event.preventDefault();
@@ -1119,14 +1277,16 @@
 			start.hidden = false;
 			if (focus) start.focus();
 		};
-		start.addEventListener("click", () => {
+		// The header button and the artboard menu's Implement this both open the confirm step.
+		const open = () => {
 			if (start.disabled) return;
 			hideAlert(alert);
 			start.hidden = true;
 			confirm.hidden = false;
 			yes.disabled = false;
 			yes.focus();
-		});
+		};
+		start.addEventListener("click", open);
 		no.addEventListener("click", () => close(true));
 		confirm.addEventListener("keydown", (event) => {
 			if (event.key !== "Escape") return;
@@ -1154,7 +1314,401 @@
 			close(true);
 		});
 		box.append(start, confirm, ...(note ? [note] : []), alert.root);
-		return box;
+		return { root: box, open };
+	}
+
+	// ---- artboard menu ---------------------------------------------------------
+	// A ⋯ button in each design artboard's header opens one shared menu (index.html). It is built each
+	// time it opens, so it follows the handoff state. Implement this stays in the header as well.
+
+	let menuNotes = 0;
+
+	function createMenuButton(title) {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "gd-menu-button";
+		button.setAttribute("aria-label", `More actions for ${title}`);
+		button.setAttribute("aria-haspopup", "menu");
+		button.setAttribute("aria-expanded", "false");
+		button.setAttribute("aria-controls", "gd-menu");
+		button.append(icon("i-more", "gd-i gd-i-s"));
+		return button;
+	}
+
+	/** What the menu offers for one artboard, in order. `off` is the explanation when the action cannot run. */
+	function menuActions(board) {
+		const { entry } = handoffOf(board);
+		const preview = entry && handoffKind(entry) === "implemented" ? previewTarget(entry.previewUrl) : null;
+		const off = (available, code) => (available ? null : explain({ status: 501, body: { error: code } }));
+		const actions = [{ label: "Try another direction from this…", icon: "i-sparkles", off: off(DELIVERY.variant, "variant-unavailable"), run: (button) => openVariantDialog(board, button) }];
+		if (preview) actions.push({ label: "Compare with app", icon: "i-compare", run: () => enterCompare(board, preview) });
+		actions.push(
+			{ label: "Export as PNG", icon: "i-image", separator: true, run: () => exportArtboard(board, 1) },
+			{ label: "Export as PNG at 2×", icon: "i-image", run: () => exportArtboard(board, 2) },
+			{ label: "Implement this", separator: true, off: off(DELIVERY.implement, "implement-unavailable"), run: () => board.implement.open() },
+		);
+		return actions;
+	}
+
+	function nextPaint() {
+		return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+	}
+
+	function nextVideoFrame(video) {
+		return new Promise((resolve) => (video.requestVideoFrameCallback ? video.requestVideoFrameCallback(() => resolve()) : setTimeout(resolve, 100)));
+	}
+
+	/** Export a visible artboard from the browser's tab capture, without sending pixels to the server. */
+	async function exportArtboard(board, scale) {
+		const alert = board.exportAlert || (board.exportAlert = createAlert());
+		if (!alert.root.parentElement) board.implement.root.append(alert.root);
+		hideAlert(alert);
+		const fail = (reason) => {
+			alert.text.textContent = "Could not export the artboard. Use your browser's screenshot tool instead.";
+			alert.detail.textContent = reason;
+			alert.root.hidden = false;
+		};
+		if (!navigator.mediaDevices?.getDisplayMedia) {
+			fail("Tab capture is not available in this browser.");
+			return;
+		}
+		if (!window.confirm("Choose this canvas tab in the browser's capture selector. Choosing another tab or screen may export the wrong content.")) return;
+		let stream;
+		const previous = { focus: state.focus, size: state.size, zoom: state.zoom, x: state.x, y: state.y };
+		try {
+			// This call must happen directly from the menu activation, before any asynchronous work.
+			stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: "browser" }, audio: false, preferCurrentTab: true });
+			// Some systems (such as Linux on Wayland) only offer windows or screens; their frame is not this tab's viewport.
+			const surface = stream.getVideoTracks?.()[0]?.getSettings?.().displaySurface;
+			if (surface && surface !== "browser") throw new Error(`You shared a ${surface === "monitor" ? "screen" : surface}, not this tab, so the artboard cannot be cropped from it.`);
+			if (state.focus !== board) enterFocus(board);
+			if (state.size.kind !== "desktop") setSize({ kind: "desktop" });
+			// The viewport covers the window without the canvas chrome; the artboard goes to its top left at 100%.
+			document.body.classList.add("gd-exporting");
+			Object.assign(state, { zoom: 1, x: 0, y: 0 });
+			applyView();
+			await nextPaint();
+			const start = board.frame.getBoundingClientRect();
+			state.x -= start.left;
+			state.y -= start.top;
+			applyView();
+			await nextPaint();
+			const rect = board.frame.getBoundingClientRect();
+			if (rect.width <= 0 || rect.height <= 0 || rect.left < 0 || rect.top < 0 || rect.right > window.innerWidth || rect.bottom > window.innerHeight) {
+				throw new Error(`The artboard needs a browser window of at least ${Math.ceil(rect.width)} × ${Math.ceil(rect.height)} px. Make the window bigger or use full screen (F11), then try again.`);
+			}
+			const video = document.createElement("video");
+			video.srcObject = stream;
+			video.muted = true;
+			await video.play();
+			// The first frame can predate the layout above; wait for frames painted after it.
+			await nextVideoFrame(video);
+			await nextVideoFrame(video);
+			const sx = video.videoWidth / window.innerWidth;
+			const sy = video.videoHeight / window.innerHeight;
+			if (!Number.isFinite(sx) || !Number.isFinite(sy) || sx <= 0 || sy <= 0) throw new Error("The captured frame has no dimensions.");
+			const canvas = document.createElement("canvas");
+			canvas.width = Math.round(rect.width * scale);
+			canvas.height = Math.round(rect.height * scale);
+			const context = canvas.getContext("2d");
+			if (!context) throw new Error("PNG export is not available.");
+			context.drawImage(video, rect.left * sx, rect.top * sy, rect.width * sx, rect.height * sy, 0, 0, canvas.width, canvas.height);
+			stream.getTracks().forEach((track) => track.stop());
+			stream = null;
+			const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+			if (!blob) throw new Error("Could not encode the PNG.");
+			const url = URL.createObjectURL(blob);
+			try {
+				const link = document.createElement("a");
+				link.href = url;
+				link.download = `${board.artboard.file.split("/").pop().replace(/\.[^.]+$/, "")}${scale === 2 ? "@2x" : ""}.png`;
+				link.click();
+			} finally { URL.revokeObjectURL(url); }
+			showToast(scale === 2 && (sx < 2 || sy < 2) ? "Exported PNG at 2× (upscaled)." : "Exported PNG.", false);
+		} catch (error) {
+			fail(error?.message || "Capture was denied or failed.");
+		} finally {
+			stream?.getTracks().forEach((track) => track.stop());
+			document.body.classList.remove("gd-exporting");
+			if (!previous.focus && state.focus) exitFocus();
+			else if (previous.focus && state.focus !== previous.focus) enterFocus(previous.focus);
+			if (previous.focus && state.focus === previous.focus) setSize(previous.size);
+			Object.assign(state, { zoom: previous.zoom, x: previous.x, y: previous.y });
+			applyView();
+		}
+	}
+
+	function menuItem(action) {
+		const item = document.createElement("button");
+		item.type = "button";
+		item.className = "gd-menu-item";
+		item.setAttribute("role", "menuitem");
+		item.setAttribute("tabindex", "-1");
+		if (action.icon) item.append(icon(action.icon, "gd-i gd-i-s"));
+		item.append(chip("gd-menu-label", action.label));
+		if (action.off) {
+			// Like the disabled Implement this: a short visible line, the full way out in its tooltip and for screen readers.
+			item.setAttribute("aria-disabled", "true");
+			item.title = action.off.detail;
+			const note = chip("gd-menu-note", "Canvas not connected to a Pi session.");
+			note.title = action.off.text;
+			note.append(chip("gd-visually-hidden", ` ${action.off.text}`));
+			note.id = `gd-menu-note-${++menuNotes}`;
+			item.setAttribute("aria-describedby", note.id);
+			item.append(note);
+		}
+		return item;
+	}
+
+	function placeMenu(button) {
+		const rect = button.getBoundingClientRect();
+		// A fixed box without a width shrinks to the room right of its left edge: measure it where nothing narrows it.
+		els.menu.style.left = "0px";
+		const width = els.menu.offsetWidth;
+		const height = els.menu.offsetHeight;
+		const left = Math.max(0, Math.min(rect.left, window.innerWidth - width - 12));
+		let top = rect.bottom + 4;
+		if (top + height > window.innerHeight - 12) top = Math.max(0, rect.top - height - 4);
+		els.menu.style.left = `${left}px`;
+		els.menu.style.top = `${top}px`;
+	}
+
+	function openMenu(board, button, last) {
+		closeMenu(false);
+		const actions = menuActions(board);
+		const nodes = [];
+		const items = [];
+		const byItem = new Map();
+		for (const action of actions) {
+			if (action.separator) {
+				const separator = document.createElement("div");
+				separator.className = "gd-menu-separator";
+				separator.setAttribute("role", "separator");
+				nodes.push(separator);
+			}
+			const item = menuItem(action);
+			item.addEventListener("click", () => chooseMenuItem(item));
+			byItem.set(item, action);
+			items.push(item);
+			nodes.push(item);
+		}
+		els.menu.setAttribute("aria-label", `${board.artboard.title} actions`);
+		els.menu.replaceChildren(...nodes);
+		els.menu.hidden = false;
+		button.setAttribute("aria-expanded", "true");
+		state.menu = { board, button, items, byItem };
+		placeMenu(button);
+		(last ? items[items.length - 1] : items[0]).focus();
+	}
+
+	/** Closes the menu; focus goes back to its button when it was inside the menu (or `refocus`). */
+	function closeMenu(refocus) {
+		const open = state.menu;
+		if (!open) return;
+		state.menu = null;
+		const inside = els.menu.contains(document.activeElement);
+		els.menu.hidden = true;
+		els.menu.replaceChildren();
+		open.button.setAttribute("aria-expanded", "false");
+		if (refocus || inside) open.button.focus();
+	}
+
+	function chooseMenuItem(item) {
+		const open = state.menu;
+		const action = open && open.byItem.get(item);
+		if (!action || action.off) return;
+		// Back on the button first: the action then moves focus where it needs it (the dialog, the confirm step).
+		closeMenu(true);
+		action.run(open.button);
+	}
+
+	function wireMenuButton(board) {
+		const button = board.menuButton;
+		button.addEventListener("click", () => {
+			if (state.menu && state.menu.button === button) closeMenu(true);
+			else openMenu(board, button, false);
+		});
+		button.addEventListener("keydown", (event) => {
+			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+				event.preventDefault();
+				openMenu(board, button, event.key === "ArrowUp");
+			} else if (event.key === "Escape" && state.menu && state.menu.button === button) {
+				event.preventDefault();
+				event.stopPropagation();
+				closeMenu(true);
+			}
+		});
+	}
+
+	els.menu.addEventListener("keydown", (event) => {
+		const open = state.menu;
+		if (!open) return;
+		const { items } = open;
+		const current = items.findIndex((item) => item.contains(event.target));
+		const move = (index) => {
+			event.preventDefault();
+			items[(index + items.length) % items.length].focus();
+		};
+		if (event.key === "ArrowDown") move(current + 1);
+		else if (event.key === "ArrowUp") move(current < 0 ? items.length - 1 : current - 1);
+		else if (event.key === "Home") move(0);
+		else if (event.key === "End") move(items.length - 1);
+		else if (event.key === "Escape") {
+			event.preventDefault();
+			event.stopPropagation();
+			closeMenu(true);
+		} else if (event.key === "Tab") closeMenu(true);
+		else if ((event.key === "Enter" || event.key === " ") && current >= 0) {
+			event.preventDefault();
+			chooseMenuItem(items[current]);
+		}
+	});
+
+	document.addEventListener("pointerdown", (event) => {
+		const open = state.menu;
+		if (!open || els.menu.contains(event.target) || open.button.contains(event.target)) return;
+		closeMenu(false);
+	});
+
+	// ---- another direction -------------------------------------------------------
+	// "Try another direction from this…" asks the session for the next artboard of the design, based on one
+	// artboard. Until the manifest gains it, a placeholder board shows where it will appear.
+
+	const nextNumber = () => String(state.boards.length + 1).padStart(2, "0");
+
+	function variantProblem(text, detail) {
+		els.variantMessage.textContent = text;
+		els.variantMessage.title = detail || "";
+		els.variantMessage.classList.add("gd-error");
+		els.variantText.setAttribute("aria-invalid", "true");
+	}
+
+	function clearVariantProblem() {
+		els.variantMessage.textContent = "";
+		els.variantMessage.title = "";
+		els.variantMessage.classList.remove("gd-error");
+		els.variantText.removeAttribute("aria-invalid");
+	}
+
+	function openVariantDialog(board, button) {
+		state.variant = { board, button, sending: false };
+		els.variantSource.textContent = board.artboard.title;
+		els.variantNote.textContent = `The session writes a new artboard, ${nextNumber()}, and keeps the others.`;
+		els.variantText.value = "";
+		els.variantSend.disabled = false;
+		clearVariantProblem();
+		if (!els.variantDialog.hasAttribute("open")) {
+			if (typeof els.variantDialog.showModal === "function") els.variantDialog.showModal();
+			else els.variantDialog.setAttribute("open", "");
+		}
+		els.variantText.focus();
+	}
+
+	function closeVariantDialog() {
+		const open = state.variant;
+		state.variant = null;
+		if (els.variantDialog.hasAttribute("open")) {
+			if (typeof els.variantDialog.close === "function") els.variantDialog.close();
+			else els.variantDialog.removeAttribute("open");
+		}
+		if (open) open.button.focus();
+	}
+
+	// The browser closes a modal dialog on Esc and reports it here.
+	els.variantDialog.addEventListener("close", () => {
+		const open = state.variant;
+		if (!open) return;
+		state.variant = null;
+		open.button.focus();
+	});
+	els.variantCancel.addEventListener("click", closeVariantDialog);
+
+	for (const suggestion of VARIANT_SUGGESTIONS) {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "gd-suggestion";
+		button.textContent = suggestion;
+		button.addEventListener("click", () => {
+			const text = els.variantText.value.trim();
+			const added = text ? `${text}, ${suggestion.toLowerCase()}` : suggestion;
+			const present = text.toLowerCase().includes(suggestion.toLowerCase());
+			if (!present && added.length <= LIMITS.variant) els.variantText.value = added;
+			clearVariantProblem();
+			els.variantText.focus();
+		});
+		els.variantChips.append(button);
+	}
+
+	els.variantText.addEventListener("input", clearVariantProblem);
+
+	els.variantForm.addEventListener("submit", async (event) => {
+		event.preventDefault();
+		const open = state.variant;
+		if (!open || open.sending) return;
+		const instruction = els.variantText.value.replace(/\r\n?/g, "\n").trim();
+		if (instruction.length < 1 || instruction.length > LIMITS.variant) {
+			variantProblem(`Write 1 to ${LIMITS.variant} characters about what should change.`);
+			els.variantText.focus();
+			return;
+		}
+		open.sending = true;
+		els.variantSend.disabled = true;
+		clearVariantProblem();
+		const { board } = open;
+		const reply = await postJson(`api/designs/${encodeURIComponent(board.slug)}/variant`, { file: board.artboard.file, instruction });
+		open.sending = false;
+		els.variantSend.disabled = false;
+		const stillOpen = state.variant === open;
+		if (!reply.ok) {
+			const info = explain(reply, "variant");
+			if (stillOpen) variantProblem(info.text, info.detail);
+			else showToast(info.text, true);
+			return;
+		}
+		if (stillOpen) closeVariantDialog();
+		const title = board.artboard.title;
+		showToast(reply.body.queued === true ? `Queued: the session will add a new direction based on ${title} after its current task.` : `Sent: the session is adding a new direction based on ${title} now.`, false);
+		// A design change while the request was in flight leaves nothing to wait for here.
+		if (board.slug === state.slug) showPlaceholder(board);
+	});
+
+	/** The "<NN> · New direction" board, "Designing…", after the last artboard; the minimap draws it as a dashed block. */
+	function showPlaceholder(source) {
+		if (state.placeholder) state.placeholder.remove();
+		const number = nextNumber();
+		const wrapper = document.createElement("section");
+		wrapper.className = "gd-artboard gd-placeholder";
+		wrapper.setAttribute("aria-label", `${number} · New direction`);
+		const label = document.createElement("div");
+		label.className = "gd-artboard-label";
+		const head = document.createElement("div");
+		head.className = "gd-artboard-head";
+		const num = chip("gd-artboard-num", number);
+		num.setAttribute("aria-hidden", "true");
+		const title = document.createElement("h2");
+		title.className = "gd-artboard-title";
+		title.textContent = "New direction";
+		const designing = chip("gd-placeholder-state", "Designing…");
+		designing.setAttribute("role", "status");
+		head.append(num, title, designing);
+		label.append(head);
+		const box = document.createElement("div");
+		box.className = "gd-frame-box";
+		const frame = document.createElement("div");
+		frame.className = "gd-placeholder-frame";
+		frame.setAttribute("aria-hidden", "true");
+		frame.style.width = `${source.artboard.width}px`;
+		frame.style.height = `${source.artboard.height}px`;
+		for (const width of ["60%", "100%", "100%", "80%"]) {
+			const line = document.createElement("i");
+			line.style.width = width;
+			frame.append(line);
+		}
+		box.append(frame);
+		wrapper.append(label, box);
+		state.placeholder = wrapper;
+		els.world.append(wrapper);
+		renderMinimap();
 	}
 
 	// ---- handoffs ------------------------------------------------------------
@@ -1257,6 +1811,7 @@
 
 	/** Everything outside the artboards that follows handoffs, boards and comments: navigator, Compare with app, timeline. */
 	function renderHandoffViews() {
+		renderMinimap();
 		renderCompareApp();
 		renderTimeline();
 		renderNav();
@@ -1599,6 +2154,7 @@
 		}, PREVIEW_TIMEOUT_MS);
 		app.src = preview;
 		state.compare = compare;
+		renderMinimap();
 		els.compareTitle.textContent = `Compare: ${title}`;
 		// A new tab with no opener and no Referer: the canvas URL carries the server token.
 		els.compareOpen.setAttribute("target", "_blank");
@@ -1689,6 +2245,8 @@
 		}
 		if (slug !== state.slug) return;
 		closePopover();
+		// A manifest change is the new artboard arriving (or any other edit): the placeholder has done its job.
+		state.placeholder = null;
 		state.manifest = manifest;
 		showFeature(manifest);
 		renderBrief();
@@ -1725,7 +2283,8 @@
 	/** The system board first, then the design's artboards. */
 	function placeBoards() {
 		const boards = allBoards();
-		els.world.replaceChildren(...boards.map((board) => board.wrapper));
+		closeMenu(false);
+		els.world.replaceChildren(...boards.map((board) => board.wrapper), ...(state.placeholder ? [state.placeholder] : []));
 		if (state.focus && !boards.includes(state.focus)) exitFocus();
 		else applyFocusState();
 	}
@@ -2821,6 +3380,7 @@
 		box.append(older.root, current.root, handle, shield);
 		const compare = { board, n: version.n, mode: "slider", pos: 50, enteredFocus, older, current, box, handle, shield };
 		state.vcompare = compare;
+		renderMinimap();
 		bindSplitInput({ shield, handle, box, position: () => compare.pos, move: setSlider });
 		els.versionsTitle.textContent = `Compare versions · ${board.artboard.title}`;
 		els.versionsStage.replaceChildren(box);
@@ -2914,6 +3474,7 @@
 		const compare = state.vcompare;
 		if (!compare) return;
 		state.vcompare = null;
+		renderMinimap();
 		els.versions.hidden = true;
 		els.versionsStage.replaceChildren();
 		els.world.inert = false;
@@ -3304,11 +3865,12 @@
 			}
 			return;
 		}
-		if (!els.popover.hidden || state.focus || state.compare) return;
+		if (!els.popover.hidden || state.focus || state.compare || state.menu || els.variantDialog.hasAttribute("open")) return;
 		const actions = {
 			v: () => setCommenting(false),
 			c: () => setCommenting(true),
 			f: fit,
+			m: () => setMinimap(!state.minimap),
 			"[": () => setNav(els.nav.hidden),
 			"]": () => setPanel(els.panel.hidden),
 			"?": openShortcuts,
@@ -3567,15 +4129,19 @@
 	});
 
 	window.addEventListener("resize", closePopover);
+	window.addEventListener("resize", () => closeMenu(false));
 	window.addEventListener("resize", layoutCompare);
 	window.addEventListener("resize", layoutVersions);
+	window.addEventListener("resize", renderMinimap);
 	window.addEventListener("resize", updateTabFades);
 	// The viewport also changes size when the comments panel opens or closes.
-	if (typeof ResizeObserver === "function") new ResizeObserver(() => { centerFocus(); layoutVersions(); }).observe(els.viewport);
+	if (typeof ResizeObserver === "function") new ResizeObserver(() => { centerFocus(); layoutVersions(); renderMinimap(); }).observe(els.viewport);
 	// Fires once on observe, then when fonts or the panel change the row: the fades are right from the first layout.
 	if (typeof ResizeObserver === "function") new ResizeObserver(updateTabFades).observe(els.tabs);
 	else window.addEventListener("resize", () => centerFocus());
 
+	// index.html starts both hidden; the menu is built when it opens.
+	els.menu.hidden = true;
 	setMode(state.mode);
 	renderTools();
 	if (!DELIVERY.batch) {

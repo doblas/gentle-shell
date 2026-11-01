@@ -74,21 +74,23 @@ function fixture(t: TestContext) {
 	return { root, outside };
 }
 
-async function start(t: TestContext, extra: { initialSlug?: string; onImplement?: DesignCanvasServerOptions["onImplement"] } = {}) {
+async function start(t: TestContext, extra: { initialSlug?: string; onImplement?: DesignCanvasServerOptions["onImplement"]; onVariant?: DesignCanvasServerOptions["onVariant"] } = {}) {
 	const { root } = fixture(t);
 	const comments: DesignComment[] = [];
 	const batches: DesignComment[][] = [];
 	const implements_: Array<{ slug: string; file: string }> = [];
+	const variants: Array<{ slug: string; file: string; instruction: string }> = [];
 	const server = await startDesignCanvasServer({
 		designRoot: root,
 		onComment: (comment) => { comments.push(comment); },
 		onComments: (batch) => { batches.push(batch); },
 		onImplement: (request) => { implements_.push(request); },
+		onVariant: (request) => { variants.push(request); },
 		randomToken: () => TOKEN,
 		...extra,
 	});
 	t.after(() => server.close());
-	return { server, root, comments, batches, implements: implements_, port: server.port, base: `/${TOKEN}/` };
+	return { server, root, comments, batches, implements: implements_, variants, port: server.port, base: `/${TOKEN}/` };
 }
 
 test("start returns a loopback URL with a random base64url token by default", async (t) => {
@@ -154,11 +156,11 @@ test("the canvas page carries a strict CSP and a JSON config, never inline code"
 	assert.ok(!csp.includes("unsafe-inline") && !csp.includes("unsafe-eval"));
 	const config = /<script id="gd-config" type="application\/json">([^<]*)<\/script>/.exec(page.body);
 	assert.ok(config, "config script present");
-	assert.deepEqual(JSON.parse(config[1]), { base, slug: null, delivery: { comment: true, batch: true, implement: true } });
+	assert.deepEqual(JSON.parse(config[1]), { base, slug: null, delivery: { comment: true, batch: true, implement: true, variant: true } });
 	assert.ok(page.body.includes(`src="${base}assets/canvas.js"`));
 	const slugPage = await rawRequest(port, `${base}d/alpha/`);
 	assert.equal(slugPage.status, 200);
-	assert.deepEqual(JSON.parse(/<script id="gd-config" type="application\/json">([^<]*)<\/script>/.exec(slugPage.body)![1]), { base, slug: "alpha", delivery: { comment: true, batch: true, implement: true } });
+	assert.deepEqual(JSON.parse(/<script id="gd-config" type="application\/json">([^<]*)<\/script>/.exec(slugPage.body)![1]), { base, slug: "alpha", delivery: { comment: true, batch: true, implement: true, variant: true } });
 	assert.equal((await rawRequest(port, `${base}d/Bad_Slug/`)).status, 404);
 	assert.equal((await rawRequest(port, `${base}d/alpha/extra`)).status, 404);
 	assert.equal((await rawRequest(port, base, { method: "POST" })).status, 405);
@@ -791,6 +793,96 @@ test("implement is 501 without onImplement and 500 when it throws", async (t) =>
 	assert.equal((await rawRequest(failing.port, `/${TOKEN}/api/designs`)).status, 200, "the server survives");
 });
 
+// T2/S3: "Try another direction from this…" posts to api/designs/<slug>/variant.
+
+const VARIANT = "api/designs/alpha/variant";
+
+test("T2/S3: variant delivers exactly one request with the source file and the instruction, and answers 202", async (t) => {
+	const { port, variants } = await start(t);
+	const ok = await postJson(port, VARIANT, { file: "01-hero.html", instruction: "  More compact\r\nfor phones  " });
+	assert.equal(ok.status, 202);
+	assert.deepEqual(JSON.parse(ok.body), { ok: true, slug: "alpha", file: "01-hero.html", queued: false });
+	assert.deepEqual(variants, [{ slug: "alpha", file: "01-hero.html", instruction: "More compact\nfor phones" }], "trimmed, with LF line ends");
+	const edge = await postJson(port, VARIANT, { file: "02-bare.html", instruction: "x".repeat(2000) });
+	assert.equal(edge.status, 202, "2000 characters are allowed");
+	assert.equal(variants.length, 2);
+	assert.equal(variants[1].instruction.length, 2000);
+});
+
+test("T2/S3: variant refuses an empty or over-long instruction, a file outside the manifest and a bad design, delivering nothing", async (t) => {
+	const { port, root, variants } = await start(t);
+	for (const instruction of ["", "   \n ", "x".repeat(2001), `  ${"x".repeat(2001)}  `, 7, null, ["a"], undefined]) {
+		const reply = await postJson(port, VARIANT, { file: "01-hero.html", instruction });
+		assert.equal(reply.status, 400, JSON.stringify(instruction)?.slice(0, 20));
+		assert.equal(JSON.parse(reply.body).error, "invalid-instruction");
+	}
+	// sub/inner.html exists but is not an artboard of the manifest.
+	for (const file of ["sub/inner.html", "missing.html", "../beta/01-a.html", "styles.css", "alias.html", 7, "", undefined]) {
+		const reply = await postJson(port, VARIANT, { file, instruction: "Bolder" });
+		assert.equal(reply.status, 400, String(file));
+		assert.equal(JSON.parse(reply.body).error, "invalid-file");
+	}
+	assert.equal((await postJson(port, "api/designs/missing/variant", { file: "01-hero.html", instruction: "Bolder" })).status, 404);
+	assert.equal((await postJson(port, "api/designs/broken/variant", { file: "01-a.html", instruction: "Bolder" })).status, 422);
+	assert.equal((await postJson(port, "api/designs/Alpha/variant", { file: "01-hero.html", instruction: "Bolder" })).status, 404);
+	assert.equal((await postJson(port, "api/designs/Not_A_Slug/variant", { file: "01-a.html", instruction: "Bolder" })).status, 404);
+	assert.equal((await postJson(port, "api/designs/..%2Falpha/variant", { file: "01-hero.html", instruction: "Bolder" })).status, 404);
+	assert.equal(variants.length, 0, "no refused request reaches onVariant");
+	assert.equal(existsSync(join(root, "alpha", "handoffs.json")), false, "a variant is not a handoff: nothing is written");
+});
+
+test("T2/S3: the variant route keeps the Host, token, Origin, content-type, JSON, size and method rules", async (t) => {
+	const { port, variants } = await start(t);
+	const path = `/${TOKEN}/${VARIANT}`;
+	const body = JSON.stringify({ file: "01-hero.html", instruction: "Bolder" });
+	const own = { Origin: `http://127.0.0.1:${port}`, "Content-Type": "application/json" };
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { "Content-Type": "application/json" }, body })).status, 403, "no Origin");
+	for (const origin of ["http://evil.example", "null", `http://localhost:${port + 1}`]) {
+		assert.equal((await rawRequest(port, path, { method: "POST", headers: { ...own, Origin: origin }, body })).status, 403, origin);
+	}
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { ...own, "Content-Type": "text/plain" }, body })).status, 415);
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { "Origin": own.Origin }, body })).status, 415, "no content type");
+	assert.equal((await rawRequest(port, `/wrong-token-0123456789/${VARIANT}`, { method: "POST", headers: own, body })).status, 404, "wrong token");
+	assert.equal((await rawRequest(port, `/${VARIANT}`, { method: "POST", headers: own, body })).status, 404, "missing token");
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: own, body, host: `evil.example:${port}` })).status, 421);
+	for (const text of ["not json", "[1]", "null", "\"x\""]) {
+		const reply = await rawRequest(port, path, { method: "POST", headers: own, body: text });
+		assert.equal(reply.status, 400, text);
+	}
+	assert.equal(JSON.parse((await rawRequest(port, path, { method: "POST", headers: own, body: "not json" })).body).error, "invalid-json");
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: own, body: JSON.stringify({ file: "01-hero.html", instruction: "x".repeat(17 * 1024) }) })).status, 413);
+	assert.equal((await rawRequest(port, path)).status, 405);
+	assert.equal((await rawRequest(port, path, { method: "PUT", headers: own, body })).status, 405);
+	assert.equal(variants.length, 0, "nothing refused reaches onVariant");
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { ...own, Origin: `http://localhost:${port}` }, body })).status, 202);
+	assert.equal(variants.length, 1);
+});
+
+test("T2/S3: variant answers queued from the delivery, 501 without onVariant and 500 when it throws", async (t) => {
+	const { root } = fixture(t);
+	const request = { file: "01-hero.html", instruction: "Bolder" };
+	const bare = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onImplement: () => {}, randomToken: () => TOKEN });
+	t.after(() => bare.close());
+	const none = await postJson(bare.port, VARIANT, request);
+	assert.equal(none.status, 501);
+	assert.deepEqual(JSON.parse(none.body), { error: "variant-unavailable" });
+
+	const states = [{ queued: true }, { queued: false }, undefined];
+	const seen: unknown[] = [];
+	const queueing = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onVariant: async (call) => { seen.push(call); return states[seen.length - 1]; }, randomToken: () => TOKEN });
+	t.after(() => queueing.close());
+	assert.equal(JSON.parse((await postJson(queueing.port, VARIANT, request)).body).queued, true);
+	assert.equal(JSON.parse((await postJson(queueing.port, VARIANT, request)).body).queued, false);
+	assert.equal(JSON.parse((await postJson(queueing.port, VARIANT, request)).body).queued, false, "no answer means not queued");
+
+	const failing = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onVariant: () => { throw new Error("boom"); }, randomToken: () => TOKEN });
+	t.after(() => failing.close());
+	const reply = await postJson(failing.port, VARIANT, request);
+	assert.equal(reply.status, 500);
+	assert.deepEqual(JSON.parse(reply.body), { error: "delivery-failed", slug: "alpha", file: "01-hero.html", reason: "boom" });
+	assert.equal((await rawRequest(failing.port, `/${TOKEN}/api/designs`)).status, 200, "the server survives");
+});
+
 // S15: the canvas Implement route records the handoff in design/<slug>/handoffs.json.
 
 const handoffsOf = (root: string, slug = "alpha") => JSON.parse(readFileSync(join(root, slug, "handoffs.json"), "utf8"));
@@ -1133,7 +1225,7 @@ test("the page config tells the canvas which deliveries exist, and the 501 check
 
 	const bare = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, randomToken: () => TOKEN });
 	t.after(() => bare.close());
-	assert.deepEqual((await configOf(bare.port, TOKEN)).delivery, { comment: true, batch: false, implement: false });
+	assert.deepEqual((await configOf(bare.port, TOKEN)).delivery, { comment: true, batch: false, implement: false, variant: false });
 	const batchOnly = await postJson(bare.port, "api/designs/alpha/comments/send-all", {});
 	// Nothing unsent: the batch capability is only checked when there is something to deliver.
 	assert.equal(batchOnly.status, 200);
@@ -1147,10 +1239,16 @@ test("the page config tells the canvas which deliveries exist, and the 501 check
 
 	const batch = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onComments: () => {}, randomToken: () => "b".repeat(32) });
 	t.after(() => batch.close());
-	assert.deepEqual((await configOf(batch.port, "b".repeat(32))).delivery, { comment: true, batch: true, implement: false });
+	assert.deepEqual((await configOf(batch.port, "b".repeat(32))).delivery, { comment: true, batch: true, implement: false, variant: false });
 	const implement = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onImplement: () => ({ queued: false }), randomToken: () => "i".repeat(32) });
 	t.after(() => implement.close());
-	assert.deepEqual((await configOf(implement.port, "i".repeat(32))).delivery, { comment: true, batch: false, implement: true });
+	assert.deepEqual((await configOf(implement.port, "i".repeat(32))).delivery, { comment: true, batch: false, implement: true, variant: false });
+	const variant = await startDesignCanvasServer({ designRoot: root, onComment: () => {}, onVariant: () => ({ queued: false }), randomToken: () => "v".repeat(32) });
+	t.after(() => variant.close());
+	assert.deepEqual((await configOf(variant.port, "v".repeat(32))).delivery, { comment: true, batch: false, implement: false, variant: true });
+	const noVariant = await postJson(bare.port, "api/designs/alpha/variant", { file: "01-a.html", instruction: "Bolder" });
+	assert.equal(noVariant.status, 501);
+	assert.equal(JSON.parse(noVariant.body).error, "variant-unavailable");
 });
 
 // S7: the viewport a comment was made at.

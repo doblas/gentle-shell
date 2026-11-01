@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import gentleDesign, { DESIGN_COMMAND_NAME } from "../extensions/gentle-design.ts";
 import { formatDesignComment, formatDesignCommentBatch, startDesignCanvasServer, type DesignCanvasServer, type DesignCanvasServerOptions, type DesignComment } from "../lib/design-canvas-server.ts";
 import { createDesignHistoryStore } from "../lib/design-history.ts";
-import { designImplementMessage } from "../lib/gentle-design.ts";
+import { designImplementMessage, designVariantMessage } from "../lib/gentle-design.ts";
 import type { OpenInBrowserResult } from "../lib/design-open-browser.ts";
 import { __testing } from "../extensions/skill-registry.ts";
 
@@ -1479,6 +1479,108 @@ test("integration: the canvas Implement route records the handoff and answers qu
 	assert.equal(JSON.parse(idle.body).queued, false);
 	assert.equal(sent[1].options, undefined);
 	assert.equal(handoffsFile(cwd).chosen, "02-card.html");
+});
+
+// T2/S3: the canvas "Try another direction from this…" route asks the session for the next artboard.
+
+const VARIANT_TEXT = [
+	"Add another direction to the design design/login/, based on the artboard design/login/01-split.html",
+	"",
+	"Source artboard: design/login/01-split.html",
+	"Title: Split layout",
+	"",
+	"What should change:",
+	"  More compact for phones",
+	"  and a calmer palette",
+	"",
+	'Follow the gentle-design skill ("Save and try a different approach"): write the next artboard (the next NN after the existing ones, NN-<name>.html) in design/login/, starting from the source file, and append it to design/login/design.json with its title, tradeoff, width and height. Keep every existing artboard and its file as they are.',
+	"Take colors, typography, spacing, radius and shadows from design/system.md, the project's token source.",
+	'When it is written, refresh the canvas with the gentle_design tool (action "open", slug "login").',
+].join("\n");
+
+const variantInput = { slug: "login", artboard: { file: "01-split.html", title: "Split layout" }, instruction: "More compact for phones\nand a calmer palette", systemTokens: true };
+
+test("the variant message names the source file, the instruction, the skill gate and keeping the others", () => {
+	assert.equal(designVariantMessage(variantInput), VARIANT_TEXT);
+	const bare = designVariantMessage({ ...variantInput, systemTokens: false });
+	assert.ok(!bare.includes("design/system.md"), "no token line without design/system.md");
+	assert.equal(bare, VARIANT_TEXT.split("\n").filter((line) => !line.startsWith("Take colors")).join("\n"));
+});
+
+async function variantSession(t: { after(fn: () => unknown): void }, idle: boolean, system = true) {
+	const cwd = scratchCwd();
+	writeLinkedDesign(cwd, "login");
+	if (system) writeFileSync(join(cwd, "design", "system.md"), "# Tokens");
+	const { pi, sent, emit, command } = fakePi();
+	const opens: string[] = [];
+	gentleDesign(pi, { openBrowser: async (url) => { opens.push(url); return { opened: true }; } });
+	t.after(() => emit("session_shutdown", { type: "session_shutdown", reason: "quit" }));
+	const session = fakeContext(cwd, idle);
+	await command().handler("open login", session.ctx);
+	const url = new URL(opens[0]);
+	const token = url.pathname.split("/")[1];
+	const page = await new Promise<string>((resolve, reject) => {
+		httpRequest({ host: "127.0.0.1", port: url.port, path: `/${token}/`, method: "GET" }, (res) => {
+			let body = "";
+			res.setEncoding("utf8");
+			res.on("data", (chunk: string) => { body += chunk; });
+			res.on("end", () => resolve(body));
+		}).on("error", reject).end();
+	});
+	const post = (body: unknown, headers: Record<string, string> = { Origin: url.origin }) => new Promise<{ status: number; body: string }>((resolve, reject) => {
+		const req = httpRequest({ host: "127.0.0.1", port: url.port, path: `/${token}/api/designs/login/variant`, method: "POST", headers: { "Content-Type": "application/json", ...headers } }, (res) => {
+			let text = "";
+			res.setEncoding("utf8");
+			res.on("data", (chunk: string) => { text += chunk; });
+			res.on("end", () => resolve({ status: res.statusCode ?? 0, body: text }));
+		});
+		req.on("error", reject);
+		req.end(JSON.stringify(body));
+	});
+	return { cwd, sent, session, post, page };
+}
+
+test("integration: the canvas variant route sends the session one message and the page config advertises it", async (t) => {
+	const { cwd, sent, post, page } = await variantSession(t, true);
+	const config = JSON.parse(/<script id="gd-config" type="application\/json">([^<]*)<\/script>/.exec(page)![1]);
+	assert.deepEqual(config.delivery, { comment: true, batch: true, implement: true, variant: true });
+	const reply = await post({ file: "01-split.html", instruction: "  More compact for phones\r\nand a calmer palette " });
+	assert.equal(reply.status, 202);
+	assert.deepEqual(JSON.parse(reply.body), { ok: true, slug: "login", file: "01-split.html", queued: false });
+	assert.equal(sent.length, 1, "exactly one message");
+	assert.equal(sent[0].content, VARIANT_TEXT);
+	assert.equal(sent[0].options, undefined, "an idle agent runs it now");
+	assert.equal(existsSync(join(cwd, "design", "login", "handoffs.json")), false, "a variant is not a handoff");
+});
+
+test("integration: the canvas variant route is queued as a follow-up while the agent is busy, and idle again runs it now", async (t) => {
+	const { sent, session, post } = await variantSession(t, false);
+	const busy = await post({ file: "02-card.html", instruction: "Bolder" });
+	assert.equal(busy.status, 202);
+	assert.equal(JSON.parse(busy.body).queued, true);
+	assert.deepEqual(sent[0].options, { deliverAs: "followUp" });
+	assert.match(String(sent[0].content), /^Add another direction to the design design\/login\/, based on the artboard design\/login\/02-card\.html\n/);
+	session.state.idle = true;
+	const idle = await post({ file: "02-card.html", instruction: "Bolder" });
+	assert.equal(JSON.parse(idle.body).queued, false);
+	assert.equal(sent.length, 2);
+	assert.equal(sent[1].options, undefined);
+});
+
+test("integration: a refused canvas variant request sends the session nothing", async (t) => {
+	const { sent, post } = await variantSession(t, true);
+	assert.equal((await post({ file: "01-split.html", instruction: "" })).status, 400);
+	assert.equal((await post({ file: "01-split.html", instruction: "x".repeat(2001) })).status, 400);
+	assert.equal((await post({ file: "nope.html", instruction: "Bolder" })).status, 400);
+	assert.equal((await post({ file: "01-split.html", instruction: "Bolder" }, { Origin: "http://evil.example" })).status, 403);
+	assert.equal((await post({ file: "01-split.html", instruction: "Bolder" }, {})).status, 403);
+	assert.equal(sent.length, 0);
+});
+
+test("integration: without design/system.md the canvas variant message has no token line", async (t) => {
+	const { sent, post } = await variantSession(t, true, false);
+	assert.equal((await post({ file: "01-split.html", instruction: "More compact for phones\nand a calmer palette" })).status, 202);
+	assert.ok(!String(sent[0].content).includes("design/system.md"));
 });
 
 test("the gentle_design tool schema and description name the handoff action", () => {
