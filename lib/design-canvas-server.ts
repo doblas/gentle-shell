@@ -9,6 +9,7 @@ import { DESIGN_COMMENTS_FILE, DESIGN_COMMENT_LIMITS, DESIGN_SCREENSHOT_TYPES, D
 import { DESIGN_FEATURE_PATH, DesignHandoffsError, createDesignHandoffStore, sendDesignHandoff, type DesignHandoffDelivery } from "./design-handoffs.ts";
 import { DesignHistoryError, createDesignHistoryStore, type DesignObservation } from "./design-history.ts";
 import { readSystemTokens } from "./design-system-tokens.ts";
+import { DesignPartsError, createDesignPartStore, sendDesignPart, type DesignPart } from "./design-parts.ts";
 
 // Loopback canvas host for gentle-design (S4-S6). Every route lives under a
 // per-server random token, the Host header must name this server, POSTs need
@@ -121,6 +122,12 @@ export type DesignCanvasServerOptions = {
 	 * Nothing is recorded: the picks live in the canvas and the new artboard arrives through the manifest.
 	 */
 	onMix?: (request: DesignMixRequest) => DesignHandoffDelivery | Promise<DesignHandoffDelivery>;
+	/**
+	 * "Implement only this": one element of an artboard of the manifest, already validated and recorded in
+	 * parts.json (never handoffs.json, so no direction is chosen). It answers whether the message was queued
+	 * behind a busy agent; a throw takes the part back and answers 500.
+	 */
+	onImplementPart?: (request: DesignImplementPartRequest) => DesignHandoffDelivery | Promise<DesignHandoffDelivery>;
 	initialSlug?: string;
 	randomToken?: () => string;
 };
@@ -153,6 +160,9 @@ export const DESIGN_VARIANT_INSTRUCTION_MAX = 2000;
 export type DesignMixPick = { file: string; selector: string; excerpt: string; note: string };
 /** `base` is the artboard of the manifest that gives the new direction its structure. */
 export type DesignMixRequest = { slug: string; base: string; picks: DesignMixPick[] };
+
+/** One element of an artboard handed to the session on its own, as recorded in design/<slug>/parts.json. */
+export type DesignImplementPartRequest = { slug: string; part: DesignPart };
 
 /** The most picks one mix may carry. */
 export const DESIGN_MIX_PICKS_MAX = 20;
@@ -189,6 +199,15 @@ function storeFailure(error: unknown): never {
 	if (error.code === "limit") throw new HttpError(409, "too-many-comments", { error: "too-many-comments", reason: error.message });
 	if (error.code === "invalid-input") throw new HttpError(400, "invalid-comment", { error: "invalid-comment", reason: error.message });
 	throw new HttpError(500, "internal");
+}
+
+/** parts.json failures as HTTP: a broken file is 422 and is never overwritten. */
+function partFailure(error: unknown): never {
+	if (!(error instanceof DesignPartsError)) throw error;
+	if (error.code === "not-found") throw new HttpError(404, "not-found");
+	if (error.code === "invalid-file") throw new HttpError(422, "invalid-parts", { error: "invalid-parts", reason: error.message });
+	if (error.code === "limit") throw new HttpError(409, "too-many-parts", { error: "too-many-parts", reason: error.message });
+	throw new HttpError(400, "invalid-part", { error: "invalid-part", reason: error.message });
 }
 
 /** handoffs.json failures as HTTP: a broken file is 422 and is never overwritten. */
@@ -512,6 +531,7 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 	const designRoot = options.designRoot;
 	const store = createDesignCommentStore(designRoot);
 	const handoffs = createDesignHandoffStore(designRoot);
+	const partStore = createDesignPartStore(designRoot);
 	const history = createDesignHistoryStore(designRoot);
 	/** Why an artboard's versions are not stored (too big), by `slug/file`; shown in the history reply. */
 	const historyWarnings = new Map<string, string>();
@@ -612,7 +632,7 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 	function canvasPage(res: ServerResponse, slug: string | null): void {
 		const html = template
 			.replaceAll("{{BASE}}", escapeHtml(base))
-			.replace("{{CONFIG}}", () => scriptJson({ base, slug, delivery: { comment: true, batch: Boolean(options.onComments), implement: Boolean(options.onImplement), variant: Boolean(options.onVariant), mix: Boolean(options.onMix) } }));
+			.replace("{{CONFIG}}", () => scriptJson({ base, slug, delivery: { comment: true, batch: Boolean(options.onComments), implement: Boolean(options.onImplement), variant: Boolean(options.onVariant), mix: Boolean(options.onMix), part: Boolean(options.onImplementPart) } }));
 		reply(res, 200, html, { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": CANVAS_CSP });
 	}
 
@@ -872,6 +892,38 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		reply(res, 202, { ok: true, slug, queued: typeof delivery === "object" && delivery !== null && delivery.queued === true });
 	}
 
+	/**
+	 * "Implement only this" (canvas-implement-part S4): one element of an artboard of the manifest, bounded like a mix
+	 * pick, recorded in parts.json before delivery and taken back when the delivery fails.
+	 */
+	async function implementPart(req: IncomingMessage, res: ServerResponse, slug: string): Promise<void> {
+		const body = await readJsonObject(req);
+		const onImplementPart = options.onImplementPart;
+		if (!onImplementPart) throw new HttpError(501, "implement-part-unavailable");
+		const manifest = await readManifest(slug);
+		const segments = relativeSegments(body.file);
+		const file = segments ? segments.join("/") : "";
+		if (!manifest.artboards.some((artboard) => artboard.file === file)) throw new HttpError(400, "invalid-file", { error: "invalid-file", reason: `${file || String(body.file)} is not an artboard of design/${slug}` });
+		const selector = typeof body.selector === "string" ? collapse(body.selector) : "";
+		if (selector.length < 1 || selector.length > LIMITS.selector) throw new HttpError(400, "invalid-selector", { error: "invalid-selector", reason: `selector must have 1 to ${LIMITS.selector} characters` });
+		if (body.excerpt !== undefined && typeof body.excerpt !== "string") throw new HttpError(400, "invalid-excerpt", { error: "invalid-excerpt", reason: "excerpt must be text" });
+		if (body.note !== undefined && typeof body.note !== "string") throw new HttpError(400, "invalid-note", { error: "invalid-note", reason: "note must be text" });
+		const note = typeof body.note === "string" ? body.note.replace(/\r\n?/g, "\n").trim() : "";
+		if (note.length > LIMITS.comment) throw new HttpError(400, "invalid-note", { error: "invalid-note", reason: `note must have at most ${LIMITS.comment} characters` });
+		const excerpt = typeof body.excerpt === "string" ? body.excerpt : "";
+		let deliveryFailed: HttpError | undefined;
+		const { part, queued } = await sendDesignPart(partStore, slug, { file, selector, excerpt, instruction: note }, async (recorded) => {
+			try {
+				return await onImplementPart({ slug, part: recorded });
+			} catch (error) {
+				const reason = error instanceof Error ? error.message : String(error);
+				deliveryFailed = new HttpError(500, "delivery-failed", { error: "delivery-failed", slug, file, reason });
+				throw deliveryFailed;
+			}
+		}).catch((error: unknown) => (deliveryFailed !== undefined && error === deliveryFailed ? Promise.reject(error) : partFailure(error)));
+		reply(res, 202, { ok: true, id: part.id, queued });
+	}
+
 	/** The design's history, after a catch-up over its manifest's artboards; `warnings` name files too big to store. */
 	async function readHistory(res: ServerResponse, slug: string): Promise<void> {
 		const manifest = await readManifest(slug);
@@ -1058,6 +1110,10 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 			const slug = safeSegment(rest[2]);
 			return slug && SLUG.test(slug) ? (req, res) => mix(req, res, slug) : undefined;
 		}
+		if (rest.length === 4 && rest[0] === "api" && rest[1] === "designs" && rest[3] === "implement-part") {
+			const slug = safeSegment(rest[2]);
+			return slug && SLUG.test(slug) ? (req, res) => implementPart(req, res, slug) : undefined;
+		}
 		if (rest.length === 5 && rest[0] === "api" && rest[1] === "designs" && rest[3] === "history" && rest[4] === "restore") {
 			const slug = safeSegment(rest[2]);
 			return slug && SLUG.test(slug) ? (req, res) => restoreVersion(req, res, slug) : undefined;
@@ -1118,6 +1174,10 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 			if (tail.length === 3 && tail[2] === "handoffs") {
 				const slug = safeSegment(tail[1]);
 				return slug && SLUG.test(slug) ? async (_req, res) => reply(res, 200, await handoffs.read(slug).catch(handoffFailure)) : undefined;
+			}
+			if (tail.length === 3 && tail[2] === "parts") {
+				const slug = safeSegment(tail[1]);
+				return slug && SLUG.test(slug) ? async (_req, res) => reply(res, 200, await partStore.read(slug).catch(partFailure)) : undefined;
 			}
 		}
 		if (head === "history" && tail.length >= 3) {
