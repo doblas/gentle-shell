@@ -1093,9 +1093,15 @@ button:disabled { opacity: 0.5; cursor: default; }
 	padding: 10px 12px 0;
 	overflow-x: auto;
 	overflow-y: hidden;
-	scrollbar-width: thin;
+	scrollbar-width: none;
 	box-shadow: inset 0 -1px 0 var(--border);
 }
+
+.gd-tabs::-webkit-scrollbar { display: none; }
+/* The fades only show which side has more tabs; the mask uses alpha, so any opaque token works. */
+.gd-tabs-more-end { mask-image: linear-gradient(to left, transparent, var(--bg) 32px); }
+.gd-tabs-more-start { mask-image: linear-gradient(to right, transparent, var(--bg) 32px); }
+.gd-tabs-more-start.gd-tabs-more-end { mask-image: linear-gradient(to right, transparent, var(--bg) 32px, var(--bg) calc(100% - 32px), transparent); }
 
 .gd-tab {
 	flex: none;
@@ -1501,6 +1507,52 @@ button:disabled { opacity: 0.5; cursor: default; }
 	background: #fff;
 	box-shadow: var(--shadow-frame);
 }
+
+/* Compare modes: Overlay and Slider stack the same two panes at one artboard's size (set by layoutCompare). */
+.gd-compare-mode { flex: none; }
+
+.gd-compare-opacity {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.gd-compare-opacity[hidden] { display: none; }
+.gd-compare-opacity input { width: 120px; accent-color: var(--accent); }
+.gd-compare-opacity input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gd-compare-opacity output { min-width: 4ch; font-variant-numeric: tabular-nums; }
+
+.gd-compare-panes[data-mode="overlay"], .gd-compare-panes[data-mode="slider"] {
+	position: relative;
+	display: block;
+}
+
+.gd-compare-panes[data-mode="overlay"] .gd-compare-pane, .gd-compare-panes[data-mode="slider"] .gd-compare-pane {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+}
+
+.gd-compare-panes[data-mode="overlay"] .gd-compare-caption, .gd-compare-panes[data-mode="slider"] .gd-compare-caption {
+	position: absolute;
+	top: 10px;
+	z-index: 3;
+	height: 20px;
+	padding: 0 10px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-pill);
+	background: var(--surface);
+	color: var(--text);
+	font-size: 12px;
+	line-height: 20px;
+}
+
+.gd-compare-panes[data-mode="overlay"] .gd-compare-pane:first-child .gd-compare-caption, .gd-compare-panes[data-mode="slider"] .gd-compare-pane:first-child .gd-compare-caption { left: 10px; }
+.gd-compare-panes[data-mode="overlay"] .gd-compare-pane:nth-child(2) .gd-compare-caption, .gd-compare-panes[data-mode="slider"] .gd-compare-pane:nth-child(2) .gd-compare-caption { right: 10px; }
+.gd-compare-panes[data-mode="slider"] { box-shadow: 0 0 0 2px var(--accent), var(--shadow-frame); }
+.gd-compare-panes[data-mode="overlay"] .gd-compare-frame, .gd-compare-panes[data-mode="slider"] .gd-compare-frame { box-shadow: none; }
 
 /* A confirmation that outlives the status line, such as a sent handoff. */
 .gd-toast {
