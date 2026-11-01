@@ -77,12 +77,15 @@ Run this gate before every new brief: call the `gentle_design` tool with `action
 4. When no design sources exist, say so and propose a minimal starter system for the user to accept; never present invented values as project tokens.
 5. Self-check, for every artboard you finish while `design/system.md` exists: list the colors and font families the artboard uses, compare them with the system tokens, and fix every deviation before you report.
 
+The canvas does the same comparison for the user: its token inspector reads the tokens from `design/system.md` (table rows with a backticked `--name` and value, and tokens written inline in a first cell), so keep that file's tables in that shape. The inspector and the canvas's accessibility checks (text contrast under AA, targets under 24 × 24 px, images without `alt`, unlabeled form fields, skipped heading levels) are heuristics, not a full audit: a clean result does not replace your own review, and a flag can be a false positive.
+
 ## Canvas comments
 
 Comments from the canvas are stored in `design/<slug>/comments.json`; the session also receives them as messages that name each comment id.
 
 1. Read the open comments with the `gentle_design_comments` tool (`action: "list"`, optional `slug` and `file`). Without the tool, read `design/<slug>/comments.json` and use the entries whose `status` is `"open"`.
 2. Apply each comment by editing only the artboard in its `file`; use `selector` and `excerpt` to find the element. When a comment has a `screenshot`, look at it first: it arrives attached to the comment message, or open `design/<slug>/<screenshot>` with the read tool. It shows what the user saw, often a transient animation or transition state that the static artboard does not show. When a comment has a `viewport`, the user made it with the artboard shown at that width (for example `Phone 390 × 844`): edit the artboard so the change holds at that width, with responsive CSS (media queries or fluid sizes) rather than fixed sizes, and keep the artboard's other widths working.
+   A comment that starts with "Fix the values on ..." comes from the token inspector: it lists values that are off the design system with their nearest tokens, so use those tokens. A comment that starts with "Accessibility check on ..." (or "Accessibility advice on ...") comes from the Checks tab: fix the finding it names for WCAG 2.2 AA, with the design's tokens.
 3. Mark each applied comment resolved with the tool (`action: "resolve"`, `slug`, `ids`). Without the tool, set its `status` to `"resolved"` and `resolvedAt` to the current ISO time, keeping every other entry and field as is. Leave comments you did not apply open, and say why.
 
 The file format, for agents that only have file access:

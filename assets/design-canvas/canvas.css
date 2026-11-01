@@ -405,7 +405,10 @@ select {
 .gd-nav-item-title { font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
 .gd-nav-summary { font-size: 12px; color: var(--text-muted); }
 
-.gd-nav-tag {
+.gd-nav-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.gd-nav-tags:empty { display: none; }
+
+.gd-nav-tag, .gd-nav-a11y {
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
@@ -419,6 +422,8 @@ select {
 }
 
 .gd-nav-tag-chosen { color: var(--accent); border-color: var(--accent-line); }
+.gd-nav-a11y[data-state="ok"] { color: var(--success); border-color: var(--success-line); }
+.gd-nav-a11y[data-state="warn"] { color: var(--warning); border-color: var(--warning-line); }
 
 .gd-nav-tag-chosen::before {
 	content: "";
@@ -880,6 +885,177 @@ select {
 	font-size: 12px;
 	font-weight: 600;
 	cursor: help;
+}
+
+/* Token inspector: the panel beside the artboard in Comment mode (canvas.js positions it). */
+.gd-inspector {
+	position: absolute;
+	z-index: 5;
+	width: 280px;
+	max-height: calc(100% - 24px);
+	overflow: auto;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-panel);
+	font-size: 12px;
+	cursor: default;
+}
+
+.gd-inspector-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 12px 14px;
+	border-bottom: 1px solid var(--border);
+}
+
+.gd-inspector-title { margin: 0; font-size: 13px; white-space: nowrap; }
+
+.gd-inspector-selector {
+	min-width: 0;
+	padding: 1px 6px;
+	border: 1px solid var(--border-soft);
+	border-radius: 6px;
+	background: var(--wash);
+	color: var(--accent-soft);
+	font: 12px var(--font-mono);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.gd-inspector-list {
+	display: grid;
+	gap: 8px;
+	margin: 0;
+	padding: 10px 14px;
+}
+
+.gd-inspector-row {
+	display: grid;
+	grid-template-columns: 76px minmax(0, 1fr);
+	gap: 12px;
+}
+
+.gd-inspector-label { color: var(--text-muted); }
+
+.gd-inspector-value {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	margin: 0;
+	min-width: 0;
+}
+
+.gd-inspector-code { font: 12px var(--font-mono); overflow-wrap: anywhere; }
+.gd-inspector-near { color: var(--text-muted); }
+
+.gd-inspector-swatch {
+	display: inline-block;
+	width: 12px;
+	height: 12px;
+	border: 1px solid var(--border-soft);
+	border-radius: 3px;
+}
+
+.gd-inspector-ok { color: var(--success); }
+.gd-inspector-bad { color: var(--warning); }
+
+.gd-inspector-note {
+	margin: 0;
+	padding: 0 14px 10px;
+	color: var(--text-muted);
+}
+
+.gd-inspector-actions {
+	display: flex;
+	gap: 8px;
+	padding: 10px 14px;
+	border-top: 1px solid var(--border);
+}
+
+.gd-small {
+	min-height: 30px;
+	padding: 2px 10px;
+	font-size: 12px;
+}
+
+/* Checks tab: a group per artboard, an issue card per finding, one dashed Passed card. */
+.gd-checks { display: flex; flex-direction: column; gap: 16px; }
+
+.gd-check-group { display: flex; flex-direction: column; gap: 8px; }
+
+.gd-check-head { display: flex; align-items: center; gap: 8px; }
+.gd-check-heading { margin: 0; font-size: 13px; }
+
+.gd-check-summary {
+	padding: 0 8px;
+	border: 1px solid var(--warning-line);
+	border-radius: var(--radius-pill);
+	color: var(--warning);
+	font-size: 11px;
+	font-weight: 600;
+}
+
+.gd-check-summary-ok { border-color: var(--success-line); color: var(--success); }
+
+.gd-check {
+	display: grid;
+	grid-template-columns: 20px minmax(0, 1fr);
+	gap: 8px;
+	padding: 10px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	background: var(--surface-1);
+	font-size: 13px;
+}
+
+.gd-check-fail { border-color: var(--error-line); }
+.gd-check-advice { border-color: var(--warning-line); }
+.gd-check-icon { margin-top: 2px; color: var(--warning); }
+.gd-check-fail .gd-check-icon { color: var(--error); }
+
+.gd-check-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.gd-check-top { display: flex; align-items: center; gap: 8px; }
+
+.gd-check-kind {
+	padding: 0 8px;
+	border: 1px solid var(--warning-line);
+	border-radius: var(--radius-pill);
+	color: var(--warning);
+	font-size: 11px;
+	font-weight: 600;
+}
+
+.gd-check-fail .gd-check-kind { border-color: var(--error-line); color: var(--error); }
+
+.gd-check-detail { color: var(--text-muted); font-size: 12px; }
+
+.gd-check-selector {
+	align-self: flex-start;
+	max-width: 100%;
+	padding: 1px 6px;
+	border: 1px solid var(--border-soft);
+	border-radius: 6px;
+	background: var(--wash);
+	color: var(--accent-soft);
+	font: 12px var(--font-mono);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.gd-check-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+
+.gd-check-passed, .gd-check-empty {
+	padding: 10px;
+	border: 1px solid var(--border);
+	border-style: dashed;
+	border-radius: var(--radius-md);
+	color: var(--text-muted);
+	font-size: 12px;
 }
 
 .gd-radio {

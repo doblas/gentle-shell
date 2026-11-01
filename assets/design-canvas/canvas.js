@@ -25,7 +25,7 @@
 	// Room below a focused artboard for the floating "Back to canvas" button.
 	const BACK_SPACE = 64;
 	const CLICK_SLOP = 4;
-	const LIMITS = { selector: 500, excerpt: 300, comment: 2000, pins: 500, screenshotBytes: 5 * 1024 * 1024 };
+	const LIMITS = { selector: 500, excerpt: 300, comment: 2000, pins: 500, tokens: 500, screenshotBytes: 5 * 1024 * 1024 };
 	const SCREENSHOT_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 	const MODE_KEY = "gentle-design:send-mode";
 	const SYSTEM_LABEL = { title: "Design system", tradeoff: "Project tokens (design/system.md)" };
@@ -87,7 +87,7 @@
 	};
 	const COMMENT_CHIP = "Click an element to comment · Esc";
 	const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-	const TAB_NAMES = ["open", "resolved", "brief"];
+	const TAB_NAMES = ["open", "resolved", "checks", "brief"];
 
 	const $ = (id) => document.getElementById(id);
 	const els = {
@@ -113,6 +113,9 @@
 		featureSep: $("gd-feature-sep"),
 		compareApp: $("gd-compare-app"),
 		tabs: $("gd-tabs"),
+		tabChecks: $("gd-tab-checks"),
+		countChecks: $("gd-count-checks"),
+		checks: $("gd-checks"),
 		tabBrief: $("gd-tab-brief"),
 		countOpen: $("gd-count-open"),
 		countResolved: $("gd-count-resolved"),
@@ -163,6 +166,13 @@
 		compareStage: $("gd-compare-stage"),
 		compareSizer: $("gd-compare-sizer"),
 		comparePanes: $("gd-compare-panes"),
+		inspector: $("gd-inspector"),
+		inspectorTitle: $("gd-inspector-title"),
+		inspectorSelector: $("gd-inspector-selector"),
+		inspectorList: $("gd-inspector-list"),
+		inspectorNote: $("gd-inspector-note"),
+		inspectorFix: $("gd-inspector-fix"),
+		inspectorCopy: $("gd-inspector-copy"),
 	};
 
 	function storedMode() {
@@ -202,6 +212,12 @@
 		// The size shown while focused: { kind: "phone" | "tablet" | "desktop" | "all" }, or { kind: "custom", width }.
 		size: { kind: "desktop" },
 		hoverBoard: null,
+		// The project's design tokens (design/system.md), for the inspector: [{ name, value, section, group }].
+		tokens: [],
+		// The element the inspector panel shows: { surface, measure, flags, text }, and what keeps the panel open.
+		inspect: null,
+		inspectGen: 0,
+		inspectorHover: false,
 		// The handoffs.json of design `slug`; boards of another design ignore it.
 		handoffs: { slug: null, chosen: null, handoffs: {} },
 		// The open Compare view: { board, preview, artboardFrame, timer }.
@@ -480,6 +496,8 @@
 
 	/** Comment mode in navigation: the shield routes the hover to the inspector so it can outline the element. */
 	function hoverAt(event) {
+		// The inspector panel is beside the artboard: reaching it keeps the element outlined.
+		if (event.target && els.inspector.contains(event.target)) return;
 		if (!state.commenting || state.focus) return setHoverBoard(null);
 		const shield = event.target.closest(".gd-shield");
 		const board = shield ? boardOfShield(shield) : null;
@@ -748,7 +766,7 @@
 		pins.className = "gd-pins";
 		// rects: null until the artboard reports where each commented element is.
 		const flag = createOverflowFlag();
-		const board = { slug, artboard, number, frame, wrapper, shield, pins, handoff, stateChip, rects: null, system, viewWidth: artboard.width, viewHeight: artboard.height, flag, overflow: null, sizeControl, sizeFrames: [], sizesView: null };
+		const board = { slug, artboard, number, frame, wrapper, shield, pins, handoff, stateChip, rects: null, system, viewWidth: artboard.width, viewHeight: artboard.height, flag, overflow: null, sizeControl, sizeFrames: [], sizesView: null, checks: null };
 		setFrameSize(board, artboard.width, artboard.height);
 		renderHandoff(board);
 		// The system board is not listed in the navigator, so it has no item or thumbnail.
@@ -774,6 +792,12 @@
 	/** A frame (the board's own or a size frame) finished loading: it knows nothing yet, so tell it the state. */
 	function surfaceLoaded(surface) {
 		surface.rects = null;
+		// A reloaded artboard is checked again: its old result no longer describes it.
+		if (surface === ownerOf(surface) && !surface.system && surface.checks) {
+			surface.checks = null;
+			renderChecks();
+			renderNav();
+		}
 		surface.overflow = null;
 		renderOverflow(surface);
 		sendMode(surface);
@@ -1294,11 +1318,12 @@
 		text.className = "gd-nav-text";
 		const title = chip("gd-nav-item-title", "");
 		const summary = chip("gd-nav-summary", "");
-		text.append(title, summary);
+		const tags = chip("gd-nav-tags", "");
+		text.append(title, summary, tags);
 		button.append(thumb.box, text);
 		button.addEventListener("click", () => enterFocus(board));
 		item.append(button);
-		return { item, button, thumb, text, title, summary, tag: chip("gd-nav-tag", "") };
+		return { item, button, thumb, text, title, summary, tags, tag: chip("gd-nav-tag", ""), a11y: chip("gd-nav-a11y", "") };
 	}
 
 	// The live thumbnail shows the artboard scaled to this width.
@@ -1346,13 +1371,22 @@
 			else nav.button.removeAttribute("aria-current");
 			nav.title.textContent = `${String(board.number).padStart(2, "0")} ${board.artboard.title}`;
 			nav.summary.textContent = commentSummary(board);
+			const tags = [];
 			const { chosen } = handoffOf(board);
 			if (typeof chosen === "string") {
 				const isChosen = chosen === board.artboard.file;
 				nav.tag.className = `gd-nav-tag${isChosen ? " gd-nav-tag-chosen" : ""}`;
 				nav.tag.textContent = isChosen ? "Chosen" : "Alternative";
-				if (!nav.text.contains(nav.tag)) nav.text.append(nav.tag);
-			} else nav.tag.remove();
+				tags.push(nav.tag);
+			}
+			const failures = checkFailures(board);
+			if (failures !== null) {
+				nav.a11y.textContent = failures === 0 ? "A11y ✓" : `${failures} check${failures === 1 ? "" : "s"}`;
+				nav.a11y.dataset.state = failures === 0 ? "ok" : "warn";
+				nav.a11y.title = failures === 0 ? "Automatic checks found no problems. They are heuristics, not a full audit." : "Open the Checks tab to see them.";
+				tags.push(nav.a11y);
+			}
+			nav.tags.replaceChildren(...tags);
 			return nav.item;
 		});
 		// Putting the same items back would reload their thumbnails: rebuild the list only when it changed.
@@ -1595,6 +1629,16 @@
 		return true;
 	}
 
+	/** The tokens of design/system.md; none when it is missing, unreadable or malformed (the canvas never fails on it). */
+	async function loadTokens() {
+		let data = null;
+		try { data = await getJson("api/system/tokens"); } catch { data = null; }
+		const list = data && Array.isArray(data.tokens) ? data.tokens : [];
+		state.tokens = list.slice(0, LIMITS.tokens)
+			.filter((token) => token && typeof token.name === "string" && /^--[A-Za-z0-9_-]+$/.test(token.name) && typeof token.value === "string" && token.value.length > 0)
+			.map((token) => ({ name: token.name, value: token.value, section: typeof token.section === "string" ? token.section : "", group: typeof token.group === "string" ? token.group : "other" }));
+	}
+
 	async function onSystemChange() {
 		if (!(await refreshSystem())) {
 			if (state.systemBoard) reloadBoard(state.systemBoard);
@@ -1655,6 +1699,7 @@
 
 	async function start() {
 		applyView();
+		loadTokens().catch(() => {});
 		await refreshSystem();
 		try {
 			await refreshDesigns();
@@ -1690,6 +1735,7 @@
 			if (!change || typeof change.file !== "string") return;
 			if (change.slug === null) {
 				if (change.file === "system.html") onSystemChange().catch(() => {});
+				else if (change.file === "system.md") loadTokens().catch(() => {});
 				return;
 			}
 			if (typeof change.slug !== "string") return;
@@ -1717,6 +1763,558 @@
 			targets.forEach(reloadBoard);
 			targets.forEach(reloadThumb);
 		});
+	}
+
+	// ---- token inspector -------------------------------------------------------
+	// In Comment mode the artboard reports the element under the pointer (gd:inspect); the canvas compares its
+	// colors, font, sizes, spacing and radius with the tokens of design/system.md (state.tokens), computes the
+	// WCAG contrast and shows the result in a panel beside the artboard. Heuristics, not a full audit.
+
+	const INSPECTOR_WIDTH = 280;
+	const INSPECTOR_HEIGHT = 340;
+	const INSPECTOR_GAP = 12;
+	const INSPECTOR_HIDE_MS = 300;
+	// Channels are whole numbers, so a token matches only when it is the same color; alpha tolerates hex rounding.
+	const ALPHA_EPSILON = 0.01;
+	const NEAR_ALPHA = 0.05;
+	const SIZE_EPSILON = 0.01;
+
+	function parseTokenColor(value) {
+		const hex = /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.exec(value.trim());
+		if (hex) {
+			const digits = hex[1].length <= 4 ? Array.from(hex[1], (digit) => digit + digit).join("") : hex[1];
+			const channel = (index) => Number.parseInt(digits.slice(index * 2, index * 2 + 2), 16);
+			return { r: channel(0), g: channel(1), b: channel(2), a: digits.length === 8 ? Math.round((channel(3) / 255) * 100) / 100 : 1 };
+		}
+		const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/.exec(value.trim());
+		if (rgb && [rgb[1], rgb[2], rgb[3]].every((channel) => Number(channel) <= 255)) return { r: Number(rgb[1]), g: Number(rgb[2]), b: Number(rgb[3]), a: rgb[4] === undefined ? 1 : Math.min(1, Number(rgb[4])) };
+		return null;
+	}
+
+	/** px of a token like `8px` or `0.5rem`, else null. */
+	function parseTokenLength(value) {
+		const match = /^(-?\d*\.?\d+)(px|rem)$/.exec(value.trim());
+		return match ? Number(match[1]) * (match[2] === "rem" ? 16 : 1) : null;
+	}
+
+	function linearChannel(value) {
+		const unit = value / 255;
+		return unit <= 0.04045 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
+	}
+
+	/** WCAG relative luminance of an sRGB color. */
+	function luminance(color) {
+		return 0.2126 * linearChannel(color.r) + 0.7152 * linearChannel(color.g) + 0.0722 * linearChannel(color.b);
+	}
+
+	/** WCAG contrast ratio, 1 to 21. */
+	function contrastRatio(a, b) {
+		const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+		return (high + 0.05) / (low + 0.05);
+	}
+
+	/** OKLab coordinates, so distances follow perceived difference rather than sRGB channel values. */
+	function oklab(color) {
+		const r = linearChannel(color.r);
+		const g = linearChannel(color.g);
+		const b = linearChannel(color.b);
+		const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+		const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+		const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+		return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+	}
+
+	function colorDistance(a, b) {
+		const [x, y] = [oklab(a), oklab(b)];
+		return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]);
+	}
+
+	const hex2 = (value) => Math.round(value).toString(16).padStart(2, "0");
+	const colorHex = (color) => `#${hex2(color.r)}${hex2(color.g)}${hex2(color.b)}${color.a !== undefined && color.a < 1 ? hex2(color.a * 255) : ""}`;
+	const fmt = (value) => String(Number(value.toFixed(2)));
+	/** Contrast shown to two decimals, never rounded up: 4.499 must not read as a pass. */
+	const fmtRatio = (ratio) => String(Math.floor(ratio * 100) / 100);
+
+	/** The tokens by what they can be compared with: colors, font families, and px lengths by purpose. */
+	function tokenKinds() {
+		const kinds = { color: [], family: [], radius: [], spacing: [], fontSize: [] };
+		for (const token of state.tokens) {
+			const color = parseTokenColor(token.value);
+			const length = color ? null : parseTokenLength(token.value);
+			if (color) kinds.color.push({ token, color });
+			else if (length !== null) {
+				if (token.group === "radius" || /radius/.test(token.name)) kinds.radius.push({ token, px: length });
+				else if (token.group === "spacing" || /(^|-)(space|spacing|gap|pad|padding|margin)(-|$)/.test(token.name)) kinds.spacing.push({ token, px: length });
+				else if (token.group === "font" || /font|text|type/.test(token.name)) kinds.fontSize.push({ token, px: length });
+			} else if ((token.group === "font" || /font|family/.test(token.name)) && /[a-zA-Z]/.test(token.value)) kinds.family.push(token);
+		}
+		return kinds;
+	}
+
+	/** Families of a font stack, quotes stripped, split on commas outside quotes. */
+	function familyList(value) {
+		const families = [];
+		let current = "";
+		let quote = "";
+		for (const char of value) {
+			if (quote) {
+				if (char === quote) quote = "";
+				else current += char;
+			} else if (char === "\"" || char === "'") quote = char;
+			else if (char === ",") {
+				families.push(current);
+				current = "";
+			} else current += char;
+		}
+		families.push(current);
+		return families.map((family) => family.trim()).filter(Boolean);
+	}
+
+	const sameFamilies = (a, b) => a.length === b.length && a.every((family, index) => family.toLowerCase() === b[index].toLowerCase());
+
+	const span = (className, text) => chip(className, text);
+	const okChip = (text) => span("gd-inspector-ok", `✓ ${text}`);
+	const badChip = (text) => span("gd-inspector-bad", `⚠ ${text}`);
+
+	function swatch(color) {
+		const box = span("gd-inspector-swatch", "");
+		box.setAttribute("aria-hidden", "true");
+		box.style.background = color.a === undefined || color.a >= 1 ? `rgb(${color.r}, ${color.g}, ${color.b})` : `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a})`;
+		return box;
+	}
+
+	function row(label, nodes) {
+		const item = document.createElement("div");
+		item.className = "gd-inspector-row";
+		const term = document.createElement("dt");
+		term.className = "gd-inspector-label";
+		term.textContent = label;
+		const value = document.createElement("dd");
+		value.className = "gd-inspector-value";
+		value.append(...nodes);
+		item.append(term, value);
+		return item;
+	}
+
+	/** A length against the tokens of one kind: exact token names, else the nearest by numeric distance. */
+	function matchLength(px, candidates) {
+		const exact = candidates.filter((candidate) => Math.abs(candidate.px - px) < SIZE_EPSILON).map((candidate) => candidate.token);
+		if (exact.length > 0) return { exact };
+		let nearest = null;
+		for (const candidate of candidates) if (!nearest || Math.abs(candidate.px - px) < Math.abs(nearest.px - px)) nearest = candidate;
+		return { exact: [], nearest: nearest ? nearest.token : null };
+	}
+
+	/** The nodes of a color row: swatch and hex, the matching token(s) or ⚠ no token with the nearest one. */
+	function colorValue(color, tokens, flags, label) {
+		const nodes = [swatch(color), span("gd-inspector-code", colorHex(color))];
+		if (tokens.length === 0) return nodes;
+		const same = tokens.filter((entry) => entry.color.r === color.r && entry.color.g === color.g && entry.color.b === color.b && Math.abs(entry.color.a - (color.a ?? 1)) < ALPHA_EPSILON);
+		if (same.length > 0) {
+			nodes.push(okChip(same.map((entry) => entry.token.name).join(" / ")));
+			return nodes;
+		}
+		nodes.push(badChip("no token"));
+		let nearest = null;
+		let best = Infinity;
+		for (const entry of tokens) {
+			if (Math.abs(entry.color.a - (color.a ?? 1)) > NEAR_ALPHA) continue;
+			const distance = colorDistance(color, entry.color);
+			if (distance < best) {
+				best = distance;
+				nearest = entry;
+			}
+		}
+		if (nearest) {
+			nodes.push(span("gd-inspector-near", `Nearest ${nearest.token.name}`), span("gd-inspector-code", nearest.token.value));
+			flags.push(`${label} ${colorHex(color)} is not a token; nearest is ${nearest.token.name} (${nearest.token.value}).`);
+		} else flags.push(`${label} ${colorHex(color)} is not a token.`);
+		return nodes;
+	}
+
+	/** A px value against tokens of one kind; no tokens of that kind means nothing to compare. */
+	function lengthValue(px, candidates, flags, label) {
+		const nodes = [span("gd-inspector-code", `${fmt(px)} px`)];
+		if (candidates.length === 0) return nodes;
+		const match = matchLength(px, candidates);
+		if (match.exact.length > 0) {
+			nodes.push(okChip(match.exact.map((token) => token.name).join(" / ")));
+			return nodes;
+		}
+		nodes.push(badChip("no token"));
+		if (match.nearest) {
+			nodes.push(span("gd-inspector-near", `Nearest ${match.nearest.name}`), span("gd-inspector-code", match.nearest.value));
+			flags.push(`${label} ${fmt(px)}px is not a token; nearest is ${match.nearest.name} (${match.nearest.value}).`);
+		} else flags.push(`${label} ${fmt(px)}px is not a token.`);
+		return nodes;
+	}
+
+	const sides = (values) => values.map(fmt).join(" ");
+
+	/** The panel's rows for one measured element, and the flagged values as sentences. */
+	function describeInspection(m) {
+		const kinds = tokenKinds();
+		const flags = [];
+		const rows = [];
+		const text = m.color;
+		const behind = m.background;
+		rows.push(row("Color", text ? colorValue(text, kinds.color, flags, "Text color") : [span("gd-inspector-code", "unreadable")]));
+		rows.push(row("Background", behind ? colorValue(behind, kinds.color, flags, "Background") : [span("gd-inspector-code", "image or gradient")]));
+
+		let contrast = [span("gd-inspector-code", "—")];
+		if (m.hasText && text && !behind) contrast = [span("gd-inspector-code", "unknown background")];
+		else if (m.hasText && text && behind) {
+			const over = text.a < 1 ? { r: Math.round(text.r * text.a + behind.r * (1 - text.a)), g: Math.round(text.g * text.a + behind.g * (1 - text.a)), b: Math.round(text.b * text.a + behind.b * (1 - text.a)) } : text;
+			const ratio = contrastRatio(over, behind);
+			const large = m.fontSize >= 24 || (m.fontSize >= 18.66 && m.fontWeight >= 700);
+			const needed = large ? 3 : 4.5;
+			if (ratio >= needed) contrast = [okChip(`${fmtRatio(ratio)} : 1`), span("gd-inspector-near", large ? "AA large text (3 : 1)" : "AA (4.5 : 1)")];
+			else {
+				contrast = [badChip(`${fmtRatio(ratio)} : 1`), span("gd-inspector-near", `needs ${needed} : 1${large ? " (large text)" : ""}`)];
+				flags.push(`Contrast ${fmtRatio(ratio)}:1 is below WCAG AA (${needed}:1 for ${large ? "large" : "normal"} text).`);
+			}
+		}
+		rows.push(row("Contrast", contrast));
+
+		const mine = familyList(m.fontFamily);
+		const first = mine[0] || "—";
+		const family = [span("gd-inspector-code", first)];
+		family[0].title = m.fontFamily;
+		if (kinds.family.length > 0) {
+			const exact = kinds.family.filter((token) => sameFamilies(familyList(token.value), mine));
+			const byFirst = exact.length > 0 ? exact : kinds.family.filter((token) => mine.length > 0 && familyList(token.value)[0]?.toLowerCase() === mine[0].toLowerCase());
+			if (byFirst.length > 0) family.push(okChip(byFirst.map((token) => token.name).join(" / ")));
+			else {
+				family.push(badChip("no token"));
+				flags.push(`Font family "${first}" is not a token (${kinds.family.map((token) => token.name).join(", ")}).`);
+			}
+		}
+		rows.push(row("Font", family));
+		rows.push(row("Size", [...lengthValue(m.fontSize, kinds.fontSize, flags, "Font size"), span("gd-inspector-near", `weight ${m.fontWeight}`)]));
+		rows.push(row("Line height", [span("gd-inspector-code", m.lineHeight === null ? "normal" : `${fmt(m.lineHeight)} px`)]));
+
+		const spacing = [];
+		if (m.margin.some((value) => value !== 0)) spacing.push(span("gd-inspector-code", `margin ${sides(m.margin)}`));
+		if (m.padding.some((value) => value !== 0)) spacing.push(span("gd-inspector-code", `padding ${sides(m.padding)}`));
+		if (spacing.length === 0) spacing.push(span("gd-inspector-code", "—"));
+		else if (kinds.spacing.length > 0) {
+			const values = [...new Set([...m.margin, ...m.padding].filter((value) => value > 0))];
+			const off = values.map((value) => ({ value, match: matchLength(value, kinds.spacing) })).filter((entry) => entry.match.exact.length === 0);
+			if (off.length === 0) spacing.push(okChip("on scale"));
+			for (const entry of off) {
+				const near = entry.match.nearest;
+				spacing.push(badChip(`${fmt(entry.value)} px off scale`));
+				if (near) spacing.push(span("gd-inspector-near", `Nearest ${near.name}`), span("gd-inspector-code", near.value));
+				flags.push(`Spacing ${fmt(entry.value)}px is not on the token scale${near ? `; nearest is ${near.name} (${near.value})` : ""}.`);
+			}
+		}
+		rows.push(row("Spacing", spacing));
+
+		const corners = m.radius;
+		let radius;
+		if (corners.every((value) => value === 0)) radius = [span("gd-inspector-code", "—")];
+		else if (corners.every((value) => value === corners[0])) radius = lengthValue(corners[0], kinds.radius, flags, "Border radius");
+		else {
+			radius = [span("gd-inspector-code", `${sides(corners)} px`)];
+			for (const value of new Set(corners.filter((corner) => corner > 0))) {
+				const match = kinds.radius.length > 0 ? matchLength(value, kinds.radius) : { exact: [{}] };
+				if (match.exact.length > 0) continue;
+				radius.push(badChip(`${fmt(value)} px no token`));
+				flags.push(`Border radius ${fmt(value)}px is not a token${match.nearest ? `; nearest is ${match.nearest.name} (${match.nearest.value})` : ""}.`);
+			}
+		}
+		rows.push(row("Radius", radius));
+
+		const message = flags.length > 0
+			? `Fix the values on ${m.selector} that are off the design system (design/system.md):\n${flags.map((flag) => `- ${flag}`).join("\n")}`
+			: `Nothing is off the design system on ${m.selector}.`;
+		return { rows, flags, text: message.slice(0, LIMITS.comment) };
+	}
+
+	function finiteRgb(value, withAlpha) {
+		if (value === null) return null;
+		if (!value || typeof value !== "object") return undefined;
+		if (!["r", "g", "b"].every((key) => isFiniteNumber(value[key]) && value[key] >= 0 && value[key] <= 255)) return undefined;
+		if (!withAlpha) return { r: value.r, g: value.g, b: value.b };
+		return isFiniteNumber(value.a) && value.a >= 0 && value.a <= 1 ? { r: value.r, g: value.g, b: value.b, a: value.a } : undefined;
+	}
+
+	function fourNumbers(value) {
+		return Array.isArray(value) && value.length === 4 && value.every(isFiniteNumber) ? value.slice() : null;
+	}
+
+	/** A gd:inspect measurement checked field by field (the page is the design's own code, not trusted); null when malformed. */
+	function readMeasure(raw) {
+		if (!raw || typeof raw !== "object") return null;
+		const selector = typeof raw.selector === "string" ? raw.selector.trim() : "";
+		const rect = raw.rect && typeof raw.rect === "object" ? raw.rect : null;
+		const color = finiteRgb(raw.color, true);
+		const background = finiteRgb(raw.background, false);
+		const margin = fourNumbers(raw.margin);
+		const padding = fourNumbers(raw.padding);
+		const radius = fourNumbers(raw.radius);
+		if (!selector || selector.length > LIMITS.selector || !rect || !["x", "y", "width", "height"].every((key) => isFiniteNumber(rect[key]))) return null;
+		if (color === undefined || background === undefined || !margin || !padding || !radius) return null;
+		if (!isFiniteNumber(raw.fontSize) || !isFiniteNumber(raw.fontWeight) || typeof raw.fontFamily !== "string" || (raw.lineHeight !== null && !isFiniteNumber(raw.lineHeight))) return null;
+		return {
+			selector,
+			label: typeof raw.label === "string" && raw.label ? raw.label.slice(0, 80) : selector.slice(0, 80),
+			text: typeof raw.text === "string" ? raw.text.slice(0, LIMITS.excerpt) : "",
+			hasText: raw.hasText === true,
+			rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+			color, background, fontFamily: raw.fontFamily.slice(0, 300), fontSize: raw.fontSize, fontWeight: raw.fontWeight, lineHeight: raw.lineHeight,
+			margin, padding, radius,
+		};
+	}
+
+	/** Beside the frame (right, else left), level with the element; below or above it when the frame leaves no room. */
+	function placeInspector(surface, rect) {
+		const viewport = els.viewport.getBoundingClientRect();
+		const box = surface.frame.getBoundingClientRect();
+		const frame = { left: box.left, top: box.top, width: box.width, right: box.left + box.width };
+		const scale = frame.width / surface.viewWidth || 1;
+		const top = frame.top + rect.y * scale;
+		const bottom = frame.top + (rect.y + rect.height) * scale;
+		const width = els.inspector.offsetWidth || INSPECTOR_WIDTH;
+		const height = els.inspector.offsetHeight || INSPECTOR_HEIGHT;
+		const minX = viewport.left + INSPECTOR_GAP;
+		const maxX = viewport.left + viewport.width - width - INSPECTOR_GAP;
+		const minY = viewport.top + INSPECTOR_GAP;
+		const maxY = Math.max(minY, viewport.top + viewport.height - height - INSPECTOR_GAP);
+		const clamp = (value, low, high) => Math.min(Math.max(value, low), high);
+		let x;
+		let y = clamp(top, minY, maxY);
+		if (frame.right + INSPECTOR_GAP <= maxX) x = frame.right + INSPECTOR_GAP;
+		else if (frame.left - INSPECTOR_GAP - width >= minX) x = frame.left - INSPECTOR_GAP - width;
+		else {
+			x = clamp(frame.left + rect.x * scale, minX, Math.max(minX, maxX));
+			y = clamp(bottom + 8 + height <= viewport.top + viewport.height - INSPECTOR_GAP ? bottom + 8 : top - 8 - height, minY, maxY);
+		}
+		els.inspector.style.left = `${x - viewport.left}px`;
+		els.inspector.style.top = `${y - viewport.top}px`;
+	}
+
+	function showInspector(surface, measure) {
+		const result = describeInspection(measure);
+		// A new element cancels a pending hide (scheduleInspectorHide checks the generation).
+		state.inspectGen += 1;
+		state.inspect = { surface, measure, flags: result.flags, text: result.text };
+		els.inspectorTitle.textContent = measure.label;
+		els.inspectorSelector.textContent = measure.selector;
+		els.inspectorSelector.title = measure.selector;
+		els.inspectorList.replaceChildren(...result.rows);
+		els.inspectorNote.hidden = state.tokens.length > 0;
+		els.inspectorNote.textContent = "No design/system.md tokens found, so values and contrast are shown without a comparison.";
+		const nothing = result.flags.length === 0;
+		els.inspectorFix.disabled = nothing;
+		els.inspectorFix.title = nothing ? "Nothing is off the design system, so there is nothing to fix." : "";
+		els.inspector.hidden = false;
+		placeInspector(surface, measure.rect);
+	}
+
+	function hideInspector() {
+		state.inspectGen += 1;
+		state.inspect = null;
+		state.inspectorHover = false;
+		els.inspector.hidden = true;
+	}
+
+	/** The element was left: the panel goes soon, unless the pointer or the keyboard is in it by then. */
+	function scheduleInspectorHide() {
+		const generation = ++state.inspectGen;
+		setTimeout(() => {
+			if (generation !== state.inspectGen) return;
+			if (state.inspectorHover || els.inspector.contains(document.activeElement)) return;
+			hideInspector();
+		}, INSPECTOR_HIDE_MS);
+	}
+
+	els.inspector.addEventListener("pointerenter", () => { state.inspectorHover = true; });
+	els.inspector.addEventListener("pointerleave", () => {
+		state.inspectorHover = false;
+		scheduleInspectorHide();
+	});
+	// The panel is not part of the artboard: wheel over it never pans the canvas.
+	els.inspector.addEventListener("wheel", (event) => event.stopPropagation());
+
+	els.inspectorFix.addEventListener("click", () => {
+		const current = state.inspect;
+		if (!current || current.flags.length === 0) return;
+		const { surface, measure, text } = current;
+		openPopover(surface, { selector: measure.selector, excerpt: measure.text, rect: measure.rect });
+		els.text.value = text.slice(0, LIMITS.comment);
+	});
+
+	/** The Clipboard API, else the browser's copy command through a hidden text area. */
+	async function copyText(text) {
+		try {
+			if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+				await navigator.clipboard.writeText(text);
+				return true;
+			}
+		} catch { /* denied or unavailable: use the fallback */ }
+		const previous = document.activeElement;
+		const area = document.createElement("textarea");
+		area.value = text;
+		area.setAttribute("readonly", "");
+		area.className = "gd-visually-hidden";
+		document.body.append(area);
+		try {
+			area.focus?.();
+			area.select?.();
+			return typeof document.execCommand === "function" && document.execCommand("copy") === true;
+		} catch {
+			return false;
+		} finally {
+			area.remove();
+			previous?.focus?.();
+		}
+	}
+
+	els.inspectorCopy.addEventListener("click", async () => {
+		const current = state.inspect;
+		if (!current) return;
+		const ok = await copyText(current.text);
+		showToast(ok ? "Copied" : "Could not copy. Use Ask the agent to fix and copy the text from the comment box.", !ok);
+	});
+
+	// ---- accessibility checks -------------------------------------------------
+	// Each artboard's own frame reports gd:checks after it loads (inspector.js). The result belongs to the
+	// artboard until it reloads. They are heuristics, not a full audit: see docs/gentle-shell.md.
+
+	const CHECK_IDS = ["contrast", "target", "alt", "label", "heading"];
+
+	/** Failures of a board's last result (advice is not counted), or null when it has not reported. */
+	function checkFailures(board) {
+		return board.checks ? board.checks.checks.reduce((sum, check) => sum + check.count, 0) : null;
+	}
+
+	function boundedText(value, max) {
+		return typeof value === "string" ? value.slice(0, max) : null;
+	}
+
+	/** A gd:checks report checked field by field; null when malformed. */
+	function readChecks(data) {
+		if (!Array.isArray(data.checks) || data.checks.length > 10 || !Array.isArray(data.issues) || data.issues.length > 200) return null;
+		const checks = [];
+		for (const entry of data.checks) {
+			if (!entry || !CHECK_IDS.includes(entry.id) || typeof entry.label !== "string" || !Number.isInteger(entry.count) || entry.count < 0 || !Number.isInteger(entry.advice) || entry.advice < 0) return null;
+			checks.push({ id: entry.id, label: entry.label.slice(0, 60), count: entry.count, advice: entry.advice });
+		}
+		const issues = [];
+		for (const raw of data.issues) {
+			if (!raw || !CHECK_IDS.includes(raw.check) || (raw.severity !== "fail" && raw.severity !== "advice")) return null;
+			const title = boundedText(raw.title, 80);
+			const detail = boundedText(raw.detail, 400);
+			const selector = boundedText(raw.selector, LIMITS.selector);
+			const label = boundedText(raw.label, 80);
+			const rect = raw.rect && typeof raw.rect === "object" ? raw.rect : null;
+			if (!title || detail === null || !selector || label === null || !rect || !["x", "y", "width", "height"].every((key) => isFiniteNumber(rect[key]))) return null;
+			issues.push({ check: raw.check, severity: raw.severity, title, detail, selector, label, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } });
+		}
+		return { checks, issues };
+	}
+
+	/** The Checks tab: its count and, while it is shown, one group per checked artboard. */
+	function renderChecks() {
+		const total = state.boards.reduce((sum, board) => sum + (checkFailures(board) ?? 0), 0);
+		els.countChecks.textContent = String(total);
+		if (state.tab !== "checks") return;
+		const groups = state.boards.filter((board) => board.checks).map(checkGroup);
+		if (groups.length === 0) {
+			const empty = chip("gd-check-empty", "Checks run when an artboard loads.");
+			els.checks.replaceChildren(empty);
+			return;
+		}
+		els.checks.replaceChildren(...groups);
+	}
+
+	function checkGroup(board) {
+		const { checks, issues } = board.checks;
+		const failures = checkFailures(board);
+		const group = document.createElement("section");
+		group.className = "gd-check-group";
+		group.setAttribute("aria-label", `Checks for ${String(board.number).padStart(2, "0")} ${board.artboard.title}`);
+		const heading = document.createElement("h3");
+		heading.className = "gd-check-heading";
+		heading.textContent = `${String(board.number).padStart(2, "0")} ${board.artboard.title}`;
+		const summary = chip(`gd-check-summary${failures === 0 ? " gd-check-summary-ok" : ""}`, failures === 0 ? "A11y ✓" : `${failures} check${failures === 1 ? "" : "s"}`);
+		const head = document.createElement("div");
+		head.className = "gd-check-head";
+		head.append(heading, summary);
+		const passed = checks.filter((check) => check.count === 0).map((check) => check.label);
+		const parts = [head, ...issues.map((issue) => checkCard(board, issue))];
+		if (passed.length > 0) parts.push(chip("gd-check-passed", `Passed: ${passed.join(" · ")}`));
+		group.append(...parts);
+		return group;
+	}
+
+	function checkCard(board, issue) {
+		const fail = issue.severity === "fail";
+		const card = document.createElement("article");
+		card.className = `gd-check ${fail ? "gd-check-fail" : "gd-check-advice"}`;
+		const body = document.createElement("div");
+		body.className = "gd-check-body";
+		const title = document.createElement("b");
+		title.className = "gd-check-title";
+		title.textContent = issue.title;
+		const heading = document.createElement("div");
+		heading.className = "gd-check-top";
+		heading.append(title, chip("gd-check-kind", fail ? "Problem" : "Advice"));
+		const detail = document.createElement("small");
+		detail.className = "gd-check-detail";
+		detail.textContent = issue.detail;
+		const selector = document.createElement("code");
+		selector.className = "gd-check-selector";
+		selector.textContent = issue.selector;
+		selector.title = issue.selector;
+		const actions = document.createElement("div");
+		actions.className = "gd-check-actions";
+		const show = document.createElement("button");
+		show.type = "button";
+		show.className = "gd-check-show gd-small";
+		show.setAttribute("aria-label", `Show ${issue.title} on ${issue.label} in ${String(board.number).padStart(2, "0")} ${board.artboard.title}`);
+		show.append(icon("i-target", "gd-i gd-i-s"), chip("", "Show"));
+		show.addEventListener("click", () => showIssue(board, issue));
+		const fix = document.createElement("button");
+		fix.type = "button";
+		fix.className = "gd-check-fix gd-small";
+		fix.setAttribute("aria-label", `Ask the agent to fix ${issue.title} on ${issue.label}`);
+		fix.append(chip("", "Ask the agent to fix"));
+		fix.addEventListener("click", () => askAboutIssue(board, issue));
+		actions.append(show, fix);
+		body.append(heading, detail, selector, actions);
+		card.append(icon("i-alert", "gd-i gd-i-s gd-check-icon"), body);
+		return card;
+	}
+
+	/** Brings an issue's artboard into view: another artboard's focus ends, and with none focused the canvas centers the element. */
+	function revealIssue(board, issue) {
+		if (state.focus && state.focus !== board) exitFocus();
+		if (state.focus) return;
+		const viewport = els.viewport.getBoundingClientRect();
+		const frame = board.frame.getBoundingClientRect();
+		const scale = frame.width / board.viewWidth || 1;
+		const x = frame.left + (issue.rect.x + issue.rect.width / 2) * scale;
+		const y = frame.top + (issue.rect.y + issue.rect.height / 2) * scale;
+		panBy(viewport.left + viewport.width / 2 - x, viewport.top + viewport.height / 2 - y);
+	}
+
+	function showIssue(board, issue) {
+		revealIssue(board, issue);
+		for (const surface of surfacesOf(board)) surface.frame.contentWindow?.postMessage({ type: "gd:highlight", selector: issue.selector }, "*");
+	}
+
+	function askAboutIssue(board, issue) {
+		revealIssue(board, issue);
+		for (const surface of surfacesOf(board)) surface.frame.contentWindow?.postMessage({ type: "gd:highlight", selector: issue.selector }, "*");
+		const fail = issue.severity === "fail";
+		const text = fail
+			? `Accessibility check on ${issue.selector}: ${issue.title}.\n${issue.detail}\nFix it so it meets WCAG 2.2 AA, keeping the design's tokens.`
+			: `Accessibility advice on ${issue.selector}: ${issue.title}.\n${issue.detail}\nConsider fixing it, keeping the design's tokens.`;
+		// In All sizes the artboard's own frame is hidden: ask on the Desktop frame, the manifest size.
+		openPopover(board.sizeFrames.length > 0 ? board.sizeFrames[board.sizeFrames.length - 1] : board, { selector: issue.selector, excerpt: issue.label, rect: issue.rect });
+		els.text.value = text.slice(0, LIMITS.comment);
 	}
 
 	// ---- comments ----------------------------------------------------------
@@ -1788,10 +2386,13 @@
 		els.sendAll.textContent = `Send all (${unsent})`;
 		els.sendAll.disabled = unsent === 0 || !DELIVERY.batch;
 		const brief = state.tab === "brief";
+		const checks = state.tab === "checks";
 		els.brief.hidden = !brief;
-		els.list.hidden = brief;
+		els.checks.hidden = !checks;
+		els.list.hidden = brief || checks;
+		renderChecks();
 		const shown = state.tab === "resolved" ? resolved : open;
-		els.panelEmpty.hidden = brief || shown.length > 0;
+		els.panelEmpty.hidden = brief || checks || shown.length > 0;
 		els.panelEmpty.textContent = state.comments.length === 0
 			? "No comments yet. Turn on Comment mode and click an element."
 			: state.tab === "open" ? "No open comments." : "No resolved comments.";
@@ -1969,7 +2570,7 @@
 	els.modeCollect.addEventListener("change", () => setMode("collect"));
 
 	function tabButtons() {
-		return [els.filterOpen, els.filterResolved, els.tabBrief];
+		return [els.filterOpen, els.filterResolved, els.tabChecks, els.tabBrief];
 	}
 
 	function setTab(name) {
@@ -1981,7 +2582,8 @@
 	// Arrow keys, Home and End move between the tabs, wrapping around.
 	els.tabs.addEventListener("keydown", (event) => {
 		const current = TAB_NAMES.indexOf(state.tab);
-		const next = { ArrowRight: (current + 1) % 3, ArrowLeft: (current + 2) % 3, Home: 0, End: 2 }[event.key];
+		const count = TAB_NAMES.length;
+		const next = { ArrowRight: (current + 1) % count, ArrowLeft: (current + count - 1) % count, Home: 0, End: count - 1 }[event.key];
 		if (next === undefined) return;
 		event.preventDefault();
 		setTab(TAB_NAMES[next]);
@@ -2096,6 +2698,7 @@
 	}
 
 	function openPopover(surface, pick) {
+		hideInspector();
 		clearTimeout(state.closeTimer);
 		const board = ownerOf(surface);
 		state.pick = { board, surface, viewport: viewportOf(surface), ...pick };
@@ -2189,6 +2792,7 @@
 	});
 
 	function closePopover() {
+		hideInspector();
 		if (els.popover.hidden) return;
 		clearTimeout(state.closeTimer);
 		const surface = state.pick && state.pick.surface;
@@ -2294,6 +2898,23 @@
 			if (Math.round(data.width) !== surface.viewWidth) return;
 			surface.overflow = data.overflow ? { scrollWidth: data.scrollWidth } : null;
 			renderOverflow(surface);
+		} else if (data.type === "gd:inspect") {
+			// Only while commenting on the focused artboard (or any, in the overview), never while the comment box is open.
+			if (board.system || !state.commenting || !els.popover.hidden || (state.focus && board !== state.focus)) return;
+			if (data.element === null) {
+				if (state.inspect && state.inspect.surface === surface) scheduleInspectorHide();
+				return;
+			}
+			const measure = readMeasure(data.element);
+			if (measure) showInspector(surface, measure);
+		} else if (data.type === "gd:checks") {
+			// Only the artboard's own frame says how the artboard is; the system board is never checked.
+			if (board.system || surface !== board) return;
+			const result = readChecks(data);
+			if (!result) return;
+			board.checks = result;
+			renderChecks();
+			renderNav();
 		} else if (data.type === "gd:escape") {
 			if (!els.popover.hidden) closePopover();
 			else if (state.commenting) setCommenting(false);
