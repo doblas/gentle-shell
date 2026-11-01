@@ -261,3 +261,85 @@ test("S7: describeViewport names the Phone and Tablet presets and otherwise read
 	assert.equal(describeViewport({ width: 720, height: 820 }), "720 × 820");
 	assert.equal(describeViewport({ width: 390, height: 900 }), "390 × 900", "the preset name needs the preset height too");
 });
+
+// S5: the agent's one-line reply on a resolved comment.
+
+test("S5: setStatus resolved with a note stores it, trimmed, as the comment's resolution", async (t) => {
+	const root = designRoot(t);
+	const store = fixedStore(root);
+	const a = await store.add("alpha", INPUT);
+	const b = await store.add("alpha", INPUT);
+	const result = await store.setStatus("alpha", [a.id], "resolved", { note: "  Made the title 32px.\r\n " });
+	assert.equal(result.updated[0].resolution, "Made the title 32px.");
+	const onDisk = JSON.parse(readFileSync(join(root, "alpha", "comments.json"), "utf8")).comments;
+	assert.equal(onDisk[0].resolution, "Made the title 32px.");
+	assert.equal("resolution" in onDisk[1], false, "comments resolved or open without a note never get the key");
+	assert.equal((await store.read("alpha")).comments.find((comment) => comment.id === b.id)!.resolution, undefined);
+});
+
+test("S5: setStatus resolved without a note, or with a blank one, stores no resolution", async (t) => {
+	const root = designRoot(t);
+	const store = fixedStore(root);
+	const a = await store.add("alpha", INPUT);
+	const b = await store.add("alpha", INPUT);
+	await store.setStatus("alpha", [a.id], "resolved");
+	await store.setStatus("alpha", [b.id], "resolved", { note: "   \n " });
+	const onDisk = JSON.parse(readFileSync(join(root, "alpha", "comments.json"), "utf8")).comments;
+	assert.deepEqual(onDisk.map((comment: { status: string }) => comment.status), ["resolved", "resolved"]);
+	assert.deepEqual(onDisk.map((comment: object) => "resolution" in comment), [false, false]);
+});
+
+test("S5: a note of 500 characters is kept; 501 is refused as invalid-input and comments.json is unchanged", async (t) => {
+	const root = designRoot(t);
+	const store = fixedStore(root);
+	const a = await store.add("alpha", INPUT);
+	const path = join(root, "alpha", "comments.json");
+	const before = readFileSync(path, "utf8");
+	await assert.rejects(store.setStatus("alpha", [a.id], "resolved", { note: "x".repeat(501) }), (error: unknown) => error instanceof DesignCommentsError && error.code === "invalid-input" && /at most 500 characters/.test(error.message));
+	await assert.rejects(store.setStatus("alpha", [a.id], "resolved", { note: 7 as never }), (error: unknown) => error instanceof DesignCommentsError && error.code === "invalid-input" && /note must be a string/.test(error.message));
+	assert.equal(readFileSync(path, "utf8"), before);
+	const kept = await store.setStatus("alpha", [a.id], "resolved", { note: "x".repeat(500) });
+	assert.equal(kept.updated[0].resolution!.length, 500);
+});
+
+test("S5: reopening a comment clears its resolution; resolving again with a note replaces it", async (t) => {
+	const root = designRoot(t);
+	const store = fixedStore(root);
+	const a = await store.add("alpha", INPUT);
+	await store.setStatus("alpha", [a.id], "resolved", { note: "First try." });
+	const reopened = await store.setStatus("alpha", [a.id], "open");
+	assert.equal(reopened.updated[0].status, "open");
+	assert.equal("resolution" in reopened.updated[0], false);
+	assert.equal("resolution" in JSON.parse(readFileSync(join(root, "alpha", "comments.json"), "utf8")).comments[0], false);
+	await store.setStatus("alpha", [a.id], "resolved", { note: "Second try." });
+	const again = await store.setStatus("alpha", [a.id], "resolved", { note: "Final." });
+	assert.equal(again.updated[0].resolution, "Final.");
+	assert.equal((await store.read("alpha")).comments[0].resolution, "Final.");
+});
+
+test("S5: a note on an open-status change is refused rather than stored", async (t) => {
+	const root = designRoot(t);
+	const store = fixedStore(root);
+	const a = await store.add("alpha", INPUT);
+	const before = readFileSync(join(root, "alpha", "comments.json"), "utf8");
+	await assert.rejects(store.setStatus("alpha", [a.id], "open", { note: "nope" }), (error: unknown) => error instanceof DesignCommentsError && error.code === "invalid-input");
+	assert.equal(readFileSync(join(root, "alpha", "comments.json"), "utf8"), before);
+});
+
+test("S5: a malformed resolution in an existing comments.json is an invalid-file error and the file is never overwritten", async (t) => {
+	const root = designRoot(t);
+	const store = fixedStore(root);
+	const a = await store.add("alpha", INPUT);
+	const path = join(root, "alpha", "comments.json");
+	const good = JSON.parse(readFileSync(path, "utf8"));
+	for (const resolution of [7, null, ["x"], "x".repeat(501)]) {
+		const bytes = JSON.stringify({ version: 1, comments: [{ ...good.comments[0], status: "resolved", resolution }] });
+		writeFileSync(path, bytes);
+		await assert.rejects(store.read("alpha"), (error: unknown) => error instanceof DesignCommentsError && error.code === "invalid-file" && /resolution/.test(error.message), JSON.stringify(resolution));
+		await assert.rejects(store.setStatus("alpha", [a.id], "open"), (error: unknown) => error instanceof DesignCommentsError && error.code === "invalid-file");
+		assert.equal(readFileSync(path, "utf8"), bytes);
+	}
+	// A valid resolution and a comment without one both read back.
+	writeFileSync(path, JSON.stringify({ version: 1, comments: [{ ...good.comments[0], status: "resolved", resolution: "Done." }, { ...good.comments[0], id: "other1" }] }));
+	assert.deepEqual((await store.read("alpha")).comments.map((comment) => comment.resolution), ["Done.", undefined]);
+});
