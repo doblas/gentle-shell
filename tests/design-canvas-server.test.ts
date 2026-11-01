@@ -1124,3 +1124,63 @@ test("the page config tells the canvas which deliveries exist, and the 501 check
 	t.after(() => implement.close());
 	assert.deepEqual((await configOf(implement.port, "i".repeat(32))).delivery, { comment: true, batch: false, implement: true });
 });
+
+// S7: the viewport a comment was made at.
+
+const VIEWPORT = { width: 390, height: 844 };
+
+test("S7: a comment with a viewport is stored with it and delivered with it; without one the key is absent", async (t) => {
+	const { port, root, comments } = await start(t);
+	const reply = await postComment(port, { ...VALID, viewport: VIEWPORT });
+	assert.equal(reply.status, 202);
+	const { id } = JSON.parse(reply.body);
+	assert.deepEqual(comments, [{ ...VALID, id, viewport: VIEWPORT }], "the session comment carries the viewport");
+	assert.deepEqual((storedComments(root)[0] as Stored & { viewport?: unknown }).viewport, VIEWPORT);
+	assert.equal((await postComment(port, VALID)).status, 202);
+	assert.equal("viewport" in comments[1], false);
+	assert.equal("viewport" in storedComments(root)[1], false, "never written when absent");
+	// Collected comments keep it too, and a Send all delivers it.
+	const collected = await postComment(port, { ...VALID, mode: "collect", viewport: { width: 720, height: 820 } });
+	assert.equal(collected.status, 201);
+	assert.deepEqual((storedComments(root)[2] as Stored & { viewport?: unknown }).viewport, { width: 720, height: 820 });
+});
+
+test("S7: an invalid viewport is refused with 400 invalid-viewport and leaves comments.json unchanged", async (t) => {
+	const { port, root, comments } = await start(t);
+	const invalid: unknown[] = [
+		{ width: 239, height: 844 }, { width: 4097, height: 844 }, { width: 390, height: 0 }, { width: 390, height: 20001 },
+		{ width: 390.5, height: 844 }, { width: "390", height: 844 }, { width: 390 }, {}, null, [], "390x844", 390,
+	];
+	for (const viewport of invalid) {
+		const reply = await postComment(port, { ...VALID, viewport });
+		assert.equal(reply.status, 400, JSON.stringify(viewport));
+		assert.equal(JSON.parse(reply.body).error, "invalid-viewport");
+	}
+	assert.deepEqual(comments, [], "nothing was delivered");
+	assert.equal(existsSync(join(root, "alpha", "comments.json")), false, "nothing was stored");
+	// A stored file stays byte for byte as it was.
+	assert.equal((await postComment(port, VALID)).status, 202);
+	const before = readFileSync(join(root, "alpha", "comments.json"), "utf8");
+	assert.equal((await postComment(port, { ...VALID, viewport: { width: 1, height: 1 } })).status, 400);
+	assert.equal(readFileSync(join(root, "alpha", "comments.json"), "utf8"), before);
+});
+
+test("S7: formatDesignComment names the viewport so the agent edits for that width, and says nothing without one", () => {
+	const comment: DesignComment = { id: "k3x9p2", slug: "landing", file: "02-bold.html", selector: "#cta", excerpt: "Go", comment: "Too wide.", viewport: { width: 390, height: 844 } };
+	const text = formatDesignComment(comment);
+	assert.match(text, /\nExcerpt: "Go"\nViewport: Phone 390 × 844 \(the comment was made at this size; make the change hold at this width\)\n\nComment:\n/);
+	assert.match(formatDesignComment({ ...comment, viewport: { width: 720, height: 820 } }), /\nViewport: 720 × 820 \(/);
+	const { viewport: _drop, ...plain } = comment;
+	assert.ok(!formatDesignComment(plain).includes("Viewport:"));
+});
+
+test("S7: formatDesignCommentBatch names each comment's viewport, and only those that have one", () => {
+	const batch: DesignComment[] = [
+		{ id: "aaa111", slug: "landing", file: "01-calm.html", selector: "#cta", excerpt: "Start", comment: "Make it green.", viewport: { width: 820, height: 1180 } },
+		{ id: "bbb222", slug: "landing", file: "02-bold.html", selector: "body > h1", excerpt: "", comment: "Shorter." },
+	];
+	const text = formatDesignCommentBatch(batch);
+	assert.match(text, /\n   Excerpt: "Start"\n   Viewport: Tablet 820 × 1180 \(the comment was made at this size; make the change hold at this width\)\n   Comment:\n/);
+	assert.equal(text.match(/Viewport:/g)?.length, 1);
+	assert.match(text, /\n   Excerpt: \(none\)\n   Comment:\n   Shorter\.\n/);
+});

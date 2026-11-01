@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { designCommentBatchContent, designCommentContent, hasSystemTokens, listDesignEntries, readDesignManifest, resolveSystemBoard, startDesignCanvasServer, type DesignArtboard, type DesignCanvasServer, type DesignCanvasServerOptions, type DesignSessionContent } from "./design-canvas-server.ts";
-import { createDesignCommentStore, DesignCommentsError, type StoredDesignComment } from "./design-comments.ts";
+import { createDesignCommentStore, DesignCommentsError, describeViewport, type StoredDesignComment } from "./design-comments.ts";
 import { createDesignHandoffStore, DesignHandoffsError, sendDesignHandoff, type DesignHandoff, type DesignHandoffDelivery, type DesignHandoffStatus } from "./design-handoffs.ts";
 import { openInBrowser, type OpenInBrowserResult } from "./design-open-browser.ts";
 import { detectDesignSources, staleDesignSources } from "./design-sources.ts";
@@ -76,7 +76,7 @@ export type DesignImplementInput = {
 	/** Whether design/system.md exists. */
 	systemTokens: boolean;
 	/** The open comments on this artboard. */
-	comments: ReadonlyArray<Pick<StoredDesignComment, "id" | "selector" | "excerpt" | "comment">>;
+	comments: ReadonlyArray<Pick<StoredDesignComment, "id" | "selector" | "excerpt" | "comment" | "viewport">>;
 };
 
 /** The handoff message for one artboard (S8); the command and the canvas button both send exactly this. */
@@ -101,6 +101,7 @@ export function designImplementMessage(input: DesignImplementInput): string {
 				`${index + 1}. Comment id: ${comment.id}`,
 				`   Element: ${comment.selector}`,
 				`   Excerpt: ${comment.excerpt ? JSON.stringify(comment.excerpt) : "(none)"}`,
+				...(comment.viewport ? [`   Viewport: ${describeViewport(comment.viewport)} (edit for this width)`] : []),
 				"   Comment:",
 				...comment.comment.split("\n").map((line) => `   ${line}`),
 			);
@@ -319,6 +320,7 @@ function describeComment(slug: string, comment: StoredDesignComment): string[] {
 		`- [${comment.id}] design/${slug}/${comment.file}`,
 		`  Element: ${comment.selector}`,
 		`  Excerpt: ${comment.excerpt ? JSON.stringify(comment.excerpt) : "(none)"}`,
+		...(comment.viewport ? [`  Viewport: ${describeViewport(comment.viewport)} (edit for this width)`] : []),
 		`  Comment: ${comment.comment.split("\n").join("\n           ")}`,
 		...(comment.screenshot ? [`  Screenshot: design/${slug}/${comment.screenshot} (open it with the read tool)`] : []),
 	];

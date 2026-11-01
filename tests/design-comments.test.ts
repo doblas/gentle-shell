@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TestContext } from "node:test";
 import test from "node:test";
-import { DesignCommentsError, MAX_DESIGN_COMMENTS, MAX_DESIGN_SCREENSHOT_BYTES, createDesignCommentStore } from "../lib/design-comments.ts";
+import { DesignCommentsError, MAX_DESIGN_COMMENTS, MAX_DESIGN_SCREENSHOT_BYTES, createDesignCommentStore, describeViewport } from "../lib/design-comments.ts";
 
 // design/<slug>/comments.json has one owner: every read and write goes through
 // lib/design-comments.ts, so the canvas server and the agent tool serialize.
@@ -198,4 +198,66 @@ test("a stored screenshot path outside .screenshots makes comments.json invalid,
 	symlinkSync(outside, join(root, "alpha", ".screenshots"));
 	await assert.rejects(store.add("alpha", { ...INPUT, screenshot: { mimeType: "image/png", data: PNG } }), (error: unknown) => error instanceof DesignCommentsError && error.code === "invalid-file");
 	assert.deepEqual(readdirSync(outside), []);
+});
+
+// S7: the optional viewport a comment was made at.
+
+const VIEWPORT = { width: 390, height: 844 };
+const stored = (extra: Record<string, unknown> = {}) => ({ id: "a1", ...INPUT, createdAt: FIXED.toISOString(), status: "open", sentAt: null, resolvedAt: null, ...extra });
+
+test("S7: a comment added with a viewport stores it; without one the key is absent", async (t) => {
+	const root = designRoot(t);
+	const store = fixedStore(root);
+	const withViewport = await store.add("alpha", { ...INPUT, viewport: VIEWPORT });
+	assert.deepEqual(withViewport, { id: "id0000", ...INPUT, viewport: VIEWPORT, createdAt: FIXED.toISOString(), status: "open", sentAt: null, resolvedAt: null });
+	const plain = await store.add("alpha", INPUT);
+	assert.equal("viewport" in plain, false, "never written when absent");
+	const onDisk = JSON.parse(readFileSync(join(root, "alpha", "comments.json"), "utf8"));
+	assert.deepEqual(onDisk.comments[0].viewport, VIEWPORT);
+	assert.equal("viewport" in onDisk.comments[1], false);
+	assert.deepEqual(await store.read("alpha"), onDisk);
+	// The bounds are inclusive.
+	for (const edge of [{ width: 240, height: 1 }, { width: 4096, height: 20000 }]) assert.deepEqual((await store.add("alpha", { ...INPUT, viewport: edge })).viewport, edge);
+});
+
+test("S7: an invalid viewport is refused before anything is written", async (t) => {
+	const root = designRoot(t);
+	const store = fixedStore(root);
+	const invalid: unknown[] = [
+		{ width: 239, height: 844 }, { width: 4097, height: 844 }, { width: 390, height: 0 }, { width: 390, height: 20001 },
+		{ width: 390.5, height: 844 }, { width: "390", height: 844 }, { width: 390 }, { height: 844 }, {}, null, [], "390x844", 390,
+		{ width: Number.NaN, height: 844 }, { width: Infinity, height: 844 },
+	];
+	for (const viewport of invalid) {
+		await assert.rejects(store.add("alpha", { ...INPUT, viewport } as never), (error: unknown) => error instanceof DesignCommentsError && error.code === "invalid-input" && /viewport/.test(error.message), JSON.stringify(viewport));
+	}
+	assert.deepEqual(readdirSync(join(root, "alpha")), [], "comments.json was not created");
+});
+
+test("S7: a comments.json with a valid viewport reads; one without it stays valid; an invalid one makes the file invalid and is never overwritten", async (t) => {
+	const root = designRoot(t);
+	const store = createDesignCommentStore(root);
+	const path = join(root, "alpha", "comments.json");
+	writeFileSync(path, JSON.stringify({ version: 1, comments: [stored({ viewport: VIEWPORT }), stored({ id: "a2" })] }));
+	const { comments } = await store.read("alpha");
+	assert.deepEqual(comments[0].viewport, VIEWPORT);
+	assert.equal("viewport" in comments[1], false);
+	// Other writes keep the viewport.
+	await store.setStatus("alpha", ["a1"], "resolved");
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")).comments[0].viewport, VIEWPORT);
+
+	for (const viewport of [{ width: 100, height: 844 }, { width: 390, height: 99999 }, { width: 390 }, "wide", null, [], { width: 390.5, height: 1 }]) {
+		const bytes = JSON.stringify({ version: 1, comments: [stored({ viewport })] });
+		writeFileSync(path, bytes);
+		await assert.rejects(store.read("alpha"), (error: unknown) => error instanceof DesignCommentsError && error.code === "invalid-file" && /comments\[0\]: viewport/.test(error.message), bytes);
+		await assert.rejects(store.add("alpha", INPUT), (error: unknown) => error instanceof DesignCommentsError && error.code === "invalid-file");
+		assert.equal(readFileSync(path, "utf8"), bytes, "bytes unchanged");
+	}
+});
+
+test("S7: describeViewport names the Phone and Tablet presets and otherwise reads width × height", () => {
+	assert.equal(describeViewport({ width: 390, height: 844 }), "Phone 390 × 844");
+	assert.equal(describeViewport({ width: 820, height: 1180 }), "Tablet 820 × 1180");
+	assert.equal(describeViewport({ width: 720, height: 820 }), "720 × 820");
+	assert.equal(describeViewport({ width: 390, height: 900 }), "390 × 900", "the preset name needs the preset height too");
 });

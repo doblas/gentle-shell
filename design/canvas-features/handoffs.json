@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "chosen": "06-language.html",
+  "handoffs": {
+    "01-screen-sizes.html": {
+      "status": "sent",
+      "queued": false,
+      "sentAt": "2026-10-28T16:12:10.031Z",
+      "startedAt": null,
+      "implementedAt": null
+    },
+    "02-version-history.html": {
+      "status": "sent",
+      "queued": true,
+      "sentAt": "2026-10-28T16:12:34.597Z",
+      "startedAt": null,
+      "implementedAt": null
+    },
+    "03-token-inspector.html": {
+      "status": "sent",
+      "queued": true,
+      "sentAt": "2026-10-28T16:12:37.171Z",
+      "startedAt": null,
+      "implementedAt": null
+    },
+    "04-compare-overlay.html": {
+      "status": "sent",
+      "queued": true,
+      "sentAt": "2026-10-28T16:12:39.620Z",
+      "startedAt": null,
+      "implementedAt": null
+    },
+    "05-minimap-variants-export.html": {
+      "status": "sent",
+      "queued": true,
+      "sentAt": "2026-10-28T16:12:41.608Z",
+      "startedAt": null,
+      "implementedAt": null
+    },
+    "06-language.html": {
+      "status": "sent",
+      "queued": false,
+      "sentAt": "2026-10-28T16:12:43.838Z",
+      "startedAt": null,
+      "implementedAt": null
+    }
+  }
+}

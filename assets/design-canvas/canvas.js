@@ -47,6 +47,19 @@
 	const COMPACT_BOARD_WIDTH = 360;
 	const COMPARE_GAP = 24;
 	const COMPARE_PADDING = 24;
+	// Screen sizes in focus mode. Desktop is the artboard's own manifest size; the custom width is whole
+	// CSS px in this range with the manifest height; All sizes leaves a gap between frames and a band for each label.
+	const SIZE_PRESETS = [
+		{ kind: "phone", label: "Phone", icon: "i-phone", width: 390, height: 844 },
+		{ kind: "tablet", label: "Tablet", icon: "i-tablet", width: 820, height: 1180 },
+		{ kind: "desktop", label: "Desktop", icon: "i-monitor", manifest: true },
+	];
+	const CUSTOM_WIDTH = { min: 240, max: 2560 };
+	// What comments.json accepts for the size a comment was made at (lib/design-comments.ts).
+	const VIEWPORT_LIMITS = { minWidth: 240, maxWidth: 4096, minHeight: 1, maxHeight: 20000 };
+	const SIZES_GAP = 20;
+	const SIZES_HEAD = 28;
+	const MIN_SIZES_SCALE = 0.05;
 	const TOAST_MS = 5000;
 	// What the server can deliver; an older page config without it means everything.
 	const DELIVERY = { comment: true, batch: true, implement: true, ...(config.delivery && typeof config.delivery === "object" ? config.delivery : {}) };
@@ -186,6 +199,8 @@
 		savedView: null,
 		savedPanel: null,
 		savedNav: null,
+		// The size shown while focused: { kind: "phone" | "tablet" | "desktop" | "all" }, or { kind: "custom", width }.
+		size: { kind: "desktop" },
 		hoverBoard: null,
 		// The handoffs.json of design `slug`; boards of another design ignore it.
 		handoffs: { slug: null, chosen: null, handoffs: {} },
@@ -449,7 +464,7 @@
 	/** A viewport point in the artboard's own CSS pixels. */
 	function framePoint(board, clientX, clientY) {
 		const rect = board.frame.getBoundingClientRect();
-		const scale = rect.width / board.artboard.width || 1;
+		const scale = rect.width / board.viewWidth || 1;
 		return { x: (clientX - rect.left) / scale, y: (clientY - rect.top) / scale };
 	}
 
@@ -472,21 +487,53 @@
 		if (state.hoverBoard) state.hoverBoard.frame.contentWindow?.postMessage({ type: "gd:hover-at", ...framePoint(board, event.clientX, event.clientY) }, "*");
 	}
 
-	function sendFocus(board) {
-		board.frame.contentWindow?.postMessage({ type: "gd:focus", enabled: board === state.focus }, "*");
+	/** The board's own frame, then the extra frames All sizes adds: every one reports picks and pins the same way. */
+	function surfacesOf(board) {
+		return board.sizeFrames.length > 0 ? [board, ...board.sizeFrames] : [board];
 	}
 
-	/** The artboard's visible height: its manifest height, or the viewport's while focused on a taller one. */
-	function setFrameHeight(board, height) {
+	/** The artboard a frame belongs to: a board is its own, a size frame names its board. */
+	function ownerOf(surface) {
+		return surface.board ?? surface;
+	}
+
+	function sendFocus(surface) {
+		surface.frame.contentWindow?.postMessage({ type: "gd:focus", enabled: ownerOf(surface) === state.focus }, "*");
+	}
+
+	/**
+	 * The artboard's visible size: its manifest size, or the focused size. A report of horizontal
+	 * overflow belongs to one width, so a new width clears it until the page reports again.
+	 */
+	function setFrameSize(board, width, height) {
+		if (board.viewWidth !== width) {
+			board.overflow = null;
+			board.viewWidth = width;
+			board.frame.style.width = `${width}px`;
+			renderOverflow(board);
+		}
 		board.viewHeight = height;
 		board.frame.style.height = `${height}px`;
+	}
+
+	function presetSize(board, preset) {
+		return preset.manifest ? { width: board.artboard.width, height: board.artboard.height } : { width: preset.width, height: preset.height };
+	}
+
+	/** What the focused size means for one artboard (All sizes keeps the artboard's own frame at its manifest size). */
+	function focusSize(board) {
+		const size = state.size;
+		if (size.kind === "custom") return { width: size.width, height: board.artboard.height };
+		const preset = SIZE_PRESETS.find((candidate) => candidate.kind === size.kind);
+		return preset ? presetSize(board, preset) : presetSize(board, SIZE_PRESETS[2]);
 	}
 
 	/**
 	 * 100% zoom with the focused artboard centered and its label (Implement this) in view.
 	 * A taller artboard is top-aligned and its frame is clipped to the viewport, so it
 	 * scrolls inside like a browser window instead of leaving its bottom out of reach
-	 * while the canvas cannot pan.
+	 * while the canvas cannot pan. The frame has the focused size (Phone, a custom width...);
+	 * All sizes puts the label at the top and fits three frames below it.
 	 */
 	function centerFocus() {
 		const board = state.focus;
@@ -498,15 +545,17 @@
 		const left = box.offsetLeft;
 		const top = box.offsetTop;
 		const labelSpace = box.offsetTop - board.wrapper.offsetTop;
-		const { width, height } = board.artboard;
+		const all = state.size.kind === "all";
+		const { width, height } = focusSize(board);
 		const minTop = FOCUS_MARGIN + labelSpace;
 		const available = viewport.height - minTop - BACK_SPACE;
-		const tall = height > available;
-		setFrameHeight(board, tall ? Math.max(120, Math.floor(available)) : height);
+		const tall = all || height > available;
+		setFrameSize(board, width, tall ? Math.max(120, Math.floor(available)) : height);
 		state.zoom = 1;
-		state.x = Math.round(width + FOCUS_MARGIN * 2 <= viewport.width ? (viewport.width - width) / 2 - left : FOCUS_MARGIN - left);
+		state.x = Math.round(!all && width + FOCUS_MARGIN * 2 <= viewport.width ? (viewport.width - width) / 2 - left : FOCUS_MARGIN - left);
 		state.y = Math.round((tall ? minTop : Math.max(minTop, (viewport.height - height) / 2)) - top);
 		applyView();
+		if (all) layoutSizes(board, minTop, viewport);
 	}
 
 	/** Shields, dimming, inert boards, toolbar controls and the mode label follow state.focus. */
@@ -518,9 +567,16 @@
 			board.wrapper.classList.toggle("gd-focus-board", active);
 			board.wrapper.inert = Boolean(focused) && !active;
 			board.shield.hidden = active;
-			if (!active && board.viewHeight !== board.artboard.height) setFrameHeight(board, board.artboard.height);
-			sendFocus(board);
+			board.wrapper.classList.toggle("gd-all-sizes", active && state.size.kind === "all");
+			if (!active) {
+				// Leaving focus mode, or focusing another artboard, restores the manifest size.
+				setFrameSize(board, board.artboard.width, board.artboard.height);
+				removeSizeFrames(board);
+			}
+			renderOverflow(board);
+			surfacesOf(board).forEach(sendFocus);
 		}
+		if (focused) renderSizeControl(focused);
 		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit]) control.disabled = Boolean(focused);
 		els.design.disabled = Boolean(focused) || state.designCount === 0;
 		els.back.hidden = !focused;
@@ -552,8 +608,11 @@
 		closePopover();
 		setHoverBoard(null);
 		state.focus = board;
-		centerFocus();
+		// Every focus session starts at Desktop.
+		state.size = { kind: "desktop" };
+		// The state first: the header's size control takes room above the frame that centering counts.
 		applyFocusState();
+		centerFocus();
 		board.frame.focus();
 	}
 
@@ -561,6 +620,7 @@
 		if (!state.focus) return;
 		closePopover();
 		state.focus = null;
+		state.size = { kind: "desktop" };
 		if (state.savedPanel !== null) setPanel(state.savedPanel);
 		state.savedPanel = null;
 		if (state.savedNav !== null) setNav(state.savedNav);
@@ -608,8 +668,8 @@
 		return designs;
 	}
 
-	function sendMode(board) {
-		board.frame.contentWindow?.postMessage({ type: "gd:mode", enabled: state.commenting && !board.system }, "*");
+	function sendMode(surface) {
+		surface.frame.contentWindow?.postMessage({ type: "gd:mode", enabled: state.commenting && !ownerOf(surface).system }, "*");
 	}
 
 	function boardUrl(board) {
@@ -645,11 +705,13 @@
 			tradeoff.textContent = artboard.tradeoff;
 			label.append(tradeoff);
 		}
+		const sizeControl = system ? null : createSizeControl(artboard);
 		// The handoff state, the chosen badge and Compare (rendered by renderHandoff) stack above
 		// Implement this, at screen size, so neither covers the other at any zoom.
 		const handoff = document.createElement("div");
 		handoff.className = "gd-handoff";
 		handoff.hidden = true;
+		if (sizeControl) label.append(sizeControl.root);
 		if (!system) {
 			const actions = document.createElement("div");
 			actions.className = "gd-board-actions";
@@ -685,26 +747,270 @@
 		const pins = document.createElement("div");
 		pins.className = "gd-pins";
 		// rects: null until the artboard reports where each commented element is.
-		const board = { slug, artboard, number, frame, wrapper, shield, pins, handoff, stateChip, rects: null, system, viewHeight: 0 };
-		setFrameHeight(board, artboard.height);
+		const flag = createOverflowFlag();
+		const board = { slug, artboard, number, frame, wrapper, shield, pins, handoff, stateChip, rects: null, system, viewWidth: artboard.width, viewHeight: artboard.height, flag, overflow: null, sizeControl, sizeFrames: [], sizesView: null };
+		setFrameSize(board, artboard.width, artboard.height);
 		renderHandoff(board);
+		// The system board is not listed in the navigator, so it has no item or thumbnail.
+		if (!system) board.nav = createNavItem(board);
 		shield.addEventListener("keydown", (event) => {
 			if (event.key !== "Enter" && event.key !== " ") return;
 			event.preventDefault();
 			enterFocus(board);
 		});
 		frame.addEventListener("load", () => {
-			board.rects = null;
-			sendMode(board);
-			sendFocus(board);
-			if (!system) sendPins(board);
+			surfaceLoaded(board);
 			// A live reload of the focused artboard keeps focus mode and its keyboard focus.
 			if (state.focus === board && els.popover.hidden && (document.activeElement === frame || document.activeElement === document.body)) frame.focus();
 		});
 		frame.src = boardUrl(board);
-		box.append(frame, shield, pins);
+		box.append(frame, shield, pins, flag);
 		wrapper.append(label, box);
 		return board;
+	}
+
+	// ---- screen sizes --------------------------------------------------------
+
+	/** A frame (the board's own or a size frame) finished loading: it knows nothing yet, so tell it the state. */
+	function surfaceLoaded(surface) {
+		surface.rects = null;
+		surface.overflow = null;
+		renderOverflow(surface);
+		sendMode(surface);
+		sendFocus(surface);
+		if (!ownerOf(surface).system) sendPins(surface);
+	}
+
+	/** The "Overflows" chip of one frame; its title says how wide the frame is (renderOverflow). */
+	function createOverflowFlag() {
+		const flag = document.createElement("span");
+		flag.className = "gd-overflow-flag";
+		flag.hidden = true;
+		flag.append(chip("gd-overflow-text", "Overflows"), chip("gd-visually-hidden", ""));
+		return flag;
+	}
+
+	/**
+	 * Shown while the page last reported content wider than this frame. The artboard's own frame
+	 * shows it only at a single focused size; in All sizes each size frame has its own.
+	 */
+	function renderOverflow(surface) {
+		const board = ownerOf(surface);
+		const shown = Boolean(surface.overflow) && (surface !== board || (state.focus === board && state.size.kind !== "all"));
+		surface.flag.hidden = !shown;
+		if (!shown) return;
+		const note = `Content is wider than ${surface.viewWidth} px, so part of it is cut off or needs sideways scrolling at this size.`;
+		surface.flag.title = note;
+		surface.flag.children[1].textContent = ` ${note}`;
+	}
+
+	/** The size control in an artboard's header: presets, All sizes, a custom width and the current size. */
+	function createSizeControl(artboard) {
+		const root = document.createElement("div");
+		root.className = "gd-sizebar";
+		const group = document.createElement("div");
+		group.className = "gd-devices";
+		group.setAttribute("role", "group");
+		group.setAttribute("aria-label", "Preview size");
+		const buttons = {};
+		const addButton = (kind, label, iconName, title) => {
+			const button = document.createElement("button");
+			button.type = "button";
+			button.className = "gd-size-button";
+			button.dataset.size = kind;
+			button.title = title;
+			button.setAttribute("aria-pressed", "false");
+			if (iconName) button.append(icon(iconName, "gd-i gd-i-s"));
+			button.append(chip("gd-size-label", label));
+			button.addEventListener("click", () => setSize({ kind }));
+			buttons[kind] = button;
+			group.append(button);
+		};
+		for (const preset of SIZE_PRESETS) {
+			const { width, height } = presetSize({ artboard }, preset);
+			addButton(preset.kind, preset.label, preset.icon, `${preset.label} ${width} × ${height}`);
+		}
+		addButton("all", "All sizes", null, "All sizes: Phone, Tablet and Desktop side by side");
+		const custom = document.createElement("label");
+		custom.className = "gd-size-custom";
+		const input = document.createElement("input");
+		input.type = "number";
+		input.className = "gd-size-input";
+		input.setAttribute("aria-label", "Custom width in pixels");
+		input.setAttribute("min", String(CUSTOM_WIDTH.min));
+		input.setAttribute("max", String(CUSTOM_WIDTH.max));
+		input.setAttribute("step", "1");
+		input.setAttribute("inputmode", "numeric");
+		const unit = chip("gd-size-unit", "px");
+		unit.setAttribute("aria-hidden", "true");
+		custom.append(chip("gd-size-custom-label", "Custom"), input, unit);
+		const readout = document.createElement("output");
+		readout.className = "gd-size-readout";
+		readout.setAttribute("aria-label", "Current size");
+		readout.setAttribute("aria-live", "polite");
+		const error = chip("gd-size-error", "");
+		error.setAttribute("role", "alert");
+		error.hidden = true;
+		const apply = () => {
+			const text = input.value.trim();
+			const width = Number(text);
+			if (!/^\d+$/.test(text) || width < CUSTOM_WIDTH.min || width > CUSTOM_WIDTH.max) {
+				input.setAttribute("aria-invalid", "true");
+				error.textContent = `Enter a whole number from ${CUSTOM_WIDTH.min} to ${CUSTOM_WIDTH.max} (px).`;
+				error.hidden = false;
+				return;
+			}
+			setSize({ kind: "custom", width });
+		};
+		input.addEventListener("change", apply);
+		input.addEventListener("keydown", (event) => {
+			if (event.key !== "Enter") return;
+			event.preventDefault();
+			apply();
+		});
+		root.append(group, custom, readout, error);
+		return { root, buttons, custom, input, readout, error };
+	}
+
+	function renderSizeControl(board) {
+		const control = board.sizeControl;
+		if (!control) return;
+		const size = state.size;
+		for (const [kind, button] of Object.entries(control.buttons)) button.setAttribute("aria-pressed", String(size.kind === kind));
+		control.custom.classList.toggle("gd-selected", size.kind === "custom");
+		if (size.kind === "custom") control.input.value = String(size.width);
+		else if (document.activeElement !== control.input) control.input.value = "";
+		const { width, height } = focusSize(board);
+		control.readout.textContent = size.kind === "all" ? "All sizes" : `${width} × ${height}`;
+	}
+
+	/**
+	 * The size a pick was made at, for the comment: the focused single size, or the picked size frame of
+	 * All sizes. Null at the artboard's own size (nothing to record) and when comments.json would refuse it.
+	 */
+	function viewportOf(surface) {
+		const board = ownerOf(surface);
+		let size;
+		if (surface !== board) size = { width: surface.width, height: surface.height };
+		else if (state.focus === board && state.size.kind !== "all") size = focusSize(board);
+		else return null;
+		if (size.width === board.artboard.width && size.height === board.artboard.height) return null;
+		const { minWidth, maxWidth, minHeight, maxHeight } = VIEWPORT_LIMITS;
+		const fits = size.width >= minWidth && size.width <= maxWidth && size.height >= minHeight && size.height <= maxHeight;
+		return fits && Number.isInteger(size.width) && Number.isInteger(size.height) ? size : null;
+	}
+
+	/** `Phone 390 × 844`, `Tablet 820 × 1180` or `<w> × <h>`: the preset's name only for its exact size. */
+	function describeViewport(viewport) {
+		const size = `${viewport.width} × ${viewport.height}`;
+		const preset = SIZE_PRESETS.find((candidate) => !candidate.manifest && candidate.width === viewport.width && candidate.height === viewport.height);
+		return preset ? `${preset.label} ${size}` : size;
+	}
+
+	/** Picks a size for the focused artboard; a bad custom width never gets here (the field refuses it). */
+	function setSize(size) {
+		const board = state.focus;
+		if (!board) return;
+		closePopover();
+		const control = board.sizeControl;
+		control.input.removeAttribute("aria-invalid");
+		control.error.hidden = true;
+		state.size = size;
+		applySize();
+	}
+
+	/** Brings the focused artboard's frames, centering, control and chip in line with state.size. */
+	function applySize() {
+		const board = state.focus;
+		if (!board) return;
+		const all = state.size.kind === "all";
+		board.wrapper.classList.toggle("gd-all-sizes", all);
+		if (all && !board.sizesView) createSizeFrames(board);
+		else if (!all) removeSizeFrames(board);
+		centerFocus();
+		renderSizeControl(board);
+		renderOverflow(board);
+	}
+
+	/**
+	 * All sizes: a real iframe per size at its true width (so the design's media queries apply), scaled down
+	 * together. They are registered like the artboard's own frame (surfacesOf), so they take picks and show pins.
+	 */
+	function createSizeFrames(board) {
+		const view = document.createElement("div");
+		view.className = "gd-sizes-all";
+		view.classList.toggle("gd-commenting", state.commenting);
+		view.setAttribute("role", "group");
+		view.setAttribute("aria-label", "All sizes");
+		board.sizeFrames = SIZE_PRESETS.map((preset) => createSizeFrame(board, preset));
+		view.append(...board.sizeFrames.map((surface) => surface.root));
+		board.sizesView = view;
+		els.viewport.append(view);
+	}
+
+	function createSizeFrame(board, preset) {
+		const { width, height } = presetSize(board, preset);
+		const root = document.createElement("section");
+		root.className = "gd-size-frame";
+		root.setAttribute("aria-label", `${preset.label} ${width} by ${height}`);
+		const head = document.createElement("div");
+		head.className = "gd-size-head";
+		const scaleLabel = chip("gd-size-scale", "");
+		head.append(icon(preset.icon, "gd-i gd-i-s"), chip("gd-size-name", preset.label), chip("gd-size-dim", `${width} × ${height}`), scaleLabel);
+		const scaled = document.createElement("div");
+		scaled.className = "gd-size-scaled";
+		const stage = document.createElement("div");
+		stage.className = "gd-size-stage";
+		stage.style.width = `${width}px`;
+		stage.style.height = `${height}px`;
+		const frame = document.createElement("iframe");
+		frame.className = "gd-size-iframe";
+		frame.setAttribute("sandbox", "allow-scripts");
+		frame.setAttribute("referrerpolicy", "no-referrer");
+		frame.title = `${board.artboard.title} artboard at ${preset.label} ${width} × ${height}`;
+		frame.style.width = `${width}px`;
+		frame.style.height = `${height}px`;
+		const pins = document.createElement("div");
+		pins.className = "gd-pins";
+		const flag = createOverflowFlag();
+		stage.append(frame, pins);
+		scaled.append(stage, flag);
+		root.append(head, scaled);
+		const surface = { board, kind: preset.kind, width, height, viewWidth: width, viewHeight: height, frame, pins, flag, rects: null, overflow: null, root, scaled, stage, scaleLabel };
+		frame.addEventListener("load", () => surfaceLoaded(surface));
+		frame.src = boardUrl(board);
+		return surface;
+	}
+
+	function removeSizeFrames(board) {
+		if (!board.sizesView) return;
+		board.sizesView.remove();
+		board.sizesView = null;
+		board.sizeFrames = [];
+	}
+
+	/** One scale for the three frames: small enough that they fit side by side under the label and above Back to canvas. */
+	function layoutSizes(board, minTop, viewport) {
+		const view = board.sizesView;
+		const frames = board.sizeFrames;
+		if (!view || frames.length === 0) return;
+		const top = minTop + 8;
+		view.style.left = `${FOCUS_MARGIN}px`;
+		view.style.right = `${FOCUS_MARGIN}px`;
+		view.style.top = `${top}px`;
+		view.style.bottom = `${BACK_SPACE}px`;
+		const availableWidth = viewport.width - FOCUS_MARGIN * 2 - SIZES_GAP * (frames.length - 1);
+		const availableHeight = viewport.height - top - BACK_SPACE - SIZES_HEAD;
+		const totalWidth = frames.reduce((sum, surface) => sum + surface.width, 0);
+		const tallest = Math.max(...frames.map((surface) => surface.height));
+		const scale = Math.max(MIN_SIZES_SCALE, Math.min(1, availableWidth / totalWidth, availableHeight / tallest));
+		for (const surface of frames) {
+			surface.scaled.style.width = `${Math.round(surface.width * scale)}px`;
+			surface.scaled.style.height = `${Math.round(surface.height * scale)}px`;
+			surface.stage.style.transform = `scale(${scale})`;
+			surface.stage.style.setProperty("--gd-inv-zoom", String(1 / scale));
+			surface.scaleLabel.textContent = `· ${Math.round(scale * 100)}%`;
+		}
 	}
 
 	/** "Implement this" with an inline confirm step; the system board never gets one. */
@@ -973,33 +1279,85 @@
 		return parts.length > 0 ? parts.join(" · ") : "No comments";
 	}
 
+	/**
+	 * One navigator item, built once per board: its live thumbnail is an iframe, and an iframe that is
+	 * removed from the page and put back reloads. renderNav therefore only updates the item in place.
+	 */
+	function createNavItem(board) {
+		const item = document.createElement("li");
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "gd-nav-item";
+		button.dataset.file = board.artboard.file;
+		const thumb = createThumb(board);
+		const text = document.createElement("span");
+		text.className = "gd-nav-text";
+		const title = chip("gd-nav-item-title", "");
+		const summary = chip("gd-nav-summary", "");
+		text.append(title, summary);
+		button.append(thumb.box, text);
+		button.addEventListener("click", () => enterFocus(board));
+		item.append(button);
+		return { item, button, thumb, text, title, summary, tag: chip("gd-nav-tag", "") };
+	}
+
+	// The live thumbnail shows the artboard scaled to this width.
+	const THUMB_WIDTH = 56;
+
+	/**
+	 * The live thumbnail: the artboard in a sandboxed iframe (scripts only, like the canvas), scaled down.
+	 * It is inert, hidden from assistive technology, never focusable and takes no pointer events (canvas.css),
+	 * and it is not a registered artboard frame, so nothing it posts is trusted.
+	 */
+	function createThumb(board) {
+		const { width, height, title } = board.artboard;
+		const box = chip("gd-nav-thumb", "");
+		box.setAttribute("aria-hidden", "true");
+		const frame = document.createElement("iframe");
+		frame.className = "gd-nav-thumb-frame";
+		frame.setAttribute("sandbox", "allow-scripts");
+		frame.setAttribute("referrerpolicy", "no-referrer");
+		// Lazy: a long list does not load every artboard at once.
+		frame.setAttribute("loading", "lazy");
+		frame.setAttribute("tabindex", "-1");
+		frame.setAttribute("aria-hidden", "true");
+		frame.inert = true;
+		frame.title = `${title} preview`;
+		frame.style.width = `${width}px`;
+		frame.style.height = `${height}px`;
+		frame.style.transform = `scale(${THUMB_WIDTH / width})`;
+		frame.src = boardUrl(board);
+		box.append(frame);
+		return { box, frame };
+	}
+
+	function reloadThumb(board) {
+		if (board.nav) board.nav.thumb.frame.src = `${boardUrl(board)}?v=${Date.now()}`;
+	}
+
 	/** The artboard navigator: one item per design artboard; the system board is not listed. */
 	function renderNav() {
 		els.navTitle.textContent = `Artboards · ${state.boards.length}`;
 		els.navNote.hidden = !state.systemBoard;
 		const refocus = els.navList.contains(document.activeElement) ? document.activeElement.dataset.file : null;
 		const items = state.boards.map((board) => {
-			const item = document.createElement("li");
-			const button = document.createElement("button");
-			button.type = "button";
-			button.className = "gd-nav-item";
-			button.dataset.file = board.artboard.file;
-			if (board === state.focus) button.setAttribute("aria-current", "true");
-			const thumb = chip("gd-nav-thumb", "");
-			thumb.setAttribute("aria-hidden", "true");
-			const text = document.createElement("span");
-			text.className = "gd-nav-text";
-			text.append(chip("gd-nav-item-title", `${String(board.number).padStart(2, "0")} ${board.artboard.title}`), chip("gd-nav-summary", commentSummary(board)));
+			const nav = board.nav;
+			if (board === state.focus) nav.button.setAttribute("aria-current", "true");
+			else nav.button.removeAttribute("aria-current");
+			nav.title.textContent = `${String(board.number).padStart(2, "0")} ${board.artboard.title}`;
+			nav.summary.textContent = commentSummary(board);
 			const { chosen } = handoffOf(board);
 			if (typeof chosen === "string") {
 				const isChosen = chosen === board.artboard.file;
-				text.append(chip(`gd-nav-tag${isChosen ? " gd-nav-tag-chosen" : ""}`, isChosen ? "Chosen" : "Alternative"));
-			}
-			button.append(thumb, text);
-			button.addEventListener("click", () => enterFocus(board));
-			item.append(button);
-			return item;
+				nav.tag.className = `gd-nav-tag${isChosen ? " gd-nav-tag-chosen" : ""}`;
+				nav.tag.textContent = isChosen ? "Chosen" : "Alternative";
+				if (!nav.text.contains(nav.tag)) nav.text.append(nav.tag);
+			} else nav.tag.remove();
+			return nav.item;
 		});
+		// Putting the same items back would reload their thumbnails: rebuild the list only when it changed.
+		const current = Array.from(els.navList.children);
+		if (items.length === current.length && items.every((item, index) => item === current[index])) return;
 		els.navList.replaceChildren(...items);
 		if (refocus) els.navList.querySelector?.(`[data-file="${CSS.escape(refocus)}"]`)?.focus();
 	}
@@ -1197,11 +1555,12 @@
 		}
 		els.empty.hidden = true;
 		const focusFile = state.focus && !state.focus.system ? state.focus.artboard.file : null;
+		state.boards.forEach(removeSizeFrames);
 		state.boards = manifest.artboards.map((artboard, index) => createBoard(slug, artboard, false, index + 1));
 		// A manifest reload keeps focus mode on the same artboard file while it still exists.
 		if (focusFile) state.focus = state.boards.find((board) => board.artboard.file === focusFile) ?? state.focus;
 		placeBoards();
-		if (state.focus) requestAnimationFrame(centerFocus);
+		if (state.focus) requestAnimationFrame(applySize);
 		const warnings = Array.isArray(manifest.warnings) ? manifest.warnings.filter((warning) => typeof warning === "string") : [];
 		setStatus(warnings.length > 0 ? `design.json: ${warnings.join("; ")}` : state.boards.length === 0 ? "This design has no artboards yet." : "", warnings.length > 0);
 		if (!keepView) requestAnimationFrame(fit);
@@ -1210,8 +1569,11 @@
 	}
 
 	function reloadBoard(board) {
-		board.rects = null;
-		board.frame.src = `${boardUrl(board)}?v=${Date.now()}`;
+		const url = `${boardUrl(board)}?v=${Date.now()}`;
+		for (const surface of surfacesOf(board)) {
+			surface.rects = null;
+			surface.frame.src = url;
+		}
 	}
 
 	/** The system board first, then the design's artboards. */
@@ -1353,6 +1715,7 @@
 			// A shared asset (CSS, image, font) can affect every artboard of the design.
 			const targets = matching.length > 0 ? matching : change.file.endsWith(".html") ? [] : state.boards;
 			targets.forEach(reloadBoard);
+			targets.forEach(reloadThumb);
 		});
 	}
 
@@ -1362,9 +1725,9 @@
 		return state.comments.filter((comment) => comment.file === board.artboard.file);
 	}
 
-	function sendPins(board) {
-		const pins = commentsForBoard(board).slice(0, LIMITS.pins).map((comment) => ({ id: comment.id, selector: comment.selector }));
-		board.frame.contentWindow?.postMessage({ type: "gd:pins", pins }, "*");
+	function sendPins(surface) {
+		const pins = commentsForBoard(ownerOf(surface)).slice(0, LIMITS.pins).map((comment) => ({ id: comment.id, selector: comment.selector }));
+		surface.frame.contentWindow?.postMessage({ type: "gd:pins", pins }, "*");
 	}
 
 	/** Detached: the artboard is gone, or it reported that the selector matches nothing. */
@@ -1382,12 +1745,13 @@
 		return state.comments.indexOf(comment) + 1;
 	}
 
-	function renderPins(board) {
+	/** The pins of one frame, at their element's position in that frame; a size frame has its own set. */
+	function renderPins(surface) {
 		const pins = [];
-		for (const comment of commentsForBoard(board)) {
-			const rect = board.rects?.get(comment.id);
+		for (const comment of commentsForBoard(ownerOf(surface))) {
+			const rect = surface.rects?.get(comment.id);
 			if (!rect) continue;
-			if (rect.x + rect.width < 0 || rect.y + rect.height < 0 || rect.x > board.artboard.width || rect.y > board.viewHeight) continue;
+			if (rect.x + rect.width < 0 || rect.y + rect.height < 0 || rect.x > surface.viewWidth || rect.y > surface.viewHeight) continue;
 			const pin = document.createElement("button");
 			pin.type = "button";
 			pin.className = "gd-pin";
@@ -1404,8 +1768,8 @@
 			});
 			pins.push(pin);
 		}
-		const focused = board.pins.contains(document.activeElement) ? document.activeElement.dataset.id : null;
-		board.pins.replaceChildren(...pins);
+		const focused = surface.pins.contains(document.activeElement) ? document.activeElement.dataset.id : null;
+		surface.pins.replaceChildren(...pins);
 		if (focused) pins.find((pin) => pin.dataset.id === focused)?.focus();
 	}
 
@@ -1466,7 +1830,15 @@
 			const file = document.createElement("span");
 			file.className = "gd-comment-file";
 			file.textContent = comment.file;
-			show.append(meta, text, file);
+			show.append(meta, text);
+			// Where the comment was made, when not at the artboard's own size.
+			if (comment.viewport && typeof comment.viewport === "object") {
+				const label = describeViewport(comment.viewport);
+				const size = chip("gd-comment-viewport", label);
+				size.title = `Made at ${label}`;
+				show.append(size);
+			}
+			show.append(file);
 			if (comment.screenshot) {
 				const shot = document.createElement("img");
 				shot.className = "gd-comment-shot";
@@ -1500,7 +1872,7 @@
 	function renderComments() {
 		renderList();
 		renderNav();
-		state.boards.forEach(renderPins);
+		state.boards.forEach((board) => surfacesOf(board).forEach(renderPins));
 	}
 
 	async function loadComments() {
@@ -1515,7 +1887,7 @@
 		if (slug !== state.slug || !Array.isArray(comments)) return;
 		state.comments = comments;
 		if (state.activeId && !comments.some((comment) => comment.id === state.activeId)) state.activeId = null;
-		state.boards.forEach(sendPins);
+		state.boards.forEach((board) => surfacesOf(board).forEach(sendPins));
 		renderComments();
 	}
 
@@ -1526,7 +1898,7 @@
 		if (!comment) return;
 		if (comment.status !== state.tab && options.focusList) setTab(comment.status);
 		const board = state.boards.find((candidate) => candidate.artboard.file === comment.file);
-		board?.frame.contentWindow?.postMessage({ type: "gd:highlight", id }, "*");
+		if (board) for (const surface of surfacesOf(board)) surface.frame.contentWindow?.postMessage({ type: "gd:highlight", id }, "*");
 		if (options.focusList) els.list.querySelector(`[data-id="${CSS.escape(id)}"] .gd-comment-show`)?.focus();
 		if (!options.scroll) return;
 		// The focused artboard is already at 1:1; another board's comment leaves focus mode first.
@@ -1668,7 +2040,8 @@
 		renderTools();
 		renderNavMode();
 		els.world.classList.toggle("gd-commenting", enabled);
-		state.boards.forEach(sendMode);
+		state.boards.forEach((board) => board.sizesView?.classList.toggle("gd-commenting", enabled));
+		state.boards.forEach((board) => surfacesOf(board).forEach(sendMode));
 		if (!enabled) {
 			setHoverBoard(null);
 			closePopover();
@@ -1722,17 +2095,19 @@
 		return { selector, excerpt, rect: { x: box.x, y: box.y, width: box.width, height: box.height } };
 	}
 
-	function openPopover(board, pick) {
+	function openPopover(surface, pick) {
 		clearTimeout(state.closeTimer);
-		state.pick = { board, ...pick };
+		const board = ownerOf(surface);
+		state.pick = { board, surface, viewport: viewportOf(surface), ...pick };
 		els.target.textContent = `${board.artboard.file} · ${pick.selector}`;
 		els.message.textContent = "";
 		els.message.title = "";
 		els.message.classList.remove("gd-error");
 		els.send.disabled = false;
 		els.popover.hidden = false;
-		const frameRect = board.frame.getBoundingClientRect();
-		const scale = frameRect.width / board.artboard.width || 1;
+		// Beside the element in the frame it was picked in, which may be scaled (All sizes) or resized (a single size).
+		const frameRect = surface.frame.getBoundingClientRect();
+		const scale = frameRect.width / surface.viewWidth || 1;
 		const width = els.popover.offsetWidth;
 		const height = els.popover.offsetHeight;
 		let left = frameRect.left + pick.rect.x * scale;
@@ -1816,11 +2191,11 @@
 	function closePopover() {
 		if (els.popover.hidden) return;
 		clearTimeout(state.closeTimer);
-		const board = state.pick && state.pick.board;
+		const surface = state.pick && state.pick.surface;
 		state.pick = null;
 		clearShot();
 		els.popover.hidden = true;
-		board?.frame.contentWindow?.postMessage({ type: "gd:clear" }, "*");
+		surface?.frame.contentWindow?.postMessage({ type: "gd:clear" }, "*");
 		if (els.popover.contains(document.activeElement) || document.activeElement === document.body) (state.focus ? state.focus.frame : els.comment).focus();
 	}
 
@@ -1859,7 +2234,7 @@
 		els.message.classList.remove("gd-error");
 		els.message.textContent = "Sending…";
 		const shot = state.shot;
-		const reply = await postJson("api/comments", { slug: pick.board.slug, file: pick.board.artboard.file, selector: pick.selector, excerpt: pick.excerpt, comment, mode: state.mode, ...(shot ? { screenshot: shot } : {}) });
+		const reply = await postJson("api/comments", { slug: pick.board.slug, file: pick.board.artboard.file, selector: pick.selector, excerpt: pick.excerpt, comment, mode: state.mode, ...(shot ? { screenshot: shot } : {}), ...(pick.viewport ? { viewport: pick.viewport } : {}) });
 		// Delivery can fail after the comment was saved; it then waits for "Send all".
 		const savedOnly = reply.status === 500 && reply.body.saved === true;
 		if (!reply.ok && !savedOnly) {
@@ -1888,29 +2263,37 @@
 			if (event.data && typeof event.data === "object" && event.data.type === "gd:exit-focus") exitCompare(true);
 			return;
 		}
-		const system = state.systemBoard && state.systemBoard.frame.contentWindow === event.source ? state.systemBoard : null;
-		const board = system ?? state.boards.find((candidate) => candidate.frame.contentWindow === event.source);
-		if (!board || !event.data || typeof event.data !== "object") return;
+		// A board's own frame or, in All sizes, one of its size frames; nothing else is trusted.
+		const surface = allBoards().flatMap(surfacesOf).find((candidate) => candidate.frame.contentWindow === event.source);
+		if (!surface || !event.data || typeof event.data !== "object") return;
+		const board = ownerOf(surface);
 		const data = event.data;
 		if (data.type === "gd:pick") {
 			// The system board never takes comments, even if its page posts a pick.
 			if (!state.commenting || board.system || (state.focus && board !== state.focus)) return;
 			const pick = readPick(data);
-			if (pick) openPopover(board, pick);
+			if (pick) openPopover(surface, pick);
 		} else if (data.type === "gd:wheel") {
 			if (![data.deltaX, data.deltaY, data.deltaMode, data.x, data.y].every(isFiniteNumber)) return;
-			const frameRect = board.frame.getBoundingClientRect();
-			const scale = frameRect.width / board.artboard.width || 1;
+			const frameRect = surface.frame.getBoundingClientRect();
+			const scale = frameRect.width / surface.viewWidth || 1;
 			handleWheel(data.deltaX, data.deltaY, data.deltaMode, data.zoom === true, data.shift === true, frameRect.left + data.x * scale, frameRect.top + data.y * scale);
 		} else if (data.type === "gd:pin-rects") {
 			if (board.system) return;
 			const rects = readRects(data);
 			if (!rects) return;
 			const detachedBefore = detachedKey();
-			board.rects = rects;
-			renderPins(board);
+			surface.rects = rects;
+			renderPins(surface);
 			// Re-render the list only when a badge changes, so keyboard focus in it survives.
+			// Only the artboard's own frame says whether a comment is detached.
 			if (detachedKey() !== detachedBefore) renderList();
+		} else if (data.type === "gd:overflow") {
+			if (board.system || typeof data.overflow !== "boolean" || !isFiniteNumber(data.width) || !isFiniteNumber(data.scrollWidth)) return;
+			// A report for another width is a late one from before the frame was resized.
+			if (Math.round(data.width) !== surface.viewWidth) return;
+			surface.overflow = data.overflow ? { scrollWidth: data.scrollWidth } : null;
+			renderOverflow(surface);
 		} else if (data.type === "gd:escape") {
 			if (!els.popover.hidden) closePopover();
 			else if (state.commenting) setCommenting(false);
