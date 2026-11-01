@@ -17,8 +17,11 @@ function isolatedHome(t: test.TestContext): string {
 	const previousHome = process.env.HOME;
 	const previousUserProfile = process.env.USERPROFILE;
 	const previousConfigHome = process.env.GENTLE_PI_CONFIG_HOME;
-	// Clear the higher-priority config override as well as isolating both OS homes.
+	const previousShellConfigHome = process.env.GENTLE_SHELL_CONFIG_HOME;
+	// Clear the higher-priority config override and the launcher's marker (set when the suite runs
+	// inside a Gentle Shell session) as well as isolating both OS homes.
 	delete process.env.GENTLE_PI_CONFIG_HOME;
+	delete process.env.GENTLE_SHELL_CONFIG_HOME;
 	process.env.HOME = home;
 	process.env.USERPROFILE = home;
 	t.after(() => {
@@ -28,6 +31,8 @@ function isolatedHome(t: test.TestContext): string {
 		else process.env.USERPROFILE = previousUserProfile;
 		if (previousConfigHome === undefined) delete process.env.GENTLE_PI_CONFIG_HOME;
 		else process.env.GENTLE_PI_CONFIG_HOME = previousConfigHome;
+		if (previousShellConfigHome === undefined) delete process.env.GENTLE_SHELL_CONFIG_HOME;
+		else process.env.GENTLE_SHELL_CONFIG_HOME = previousShellConfigHome;
 		rmSync(home, { recursive: true, force: true });
 	});
 	return home;

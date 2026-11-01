@@ -1039,6 +1039,7 @@ select {
 
 .gd-inspector-actions {
 	display: flex;
+	flex-wrap: wrap;
 	gap: 8px;
 	padding: 10px 14px;
 	border-top: 1px solid var(--border);
@@ -1984,4 +1985,45 @@ kbd {
 	button { transition: border-color .2s var(--ease), color .2s var(--ease), background-color .2s var(--ease); }
 	.gd-shield-hint { transition: opacity 120ms ease; }
 	.gd-artboard { transition: opacity 160ms ease; }
+}
+
+/* ---- language switch (canvas-language T1) ---- */
+
+/* The globe and the code (ES / EN) in the top bar. */
+.gd-lang-button {
+	gap: 6px;
+	color: var(--text-muted);
+}
+
+.gd-lang-button[aria-expanded="true"] { background: var(--surface-2); color: var(--text); }
+.gd-lang-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The menu is the artboard menu's box (.gd-menu), wider; the canvas places it under the button. */
+.gd-lang-menu {
+	width: 300px;
+	padding: 6px;
+}
+
+.gd-lang-item {
+	flex-wrap: nowrap;
+	min-height: 38px;
+}
+
+.gd-lang-item[aria-checked="true"] {
+	background: var(--surface-2);
+	color: var(--text);
+}
+
+.gd-lang-check {
+	margin-left: auto;
+	color: var(--accent);
+	visibility: hidden;
+}
+
+.gd-lang-item[aria-checked="true"] .gd-lang-check { visibility: visible; }
+
+.gd-lang-note {
+	margin: 6px 10px 4px;
+	color: var(--text-muted);
+	font-size: 12px;
 }
