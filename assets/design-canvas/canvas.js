@@ -8,6 +8,8 @@
 // drags and clicks always reach the canvas; a click on a shield enters focus mode,
 // which shows that artboard at 100% and lets it own the pointer and the keyboard
 // until "Back to canvas" or Shift+Esc restores the previous view.
+// A left tool rail (Navigate, Comment, Overview, artboard list, design system, shortcuts) and the
+// single-key shortcuts behind it; the mode chip in the viewport names the active mode.
 // Handoffs (design/<slug>/handoffs.json) show live on each artboard's header: the
 // handoff state, the chosen artboard and its alternatives, and, once implemented
 // with a loopback previewUrl, a Compare view of the artboard next to the running app.
@@ -40,13 +42,42 @@
 	const PREVIEW_HINT = "If the app refuses to be framed, use Open in new tab.";
 	// CSP host sources have no IPv6 literal form, so Chromium drops the [::1] source from frame-src.
 	const IPV6_HINT = "Browsers do not frame [::1] under the canvas policy (CSP has no IPv6 sources): use Open in new tab, or report the preview on localhost.";
+	// Below this on-screen artboard width, the screen-size handoff row and Implement this would
+	// overlap the next artboard: they collapse, and the navigator and the timeline carry the state.
+	const COMPACT_BOARD_WIDTH = 360;
 	const COMPARE_GAP = 24;
 	const COMPARE_PADDING = 24;
 	const TOAST_MS = 5000;
+	// What the server can deliver; an older page config without it means everything.
+	const DELIVERY = { comment: true, batch: true, implement: true, ...(config.delivery && typeof config.delivery === "object" ? config.delivery : {}) };
+	const OPEN_HINT = "open the canvas from your session with /gentle:design open";
+	// Every reason code the canvas routes can answer: the cause and the way out. The raw code stays as the detail.
+	const REASONS = {
+		"batch-delivery-unavailable": `This canvas is not connected to a Pi session, so comments cannot be sent. They stay saved; ${OPEN_HINT}, then use Send all.`,
+		"implement-unavailable": `This canvas is not connected to a Pi session, so it cannot hand the artboard off. ${OPEN_HINT[0].toUpperCase()}${OPEN_HINT.slice(1)}.`,
+		"delivery-failed": "The session did not accept the message. Your comments stay saved and unsent; check that the session is running, then try again.",
+		"too-many-comments": "This design has too many comments. Resolve or delete some in comments.json, then try again.",
+		"too-many-handoffs": "This design has too many handoffs recorded. Remove old ones from handoffs.json, then try again.",
+		"invalid-comments": "comments.json for this design is not valid, so it cannot be changed. Fix or remove the file, then try again.",
+		"invalid-handoffs": "handoffs.json for this design is not valid, so it cannot be changed. Fix or remove the file, then try again.",
+		"invalid-comment": "This comment was rejected by the server. Write 1 to 2000 characters and try again.",
+		"invalid-handoff": "This handoff was rejected by the server. Reload the canvas and try again.",
+		"invalid-screenshot": "The screenshot was rejected. Attach a PNG, JPEG, WebP or GIF image of at most 5 MB, or remove it.",
+		"body-too-large": "The request was too large. Remove the screenshot or shorten the comment, then try again with something smaller.",
+		"file-too-large": "That file is too large for the canvas to show. Make the artboard or asset smaller.",
+		"not-found": "That item no longer exists. Reload the canvas to see the current state.",
+		"too-many-streams": "Too many canvas tabs are open. Close the ones you do not use, then reload this one.",
+		internal: `An unexpected error happened in the canvas server. Try again; if it keeps failing, reopen it: ${OPEN_HINT}.`,
+		forbidden: "The server refused this request. Reload the canvas page, or reopen it with /gentle:design open.",
+		misdirected: "The server refused this request. Reload the canvas page, or reopen it with /gentle:design open.",
+		network: `The canvas could not reach its server; it may have been stopped. Reopen it: ${OPEN_HINT}.`,
+	};
+	const COMMENT_CHIP = "Click an element to comment · Esc";
+	const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+	const TAB_NAMES = ["open", "resolved", "brief"];
 
 	const $ = (id) => document.getElementById(id);
 	const els = {
-		title: $("gd-title"),
 		design: $("gd-design"),
 		designField: $("gd-design-field"),
 		feature: $("gd-feature"),
@@ -55,6 +86,31 @@
 		zoomLevel: $("gd-zoom-level"),
 		fit: $("gd-fit"),
 		navMode: $("gd-nav-mode"),
+		toolNavigate: $("gd-tool-navigate"),
+		railFit: $("gd-rail-fit"),
+		navToggle: $("gd-nav-toggle"),
+		railSystem: $("gd-rail-system"),
+		shortcutsOpen: $("gd-shortcuts-open"),
+		shortcuts: $("gd-shortcuts"),
+		shortcutsClose: $("gd-shortcuts-close"),
+		nav: $("gd-nav"),
+		navTitle: $("gd-nav-title"),
+		navList: $("gd-nav-list"),
+		navNote: $("gd-nav-note"),
+		featureSep: $("gd-feature-sep"),
+		compareApp: $("gd-compare-app"),
+		tabs: $("gd-tabs"),
+		tabBrief: $("gd-tab-brief"),
+		countOpen: $("gd-count-open"),
+		countResolved: $("gd-count-resolved"),
+		tabPanel: $("gd-tabpanel"),
+		brief: $("gd-brief"),
+		briefTitle: $("gd-brief-title"),
+		briefText: $("gd-brief-text"),
+		briefFeature: $("gd-brief-feature"),
+		handoffPanel: $("gd-handoff-panel"),
+		handoffTitle: $("gd-handoff-title"),
+		timeline: $("gd-timeline"),
 		back: $("gd-back"),
 		comment: $("gd-comment"),
 		status: $("gd-status"),
@@ -76,6 +132,7 @@
 		modeSend: $("gd-mode-send"),
 		modeCollect: $("gd-mode-collect"),
 		sendAll: $("gd-send-all"),
+		sendNote: $("gd-send-note"),
 		panelToggle: $("gd-panel-toggle"),
 		panel: $("gd-panel"),
 		filterOpen: $("gd-filter-open"),
@@ -119,7 +176,8 @@
 		shotToken: 0,
 		closeTimer: 0,
 		comments: [],
-		filter: "open",
+		// The review tab: "open" or "resolved" (the comment list) or "brief".
+		tab: "open",
 		mode: storedMode(),
 		activeId: null,
 		designCount: 0,
@@ -127,18 +185,102 @@
 		focus: null,
 		savedView: null,
 		savedPanel: null,
+		savedNav: null,
 		hoverBoard: null,
 		// The handoffs.json of design `slug`; boards of another design ignore it.
 		handoffs: { slug: null, chosen: null, handoffs: {} },
 		// The open Compare view: { board, preview, artboardFrame, timer }.
 		compare: null,
 		toastTimer: 0,
+		// Failed resolve or reopen replies by comment id, shown in that comment's card.
+		cardErrors: new Map(),
 	};
 
 	function setStatus(text, isError) {
 		els.status.textContent = text;
 		els.status.classList.toggle("gd-error", Boolean(isError));
 	}
+
+	/**
+	 * A failed reply in words: { text: cause and way out, detail: the raw code (and the server's own reason) }.
+	 * `reply` is what postJson returns; a code without a sentence gets a generic one that still names it.
+	 */
+	// Sentences that depend on the action: a refused handoff is taken back, so it is not "unsent comments".
+	const ACTION_REASONS = {
+		implement: { "delivery-failed": "The session did not accept the handoff, so it was not recorded. Check that the session is running, then use Implement this again." },
+	};
+
+	/** `action` picks an action-specific sentence over the generic one, when it has one. */
+	function explain(reply, action) {
+		const body = reply && reply.body && typeof reply.body === "object" ? reply.body : {};
+		const code = typeof body.error === "string" && body.error ? body.error : `http-${reply ? reply.status : 0}`;
+		const reason = typeof body.reason === "string" && body.reason ? body.reason : "";
+		const specific = action && ACTION_REASONS[action] && Object.prototype.hasOwnProperty.call(ACTION_REASONS[action], code) ? ACTION_REASONS[action][code] : "";
+		let text = specific || (Object.prototype.hasOwnProperty.call(REASONS, code) ? REASONS[code] : "");
+		if (!text && code.startsWith("invalid-")) text = "The server rejected the request as invalid. Reload the canvas and try again.";
+		if (!text) text = `Something went wrong. Try again; if it keeps failing, reopen the canvas: ${OPEN_HINT}.`;
+		return { text, detail: reason ? `${code}: ${reason}` : code };
+	}
+
+	/** A sprite icon; the SVG namespace comes from the page's own icon in the footer alert. */
+	function icon(name, className) {
+		const SVG_NS = document.getElementById("gd-send-alert-icon").namespaceURI;
+		const svg = document.createElementNS(SVG_NS, "svg");
+		svg.setAttribute("class", className);
+		svg.setAttribute("aria-hidden", "true");
+		const use = document.createElementNS(SVG_NS, "use");
+		use.setAttribute("href", `#${name}`);
+		svg.append(use);
+		return svg;
+	}
+
+	/** An inline error next to the action that failed: icon, sentence, small code, and a dismiss button. */
+	function createAlert() {
+		const root = document.createElement("div");
+		root.className = "gd-alert";
+		root.setAttribute("role", "alert");
+		root.hidden = true;
+		const body = document.createElement("div");
+		body.className = "gd-alert-body";
+		const text = document.createElement("p");
+		text.className = "gd-alert-text";
+		const detail = document.createElement("small");
+		detail.className = "gd-alert-detail";
+		body.append(text, detail);
+		const dismiss = document.createElement("button");
+		dismiss.type = "button";
+		dismiss.className = "gd-alert-dismiss";
+		dismiss.setAttribute("aria-label", "Dismiss");
+		dismiss.title = "Dismiss";
+		dismiss.append(icon("i-x", "gd-i"));
+		root.append(icon("i-alert", "gd-i gd-alert-icon"), body, dismiss);
+		return alertParts(root, text, detail, dismiss);
+	}
+
+	function alertParts(root, text, detail, dismiss) {
+		const parts = { root, text, detail, dismiss };
+		dismiss.addEventListener("click", () => {
+			hideAlert(parts);
+			if (parts.onDismiss) parts.onDismiss();
+		});
+		return parts;
+	}
+
+	function showAlert(parts, reply, action) {
+		const info = explain(reply, action);
+		parts.text.textContent = info.text;
+		parts.detail.textContent = info.detail;
+		parts.root.title = info.detail;
+		parts.root.hidden = false;
+	}
+
+	function hideAlert(parts) {
+		parts.root.hidden = true;
+		parts.text.textContent = "";
+		parts.detail.textContent = "";
+	}
+
+	const sendAlert = alertParts($("gd-send-alert"), $("gd-send-alert-text"), $("gd-send-alert-detail"), $("gd-send-alert-dismiss"));
 
 	/** A confirmation that stays on screen for a few seconds, beyond the status line. */
 	function showToast(text, isError) {
@@ -174,6 +316,7 @@
 		els.world.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.zoom})`;
 		els.world.style.setProperty("--gd-inv-zoom", String(1 / state.zoom));
 		els.zoomLevel.textContent = `${Math.round(state.zoom * 100)}%`;
+		for (const board of allBoards()) board.wrapper.classList.toggle("gd-compact", board.artboard.width * state.zoom < COMPACT_BOARD_WIDTH);
 	}
 
 	/** Zoom so the world point under (px, py) in viewport coordinates stays put. */
@@ -291,6 +434,7 @@
 	els.zoomIn.addEventListener("click", () => zoomAtCenter(1.25));
 	els.zoomOut.addEventListener("click", () => zoomAtCenter(0.8));
 	els.fit.addEventListener("click", fit);
+	els.railFit.addEventListener("click", fit);
 
 	// ---- navigation and focus modes ---------------------------------------
 
@@ -377,11 +521,21 @@
 			if (!active && board.viewHeight !== board.artboard.height) setFrameHeight(board, board.artboard.height);
 			sendFocus(board);
 		}
-		for (const control of [els.zoomOut, els.zoomIn, els.fit]) control.disabled = Boolean(focused);
+		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit]) control.disabled = Boolean(focused);
 		els.design.disabled = Boolean(focused) || state.designCount === 0;
 		els.back.hidden = !focused;
-		els.navMode.textContent = focused ? `Using: ${focused.artboard.title} · Shift+Esc to exit` : "Navigating";
+		els.railSystem.disabled = !state.systemBoard;
+		els.compareApp.disabled = Boolean(state.compare);
+		renderNav();
+		renderNavMode();
+	}
+
+	/** The floating chip: focus mode, comment mode or plain navigation. */
+	function renderNavMode() {
+		const focused = state.focus;
+		els.navMode.textContent = focused ? `Using: ${focused.artboard.title} · Shift+Esc to exit` : state.commenting ? COMMENT_CHIP : "Navigating";
 		els.navMode.classList.toggle("gd-using", Boolean(focused));
+		els.navMode.classList.toggle("gd-commenting-chip", !focused && state.commenting);
 	}
 
 	function enterFocus(board) {
@@ -391,6 +545,9 @@
 			// The artboard keeps its designed width at 100%; hiding the panel gains room for it.
 			state.savedPanel = !els.panel.hidden;
 			setPanel(false);
+			// The artboard list gives its room too, but only when the artboard would not fit beside it.
+			state.savedNav = !els.nav.hidden;
+			if (state.savedNav && board.artboard.width + FOCUS_MARGIN * 2 > els.viewport.getBoundingClientRect().width) setNav(false);
 		}
 		closePopover();
 		setHoverBoard(null);
@@ -406,6 +563,8 @@
 		state.focus = null;
 		if (state.savedPanel !== null) setPanel(state.savedPanel);
 		state.savedPanel = null;
+		if (state.savedNav !== null) setNav(state.savedNav);
+		state.savedNav = null;
 		if (state.savedView) Object.assign(state, state.savedView);
 		state.savedView = null;
 		applyView();
@@ -421,6 +580,8 @@
 		exitFocus();
 		els.world.replaceChildren();
 		state.boards = [];
+		els.railSystem.disabled = !state.systemBoard;
+		renderHandoffViews();
 		els.empty.textContent = text;
 		els.empty.hidden = false;
 	}
@@ -455,16 +616,29 @@
 		return board.system ? `${base}system.html` : fileUrl(board.slug, board.artboard.file);
 	}
 
-	function createBoard(slug, artboard, system = false) {
+	function createBoard(slug, artboard, system = false, number = 0) {
 		const wrapper = document.createElement("section");
 		wrapper.className = system ? "gd-artboard gd-system-board" : "gd-artboard";
 		wrapper.setAttribute("aria-label", artboard.title);
 		const label = document.createElement("div");
 		label.className = "gd-artboard-label";
+		// The header: number, title and, while focused, the handoff state chip.
+		const head = document.createElement("div");
+		head.className = "gd-artboard-head";
 		const title = document.createElement("h2");
 		title.className = "gd-artboard-title";
 		title.textContent = artboard.title;
-		label.append(title);
+		let stateChip = null;
+		if (!system) {
+			const num = chip("gd-artboard-num", String(number).padStart(2, "0"));
+			num.setAttribute("aria-hidden", "true");
+			// The handoff row below says the same in words; this chip only repeats it in the focus header.
+			stateChip = chip("gd-artboard-state", "");
+			stateChip.hidden = true;
+			stateChip.setAttribute("aria-hidden", "true");
+			head.append(num, title, stateChip);
+		} else head.append(title);
+		label.append(head);
 		if (artboard.tradeoff) {
 			const tradeoff = document.createElement("p");
 			tradeoff.className = "gd-artboard-tradeoff";
@@ -511,7 +685,7 @@
 		const pins = document.createElement("div");
 		pins.className = "gd-pins";
 		// rects: null until the artboard reports where each commented element is.
-		const board = { slug, artboard, frame, wrapper, shield, pins, handoff, rects: null, system, viewHeight: 0 };
+		const board = { slug, artboard, number, frame, wrapper, shield, pins, handoff, stateChip, rects: null, system, viewHeight: 0 };
 		setFrameHeight(board, artboard.height);
 		renderHandoff(board);
 		shield.addEventListener("keydown", (event) => {
@@ -534,6 +708,8 @@
 	}
 
 	/** "Implement this" with an inline confirm step; the system board never gets one. */
+	let implementNotes = 0;
+
 	function createImplementControl(slug, artboard) {
 		const box = document.createElement("div");
 		box.className = "gd-implement";
@@ -557,12 +733,29 @@
 		no.type = "button";
 		no.textContent = "Cancel";
 		confirm.append(question, yes, no);
+		const alert = createAlert();
+		let note = null;
+		if (!DELIVERY.implement) {
+			// No session to hand off to: say so up front instead of failing on click.
+			const info = explain({ status: 501, body: { error: "implement-unavailable" } });
+			start.disabled = true;
+			start.title = info.detail;
+			// A short visible line keeps the artboard header readable; the full sentence stays
+			// in the tooltip and, for screen readers, in the visually hidden rest of the note.
+			note = chip("gd-implement-note", "Canvas not connected to a Pi session.");
+			note.title = info.text;
+			note.append(chip("gd-visually-hidden", ` ${info.text}`));
+			note.id = `gd-implement-note-${++implementNotes}`;
+			start.setAttribute("aria-describedby", note.id);
+		}
 		const close = (focus) => {
 			confirm.hidden = true;
 			start.hidden = false;
 			if (focus) start.focus();
 		};
 		start.addEventListener("click", () => {
+			if (start.disabled) return;
+			hideAlert(alert);
 			start.hidden = true;
 			confirm.hidden = false;
 			yes.disabled = false;
@@ -577,24 +770,24 @@
 		});
 		yes.addEventListener("click", async () => {
 			yes.disabled = true;
-			const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/implement`, { file: artboard.file }).catch((error) => ({ ok: false, body: { error: error.message } }));
+			hideAlert(alert);
+			const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/implement`, { file: artboard.file });
 			if (reply.ok) {
 				const queued = reply.body.queued === true;
 				const text = queued
 					? `Queued: the session will implement ${artboard.title} after its current task.`
 					: `Sent: the session is implementing ${artboard.title} now.`;
-				setStatus(text, false);
 				showToast(text, false);
 				// The server recorded it before answering; the handoffs.json change event confirms it.
 				noteHandoff(slug, artboard.file, queued);
 			} else {
-				const text = `Not sent: ${reply.body.reason || reply.body.error || "error"}`;
-				setStatus(text, true);
-				showToast(text, true);
+				showAlert(alert, reply, "implement");
+				// The alert says it next to the button; only a board collapsed by zoom hides it, so only then toast.
+				if (box.closest(".gd-compact")) showToast(alert.text.textContent, true);
 			}
 			close(true);
 		});
-		box.append(start, confirm);
+		box.append(start, confirm, ...(note ? [note] : []), alert.root);
 		return box;
 	}
 
@@ -648,6 +841,10 @@
 		const parts = [];
 		if (typeof chosen === "string") parts.push(chip(`gd-choice ${isChosen ? "gd-choice-chosen" : "gd-choice-alternative"}`, isChosen ? "Chosen" : "Alternative"));
 		const kind = entry ? handoffKind(entry) : null;
+		board.stateChip.hidden = !kind;
+		board.stateChip.textContent = kind ? HANDOFF_LABELS[kind] : "";
+		if (kind) board.stateChip.dataset.status = kind;
+		else delete board.stateChip.dataset.status;
 		let compare = null;
 		if (kind) {
 			const badge = chip("gd-handoff-badge", HANDOFF_LABELS[kind]);
@@ -683,6 +880,128 @@
 
 	function renderHandoffs() {
 		state.boards.forEach(renderHandoff);
+		renderHandoffViews();
+	}
+
+	/** The chosen artboard of the open design, or null. */
+	function chosenBoard() {
+		const chosen = state.handoffs.slug === state.slug ? state.handoffs.chosen : null;
+		return typeof chosen === "string" ? state.boards.find((board) => board.artboard.file === chosen) ?? null : null;
+	}
+
+	/** Everything outside the artboards that follows handoffs, boards and comments: navigator, Compare with app, timeline. */
+	function renderHandoffViews() {
+		renderCompareApp();
+		renderTimeline();
+		renderNav();
+	}
+
+	function renderCompareApp() {
+		const board = chosenBoard();
+		const entry = board ? handoffOf(board).entry : null;
+		const preview = entry && handoffKind(entry) === "implemented" ? previewTarget(entry.previewUrl) : null;
+		state.comparePreview = board && preview ? { board, preview } : null;
+		els.compareApp.hidden = !state.comparePreview;
+	}
+
+	els.compareApp.addEventListener("click", () => {
+		if (state.comparePreview) enterCompare(state.comparePreview.board, state.comparePreview.preview);
+	});
+
+	/** A short local time: "Today 10:42", "Oct 26, 10:42", or "Mar 4 2020, 09:05" from another year; "" when unreadable. */
+	function shortTime(value) {
+		const date = typeof value === "string" ? new Date(value) : null;
+		if (!date || Number.isNaN(date.getTime())) return "";
+		const now = new Date();
+		const clock = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+		if (date.toDateString() === now.toDateString()) return `Today ${clock}`;
+		const day = `${MONTHS[date.getMonth()]} ${date.getDate()}`;
+		return `${date.getFullYear() === now.getFullYear() ? day : `${day} ${date.getFullYear()}`}, ${clock}`;
+	}
+
+	/** Chosen, Sent to the session, In progress, Implemented: done, current or pending, with timestamps. */
+	function renderTimeline() {
+		const board = chosenBoard();
+		els.handoffPanel.hidden = !board;
+		if (!board) {
+			els.timeline.replaceChildren();
+			return;
+		}
+		els.handoffTitle.textContent = `Handoff · ${board.artboard.title}`;
+		const entry = handoffOf(board).entry;
+		const kind = entry ? handoffKind(entry) : null;
+		// The index of the step the handoff is at; steps before it are done, a step at it is current.
+		const at = { queued: 1, sent: 2, in_progress: 2, implemented: 4 }[kind] ?? 1;
+		const stateOf = (index) => (index < at ? "done" : index === at && kind ? "current" : "pending");
+		const sent = entry ? shortTime(entry.sentAt) : "";
+		const started = entry ? shortTime(entry.startedAt) : "";
+		const finished = entry ? shortTime(entry.implementedAt) : "";
+		const note = entry && typeof entry.note === "string" && entry.note ? `“${entry.note}”` : "";
+		const queued = kind === "queued";
+		const defs = [
+			["Chosen", []],
+			["Sent to the session", queued ? [sent ? `Queued · ${sent}` : "Queued"] : kind ? [sent] : ["Use Implement this to send it"]],
+			["In progress", kind ? [started, note] : []],
+			["Implemented", [kind === "implemented" ? finished : "Compare with the running app when ready"]],
+		];
+		els.timeline.replaceChildren(...defs.map(([label, details], index) => {
+			const status = stateOf(index);
+			const item = document.createElement("li");
+			item.className = `gd-step gd-step-${status}`;
+			item.dataset.state = status;
+			if (status === "current") item.setAttribute("aria-current", "step");
+			const dot = document.createElement("span");
+			dot.className = "gd-step-dot";
+			dot.setAttribute("aria-hidden", "true");
+			const body = document.createElement("span");
+			body.className = "gd-step-body";
+			// Never color alone: the state is also in words for assistive technology.
+			const words = chip("gd-visually-hidden gd-step-state", status === "done" ? " (done)" : status === "current" ? " (current)" : " (not yet)");
+			body.append(chip("gd-step-label", label), words, ...details.filter(Boolean).map((text) => chip("gd-step-detail", text)));
+			item.append(dot, body);
+			return item;
+		}));
+	}
+
+	function commentSummary(board) {
+		const mine = commentsForBoard(board);
+		const open = mine.filter((comment) => comment.status === "open").length;
+		const resolved = mine.filter((comment) => comment.status === "resolved").length;
+		const parts = [];
+		if (open > 0) parts.push(`${open} open comment${open === 1 ? "" : "s"}`);
+		if (resolved > 0) parts.push(`${resolved} resolved`);
+		return parts.length > 0 ? parts.join(" · ") : "No comments";
+	}
+
+	/** The artboard navigator: one item per design artboard; the system board is not listed. */
+	function renderNav() {
+		els.navTitle.textContent = `Artboards · ${state.boards.length}`;
+		els.navNote.hidden = !state.systemBoard;
+		const refocus = els.navList.contains(document.activeElement) ? document.activeElement.dataset.file : null;
+		const items = state.boards.map((board) => {
+			const item = document.createElement("li");
+			const button = document.createElement("button");
+			button.type = "button";
+			button.className = "gd-nav-item";
+			button.dataset.file = board.artboard.file;
+			if (board === state.focus) button.setAttribute("aria-current", "true");
+			const thumb = chip("gd-nav-thumb", "");
+			thumb.setAttribute("aria-hidden", "true");
+			const text = document.createElement("span");
+			text.className = "gd-nav-text";
+			text.append(chip("gd-nav-item-title", `${String(board.number).padStart(2, "0")} ${board.artboard.title}`), chip("gd-nav-summary", commentSummary(board)));
+			const { chosen } = handoffOf(board);
+			if (typeof chosen === "string") {
+				const isChosen = chosen === board.artboard.file;
+				text.append(chip(`gd-nav-tag${isChosen ? " gd-nav-tag-chosen" : ""}`, isChosen ? "Chosen" : "Alternative"));
+			}
+			button.append(thumb, text);
+			button.addEventListener("click", () => enterFocus(board));
+			item.append(button);
+			return item;
+		});
+		els.navList.replaceChildren(...items);
+		if (refocus) els.navList.querySelector?.(`[data-file="${CSS.escape(refocus)}"]`)?.focus();
 	}
 
 	function setHandoffs(slug, data) {
@@ -796,7 +1115,8 @@
 		els.compare.hidden = false;
 		els.viewport.inert = true;
 		els.panel.inert = true;
-		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.design]) control.disabled = true;
+		els.nav.inert = true;
+		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit, els.railSystem, els.design, els.compareApp]) control.disabled = true;
 		layoutCompare();
 		els.compareBack.focus();
 	}
@@ -811,6 +1131,7 @@
 		els.compare.hidden = true;
 		els.viewport.inert = false;
 		els.panel.inert = false;
+		els.nav.inert = false;
 		applyFocusState();
 		if (!restoreFocus) return;
 		const board = state.boards.find((candidate) => candidate.artboard.file === compare.board.artboard.file);
@@ -823,8 +1144,18 @@
 
 	function showFeature(manifest) {
 		const feature = manifest && typeof manifest.feature === "string" ? manifest.feature : "";
-		els.feature.textContent = feature ? `Feature: ${feature}` : "";
+		els.feature.textContent = feature;
 		els.feature.hidden = !feature;
+		els.featureSep.hidden = !feature;
+		els.briefFeature.textContent = feature;
+		els.briefFeature.hidden = !feature;
+	}
+
+	/** The Brief tab: the design's title, brief and feature document. */
+	function renderBrief() {
+		const manifest = state.manifest;
+		els.briefTitle.textContent = manifest ? manifest.title : "No design selected";
+		els.briefText.textContent = manifest ? (typeof manifest.brief === "string" && manifest.brief ? manifest.brief : "No brief written.") : "";
 	}
 
 	/** No design selected: only the system board, or the empty notice. */
@@ -832,13 +1163,14 @@
 		state.manifest = null;
 		state.boards = [];
 		showFeature(null);
-		els.title.textContent = "Gentle Design";
+		renderBrief();
 		if (!state.systemBoard) {
 			showEmpty("No designs yet. Run /gentle:design with a brief to create one.");
 			return;
 		}
 		els.empty.hidden = true;
 		placeBoards();
+		renderHandoffViews();
 		setStatus("", false);
 		requestAnimationFrame(fit);
 	}
@@ -856,7 +1188,7 @@
 		closePopover();
 		state.manifest = manifest;
 		showFeature(manifest);
-		els.title.textContent = manifest.title;
+		renderBrief();
 		document.title = `${manifest.title} · Gentle Design`;
 		history.replaceState(null, "", `${base}d/${encodeURIComponent(slug)}/`);
 		if (manifest.artboards.length === 0 && !state.systemBoard) {
@@ -865,7 +1197,7 @@
 		}
 		els.empty.hidden = true;
 		const focusFile = state.focus && !state.focus.system ? state.focus.artboard.file : null;
-		state.boards = manifest.artboards.map((artboard) => createBoard(slug, artboard));
+		state.boards = manifest.artboards.map((artboard, index) => createBoard(slug, artboard, false, index + 1));
 		// A manifest reload keeps focus mode on the same artboard file while it still exists.
 		if (focusFile) state.focus = state.boards.find((board) => board.artboard.file === focusFile) ?? state.focus;
 		placeBoards();
@@ -1080,18 +1412,25 @@
 	function renderList() {
 		const open = state.comments.filter((comment) => comment.status === "open");
 		const resolved = state.comments.filter((comment) => comment.status === "resolved");
-		els.filterOpen.textContent = `Open (${open.length})`;
-		els.filterResolved.textContent = `Resolved (${resolved.length})`;
-		els.filterOpen.setAttribute("aria-pressed", String(state.filter === "open"));
-		els.filterResolved.setAttribute("aria-pressed", String(state.filter === "resolved"));
+		els.countOpen.textContent = String(open.length);
+		els.countResolved.textContent = String(resolved.length);
+		TAB_NAMES.forEach((name, index) => {
+			const tab = tabButtons()[index];
+			tab.setAttribute("aria-selected", String(state.tab === name));
+			tab.setAttribute("tabindex", state.tab === name ? "0" : "-1");
+		});
+		els.tabPanel.setAttribute("aria-labelledby", tabButtons()[TAB_NAMES.indexOf(state.tab)].id);
 		const unsent = open.filter((comment) => comment.sentAt === null).length;
 		els.sendAll.textContent = `Send all (${unsent})`;
-		els.sendAll.disabled = unsent === 0;
-		const shown = state.filter === "open" ? open : resolved;
-		els.panelEmpty.hidden = shown.length > 0;
+		els.sendAll.disabled = unsent === 0 || !DELIVERY.batch;
+		const brief = state.tab === "brief";
+		els.brief.hidden = !brief;
+		els.list.hidden = brief;
+		const shown = state.tab === "resolved" ? resolved : open;
+		els.panelEmpty.hidden = brief || shown.length > 0;
 		els.panelEmpty.textContent = state.comments.length === 0
 			? "No comments yet. Turn on Comment mode and click an element."
-			: state.filter === "open" ? "No open comments." : "No resolved comments.";
+			: state.tab === "open" ? "No open comments." : "No resolved comments.";
 		els.list.replaceChildren(...shown.map((comment) => {
 			const item = document.createElement("li");
 			item.className = "gd-comment-item";
@@ -1101,27 +1440,33 @@
 			show.type = "button";
 			show.className = "gd-comment-show";
 			show.setAttribute("aria-label", `Show comment ${commentNumber(comment)} on ${comment.file}`);
+			// Pin number, the element's selector, and whether the session has it yet.
 			const meta = document.createElement("span");
 			meta.className = "gd-comment-meta";
 			const number = document.createElement("span");
 			number.className = "gd-comment-number";
-			number.textContent = `#${commentNumber(comment)}`;
-			const file = document.createElement("span");
-			file.textContent = comment.file;
-			meta.append(number, file);
+			number.textContent = String(commentNumber(comment));
+			const selector = document.createElement("code");
+			selector.className = "gd-comment-selector";
+			selector.title = `${comment.file} · ${comment.selector}`;
+			selector.textContent = comment.selector;
+			meta.append(number, selector);
 			const badge = (text, kind) => {
 				const element = document.createElement("span");
 				element.className = `gd-badge gd-badge-${kind}`;
 				element.textContent = text;
 				meta.append(element);
 			};
-			badge(comment.sentAt ? "Sent" : "Not sent", comment.sentAt ? "sent" : "unsent");
+			badge(comment.sentAt ? "Sent" : "Waiting", comment.sentAt ? "sent" : "unsent");
 			if (isDetached(comment)) badge("Detached", "detached");
 			const text = document.createElement("span");
 			text.className = "gd-comment-text";
 			text.style.display = "block";
 			text.textContent = comment.comment;
-			show.append(meta, text);
+			const file = document.createElement("span");
+			file.className = "gd-comment-file";
+			file.textContent = comment.file;
+			show.append(meta, text, file);
 			if (comment.screenshot) {
 				const shot = document.createElement("img");
 				shot.className = "gd-comment-shot";
@@ -1135,18 +1480,26 @@
 			actions.className = "gd-comment-actions";
 			const toggle = document.createElement("button");
 			toggle.type = "button";
+			toggle.className = "gd-comment-toggle";
 			const next = comment.status === "open" ? "resolved" : "open";
 			toggle.textContent = next === "resolved" ? "Resolve" : "Reopen";
 			toggle.setAttribute("aria-label", `${toggle.textContent} comment ${commentNumber(comment)}`);
 			toggle.addEventListener("click", () => setCommentStatus(comment.id, next));
 			actions.append(toggle);
 			item.append(show, actions);
+			if (state.cardErrors.has(comment.id)) {
+				const alert = createAlert();
+				showAlert(alert, state.cardErrors.get(comment.id));
+				alert.onDismiss = () => { state.cardErrors.delete(comment.id); };
+				item.append(alert.root);
+			}
 			return item;
 		}));
 	}
 
 	function renderComments() {
 		renderList();
+		renderNav();
 		state.boards.forEach(renderPins);
 	}
 
@@ -1171,10 +1524,7 @@
 		renderComments();
 		const comment = state.comments.find((candidate) => candidate.id === id);
 		if (!comment) return;
-		if (comment.status !== state.filter && options.focusList) {
-			state.filter = comment.status;
-			renderList();
-		}
+		if (comment.status !== state.tab && options.focusList) setTab(comment.status);
 		const board = state.boards.find((candidate) => candidate.artboard.file === comment.file);
 		board?.frame.contentWindow?.postMessage({ type: "gd:highlight", id }, "*");
 		if (options.focusList) els.list.querySelector(`[data-id="${CSS.escape(id)}"] .gd-comment-show`)?.focus();
@@ -1193,12 +1543,18 @@
 	}
 
 	async function postJson(path, body) {
-		const response = await fetch(base + path, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			cache: "no-store",
-			body: JSON.stringify(body),
-		});
+		let response;
+		try {
+			response = await fetch(base + path, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				cache: "no-store",
+				body: JSON.stringify(body),
+			});
+		} catch (error) {
+			// The request itself failed: the server is gone or unreachable.
+			return { status: 0, ok: false, body: { error: "network", reason: error instanceof Error ? error.message : String(error) } };
+		}
 		let reply = null;
 		try { reply = await response.json(); } catch { reply = null; }
 		return { status: response.status, ok: response.ok, body: reply || {} };
@@ -1206,9 +1562,14 @@
 
 	async function setCommentStatus(id, status) {
 		const slug = state.slug;
-		const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/comments/${encodeURIComponent(id)}/status`, { status }).catch((error) => ({ ok: false, body: { error: error.message } }));
-		if (!reply.ok) setStatus(`Comment not updated: ${reply.body.reason || reply.body.error || "error"}`, true);
-		else setStatus(status === "resolved" ? "Comment resolved" : "Comment reopened", false);
+		if (state.cardErrors.delete(id)) renderList();
+		const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/comments/${encodeURIComponent(id)}/status`, { status });
+		if (!reply.ok) {
+			// The failure stays in that comment's card until it is dismissed or the next attempt.
+			state.cardErrors.set(id, reply);
+			renderList();
+			els.list.querySelector(`[data-id="${CSS.escape(id)}"] .gd-comment-toggle`)?.focus();
+		} else showToast(status === "resolved" ? "Comment resolved" : "Comment reopened", false);
 		await loadComments();
 	}
 
@@ -1216,10 +1577,12 @@
 		const slug = state.slug;
 		if (!slug) return;
 		els.sendAll.disabled = true;
-		const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/comments/send-all`, {}).catch((error) => ({ ok: false, body: { error: error.message } }));
-		if (!reply.ok) setStatus(`Comments not sent: ${reply.body.reason || reply.body.error || "error"}`, true);
-		else setStatus(reply.body.sent ? `Sent ${reply.body.sent} comment${reply.body.sent === 1 ? "" : "s"} to the session` : "No unsent comments", false);
+		hideAlert(sendAlert);
+		const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/comments/send-all`, {});
+		if (!reply.ok) showAlert(sendAlert, reply);
+		else showToast(reply.body.sent ? `Sent ${reply.body.sent} comment${reply.body.sent === 1 ? "" : "s"} to the session` : "No unsent comments", false);
 		await loadComments();
+		renderList();
 	});
 
 	function setMode(mode) {
@@ -1232,14 +1595,54 @@
 
 	els.modeSend.addEventListener("change", () => setMode("send"));
 	els.modeCollect.addEventListener("change", () => setMode("collect"));
-	els.filterOpen.addEventListener("click", () => { state.filter = "open"; renderList(); });
-	els.filterResolved.addEventListener("click", () => { state.filter = "resolved"; renderList(); });
+
+	function tabButtons() {
+		return [els.filterOpen, els.filterResolved, els.tabBrief];
+	}
+
+	function setTab(name) {
+		state.tab = name;
+		renderList();
+	}
+
+	tabButtons().forEach((tab, index) => tab.addEventListener("click", () => setTab(TAB_NAMES[index])));
+	// Arrow keys, Home and End move between the tabs, wrapping around.
+	els.tabs.addEventListener("keydown", (event) => {
+		const current = TAB_NAMES.indexOf(state.tab);
+		const next = { ArrowRight: (current + 1) % 3, ArrowLeft: (current + 2) % 3, Home: 0, End: 2 }[event.key];
+		if (next === undefined) return;
+		event.preventDefault();
+		setTab(TAB_NAMES[next]);
+		tabButtons()[next].focus();
+	});
 	function setPanel(show) {
 		els.panel.hidden = !show;
 		els.panelToggle.setAttribute("aria-pressed", String(show));
 	}
 
 	els.panelToggle.addEventListener("click", () => setPanel(els.panel.hidden));
+
+	function setNav(show) {
+		els.nav.hidden = !show;
+		els.navToggle.setAttribute("aria-pressed", String(show));
+	}
+
+	els.navToggle.addEventListener("click", () => setNav(els.nav.hidden));
+	els.railSystem.addEventListener("click", () => { if (state.systemBoard) enterFocus(state.systemBoard); });
+
+	function openShortcuts() {
+		if (typeof els.shortcuts.showModal === "function") els.shortcuts.showModal();
+		else els.shortcuts.setAttribute("open", "");
+	}
+
+	function closeShortcuts() {
+		if (typeof els.shortcuts.close === "function") els.shortcuts.close();
+		else els.shortcuts.removeAttribute("open");
+		els.shortcutsOpen.focus();
+	}
+
+	els.shortcutsOpen.addEventListener("click", openShortcuts);
+	els.shortcutsClose.addEventListener("click", closeShortcuts);
 
 	function readRects(data) {
 		if (!Array.isArray(data.rects) || data.rects.length > LIMITS.pins) return null;
@@ -1254,12 +1657,18 @@
 		return rects;
 	}
 
+	/** Navigate and Comment are one pressed pair. */
+	function renderTools() {
+		els.comment.setAttribute("aria-pressed", String(state.commenting));
+		els.toolNavigate.setAttribute("aria-pressed", String(!state.commenting));
+	}
+
 	function setCommenting(enabled) {
 		state.commenting = enabled;
-		els.comment.setAttribute("aria-pressed", String(enabled));
+		renderTools();
+		renderNavMode();
 		els.world.classList.toggle("gd-commenting", enabled);
 		state.boards.forEach(sendMode);
-		setStatus(enabled ? "Comment mode: click an element in an artboard" : "", false);
 		if (!enabled) {
 			setHoverBoard(null);
 			closePopover();
@@ -1267,6 +1676,37 @@
 	}
 
 	els.comment.addEventListener("click", () => setCommenting(!state.commenting));
+	els.toolNavigate.addEventListener("click", () => setCommenting(false));
+
+	// Single-key shortcuts. They never fire while typing, with a browser chord, while the comment
+	// box or the shortcuts list is open, in Compare, or in focus mode (the artboard owns the keyboard
+	// there; Shift+Esc is handled apart).
+	const TYPING_TAGS = ["input", "textarea", "select"];
+	document.addEventListener("keydown", (event) => {
+		if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+		const target = event.target;
+		if (target && (TYPING_TAGS.includes(target.localName) || target.isContentEditable)) return;
+		if (els.shortcuts.hasAttribute("open")) {
+			if (event.key === "?") {
+				event.preventDefault();
+				closeShortcuts();
+			}
+			return;
+		}
+		if (!els.popover.hidden || state.focus || state.compare) return;
+		const actions = {
+			v: () => setCommenting(false),
+			c: () => setCommenting(true),
+			f: fit,
+			"[": () => setNav(els.nav.hidden),
+			"]": () => setPanel(els.panel.hidden),
+			"?": openShortcuts,
+		};
+		const action = actions[event.key.length === 1 ? event.key.toLowerCase() : ""];
+		if (!action) return;
+		event.preventDefault();
+		action();
+	});
 
 	function isFiniteNumber(value) {
 		return typeof value === "number" && Number.isFinite(value);
@@ -1287,6 +1727,7 @@
 		state.pick = { board, ...pick };
 		els.target.textContent = `${board.artboard.file} · ${pick.selector}`;
 		els.message.textContent = "";
+		els.message.title = "";
 		els.message.classList.remove("gd-error");
 		els.send.disabled = false;
 		els.popover.hidden = false;
@@ -1418,33 +1859,27 @@
 		els.message.classList.remove("gd-error");
 		els.message.textContent = "Sending…";
 		const shot = state.shot;
-		try {
-			const response = await fetch(`${base}api/comments`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				cache: "no-store",
-				body: JSON.stringify({ slug: pick.board.slug, file: pick.board.artboard.file, selector: pick.selector, excerpt: pick.excerpt, comment, mode: state.mode, ...(shot ? { screenshot: shot } : {}) }),
-			});
-			let reply = {};
-			try { reply = await response.json(); } catch { /* keep the status */ }
-			// Delivery can fail after the comment was saved; it then waits for "Send all".
-			const savedOnly = response.status === 500 && reply.saved === true;
-			if (response.status !== 202 && response.status !== 201 && !savedOnly) throw new Error(reply.reason || reply.error || `HTTP ${response.status}`);
-			loadComments();
+		const reply = await postJson("api/comments", { slug: pick.board.slug, file: pick.board.artboard.file, selector: pick.selector, excerpt: pick.excerpt, comment, mode: state.mode, ...(shot ? { screenshot: shot } : {}) });
+		// Delivery can fail after the comment was saved; it then waits for "Send all".
+		const savedOnly = reply.status === 500 && reply.body.saved === true;
+		if (!reply.ok && !savedOnly) {
 			if (state.pick !== pick) return;
-			els.text.value = "";
-			if (state.shot === shot) clearShot();
-			const done = savedOnly ? "Saved, but not sent to the session" : response.status === 201 ? "Saved; use Send all to send it" : "Sent to the session";
-			els.message.textContent = done;
-			els.message.classList.toggle("gd-error", savedOnly);
-			setStatus(done, savedOnly);
-			state.closeTimer = setTimeout(closePopover, savedOnly ? 2500 : 1200);
-		} catch (error) {
-			if (state.pick !== pick) return;
+			const info = explain(reply);
 			els.send.disabled = false;
-			els.message.textContent = `Not sent: ${error.message}`;
+			els.message.textContent = info.text;
+			els.message.title = info.detail;
 			els.message.classList.add("gd-error");
+			return;
 		}
+		loadComments();
+		if (state.pick !== pick) return;
+		els.text.value = "";
+		if (state.shot === shot) clearShot();
+		const done = savedOnly ? "Saved, but not sent to the session. Use Send all to try again." : reply.status === 201 ? "Saved; use Send all to send it" : "Sent to the session";
+		els.message.textContent = done;
+		els.message.title = savedOnly ? explain(reply).detail : "";
+		els.message.classList.toggle("gd-error", savedOnly);
+		state.closeTimer = setTimeout(closePopover, savedOnly ? 2500 : 1200);
 	});
 
 	window.addEventListener("message", (event) => {
@@ -1492,6 +1927,13 @@
 	else window.addEventListener("resize", () => centerFocus());
 
 	setMode(state.mode);
+	renderTools();
+	if (!DELIVERY.batch) {
+		const info = explain({ status: 501, body: { error: "batch-delivery-unavailable" } });
+		els.sendNote.textContent = info.text;
+		els.sendNote.title = info.detail;
+		els.sendNote.hidden = false;
+	}
 	start();
 	connectEvents();
 })();

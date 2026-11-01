@@ -71,7 +71,10 @@ class FakeElement {
 	offsetTop = 0;
 	get offsetWidth() { return 0; }
 	get offsetHeight() { return 0; }
-	setAttribute(name: string, value: unknown) { this.attributes.set(name, String(value)); }
+	setAttribute(name: string, value: unknown) {
+		this.attributes.set(name, String(value));
+		if (name === "class") this.className = String(value);
+	}
 	getAttribute(name: string) { return this.attributes.get(name) ?? null; }
 	hasAttribute(name: string) { return this.attributes.has(name); }
 	removeAttribute(name: string) { this.attributes.delete(name); }
@@ -130,6 +133,7 @@ class FakeDocument {
 		this.activeElement = this.body;
 	}
 	createElement(tag: string) { return new FakeElement(tag, this); }
+	createElementNS(_namespace: string, tag: string) { return new FakeElement(tag, this); }
 	getElementById(id: string) {
 		let element = this.byId.get(id);
 		if (!element) {
@@ -147,9 +151,11 @@ class FakeDocument {
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknown> = {}) {
+async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknown> = {}, config: Record<string, unknown> = {}) {
 	const document = new FakeDocument();
-	document.getElementById("gd-config").textContent = JSON.stringify({ base: "/t/", slug: "alpha" });
+	document.getElementById("gd-config").textContent = JSON.stringify({ base: "/t/", slug: "alpha", ...config });
+	// Hidden in index.html until a delivery problem is shown.
+	for (const id of ["gd-send-note", "gd-send-alert"]) document.getElementById(id).hidden = true;
 	const viewport = document.getElementById("gd-viewport");
 	const world = document.getElementById("gd-world");
 	viewport.append(world);
@@ -200,7 +206,11 @@ async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknow
 		fetch: async (url: string, init?: { method?: string; body?: string }) => {
 			if (init?.method === "POST") posts.push({ url, body: JSON.parse(init.body ?? "null") });
 			fetched.push(url);
-			return { ok: url in replies, status: url in replies ? 200 : 404, json: async () => replies[url] ?? {} };
+			// `__throw` makes the request itself fail; `__http` sets the status of the reply.
+			const reply = replies[url] as Record<string, unknown> | undefined;
+			if (reply && "__throw" in reply) throw new TypeError(String(reply.__throw));
+			const status = reply && typeof reply.__http === "number" ? reply.__http : url in replies ? 200 : 404;
+			return { ok: status < 400, status, json: async () => reply ?? {} };
 		},
 		EventSource: class {
 			addEventListener(type: string, listener: Listener) {
@@ -358,7 +368,7 @@ test("a drag over an artboard pans the canvas, and in comment mode a click is ro
 
 	canvas.document.getElementById("gd-comment").dispatch("click");
 	click(first.shield!, 150, 130);
-	assert.equal(canvas.navMode.textContent, "Navigating", "comment mode picks instead of focusing");
+	assert.equal(canvas.navMode.textContent, "Click an element to comment · Esc", "comment mode picks instead of focusing");
 	// The frame shows a 400x300 artboard at half size: (150-100)/0.5, (130-100)/0.5.
 	assert.deepEqual(first.frame.contentWindow!.posted.at(-1), { type: "gd:pick-at", x: 100, y: 60 });
 });
@@ -404,14 +414,14 @@ test("a show event for another design leaves focus, loads that design and replac
 	assert.ok(canvas.fetched.includes("/t/api/designs/beta"), "the other design's manifest is loaded");
 	assert.ok(canvas.fetched.includes("/t/api/designs/beta/comments"), "and its comments");
 	assert.equal(canvas.urls.at(-1), "/t/d/beta/");
-	assert.equal(canvas.document.getElementById("gd-title").textContent, "Beta");
+	assert.equal(canvas.document.title, "Beta · Gentle Design", "the design's title moves to the tab title; the breadcrumb keeps Gentle Design");
 	assert.equal(canvas.document.getElementById("gd-design").value, "beta", "the design selector follows");
 	assert.equal(canvas.navMode.textContent, "Navigating", "focus mode ends when the design changes");
 	assert.deepEqual(canvas.frames().map((frame) => frame.title), ["Only artboard"]);
 
 	await canvas.serverEvent("show", { slug: null });
 	assert.equal(canvas.urls.at(-1), "/t/", "null shows the system-only view at the root URL");
-	assert.equal(canvas.document.getElementById("gd-title").textContent, "Gentle Design");
+	assert.equal(canvas.document.title, "Gentle Design");
 	assert.deepEqual(canvas.frames(), []);
 
 	const fetches = canvas.fetched.length;
@@ -707,4 +717,802 @@ test("an [::1] preview says browsers refuse to frame it, and keeps Open in new t
 	const message = canvas.document.getElementById("gd-compare-message");
 	assert.equal(message.textContent, "Browsers do not frame [::1] under the canvas policy (CSP has no IPv6 sources): use Open in new tab, or report the preview on localhost.");
 	assert.equal(canvas.document.getElementById("gd-compare-open").href, "http://[::1]:3000/");
+});
+
+// Brand rail (S1-S5, S10, S11): tool rail, shortcuts, mode chip.
+
+type Canvas = Awaited<ReturnType<typeof loadCanvas>>;
+
+/** The fake DOM starts every element visible; index.html starts the popover hidden. */
+async function loadRail(firstHeight = 300, extraReplies: Record<string, unknown> = {}, config: Record<string, unknown> = {}) {
+	const canvas = await loadCanvas(firstHeight, extraReplies, config);
+	canvas.document.getElementById("gd-popover").hidden = true;
+	return canvas;
+}
+
+/** A key press delivered to the document's keydown listeners, as the browser would from `target`. */
+function press(canvas: Canvas, key: string, init: Record<string, unknown> = {}, target?: FakeElement) {
+	const event: any = { key, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, target: target ?? canvas.document.body, defaultPrevented: false, preventDefault() { event.defaultPrevented = true; }, ...init };
+	for (const listener of canvas.document.listeners.get("keydown") ?? []) listener(event);
+	return event;
+}
+
+const pressed = (canvas: Canvas, id: string) => canvas.document.getElementById(id).getAttribute("aria-pressed");
+const COMMENT_CHIP = "Click an element to comment · Esc";
+
+test("the rail's Navigate and Comment form a pressed pair over the comment mode, and the chip says which", async () => {
+	const canvas = await loadRail();
+	const navigate = canvas.document.getElementById("gd-tool-navigate");
+	const comment = canvas.document.getElementById("gd-comment");
+	assert.equal(pressed(canvas, "gd-tool-navigate"), "true");
+	assert.equal(pressed(canvas, "gd-comment"), "false");
+	assert.equal(canvas.navMode.textContent, "Navigating");
+
+	comment.dispatch("click");
+	assert.equal(pressed(canvas, "gd-comment"), "true");
+	assert.equal(pressed(canvas, "gd-tool-navigate"), "false");
+	assert.equal(canvas.navMode.textContent, COMMENT_CHIP);
+	assert.ok(canvas.world.classes.has("gd-commenting"));
+	assert.deepEqual(canvas.frames()[0].contentWindow!.posted.at(-1), { type: "gd:mode", enabled: true });
+
+	navigate.dispatch("click");
+	assert.equal(pressed(canvas, "gd-comment"), "false");
+	assert.equal(pressed(canvas, "gd-tool-navigate"), "true");
+	assert.equal(canvas.navMode.textContent, "Navigating");
+	assert.ok(!canvas.world.classes.has("gd-commenting"));
+	assert.deepEqual(canvas.frames()[0].contentWindow!.posted.at(-1), { type: "gd:mode", enabled: false });
+
+	// The Comment tool keeps toggling, and Navigate while navigating changes nothing.
+	comment.dispatch("click");
+	comment.dispatch("click");
+	assert.equal(pressed(canvas, "gd-comment"), "false");
+	navigate.dispatch("click");
+	assert.equal(pressed(canvas, "gd-tool-navigate"), "true");
+	assert.equal(canvas.navMode.textContent, "Navigating");
+});
+
+test("the mode chip names focus mode over comment mode, and returns to the right text on exit", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	assert.equal(canvas.navMode.textContent, COMMENT_CHIP);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	click(first.shield!, 200, 200);
+	assert.equal(canvas.navMode.textContent, COMMENT_CHIP, "a routed pick, not focus, in comment mode");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	click(first.shield!, 200, 200);
+	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit", "focus text wins while focused");
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(canvas.navMode.textContent, COMMENT_CHIP);
+});
+
+test("V, C, F, [, ] and ? drive the tools from the keyboard", async () => {
+	const canvas = await loadRail();
+	Object.defineProperty(canvas.world, "offsetWidth", { value: 2000 });
+	Object.defineProperty(canvas.world, "offsetHeight", { value: 400 });
+	const nav = canvas.document.getElementById("gd-nav");
+	const panel = canvas.document.getElementById("gd-panel");
+	const dialog = canvas.document.getElementById("gd-shortcuts");
+	let modal = 0;
+	(dialog as any).showModal = () => { modal++; dialog.setAttribute("open", ""); };
+
+	assert.equal(press(canvas, "c").defaultPrevented, true);
+	assert.equal(pressed(canvas, "gd-comment"), "true");
+	assert.equal(canvas.navMode.textContent, COMMENT_CHIP);
+	press(canvas, "v");
+	assert.equal(pressed(canvas, "gd-comment"), "false");
+	assert.equal(canvas.navMode.textContent, "Navigating");
+	press(canvas, "C");
+	assert.equal(pressed(canvas, "gd-comment"), "true", "the shortcuts ignore letter case");
+	press(canvas, "V");
+
+	canvas.viewport.dispatch("wheel", { deltaX: 0, deltaY: 40, deltaMode: 0, ctrlKey: true, metaKey: false, shiftKey: false, clientX: 300, clientY: 300 });
+	assert.notEqual(canvas.zoomLevel.textContent, "45%");
+	press(canvas, "f");
+	assert.equal(canvas.zoomLevel.textContent, "45%");
+
+	assert.equal(nav.hidden, false);
+	press(canvas, "[");
+	assert.equal(nav.hidden, true);
+	assert.equal(pressed(canvas, "gd-nav-toggle"), "false");
+	press(canvas, "[");
+	assert.equal(nav.hidden, false);
+	assert.equal(pressed(canvas, "gd-nav-toggle"), "true");
+
+	press(canvas, "]");
+	assert.equal(panel.hidden, true);
+	assert.equal(pressed(canvas, "gd-panel-toggle"), "false");
+	press(canvas, "]");
+	assert.equal(panel.hidden, false);
+
+	press(canvas, "?", { shiftKey: true });
+	assert.equal(modal, 1);
+	assert.ok(dialog.hasAttribute("open"));
+});
+
+test("shortcuts with a modifier, and the buttons of the rail, reach the same tools", async () => {
+	const canvas = await loadRail();
+	const dialog = canvas.document.getElementById("gd-shortcuts");
+	(dialog as any).showModal = () => dialog.setAttribute("open", "");
+	press(canvas, "c", { ctrlKey: true });
+	press(canvas, "c", { metaKey: true });
+	press(canvas, "c", { altKey: true });
+	assert.equal(pressed(canvas, "gd-comment"), "false", "browser chords are left alone");
+
+	canvas.document.getElementById("gd-nav-toggle").dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-nav").hidden, true);
+	assert.equal(pressed(canvas, "gd-nav-toggle"), "false");
+	canvas.document.getElementById("gd-shortcuts-open").dispatch("click");
+	assert.ok(dialog.hasAttribute("open"));
+	// Single keys do nothing while the dialog is open, except ? which closes it.
+	press(canvas, "c");
+	assert.equal(pressed(canvas, "gd-comment"), "false");
+});
+
+test("single-key shortcuts are ignored while typing, with the popover open, and in focus mode, except Shift+Esc", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	const typing = ["input", "textarea", "select"].map((tag) => canvas.document.createElement(tag));
+	for (const field of typing) {
+		for (const key of ["c", "v", "f", "[", "]", "?"]) press(canvas, key, {}, field);
+	}
+	assert.equal(pressed(canvas, "gd-comment"), "false", "typing never switches tools");
+	assert.equal(canvas.document.getElementById("gd-nav").hidden, false);
+	assert.equal(canvas.document.getElementById("gd-panel").hidden, false);
+
+	const popover = canvas.document.getElementById("gd-popover");
+	popover.hidden = false;
+	press(canvas, "c");
+	press(canvas, "]");
+	assert.equal(pressed(canvas, "gd-comment"), "false", "no shortcuts while the popover is open");
+	assert.equal(canvas.document.getElementById("gd-panel").hidden, false);
+	popover.hidden = true;
+
+	click(first.shield!, 200, 200);
+	const transform = canvas.world.style.transform;
+	for (const key of ["c", "v", "f", "[", "]", "?", "0", "+", "-"]) {
+		const event = press(canvas, key);
+		assert.equal(event.defaultPrevented, false, `${key} is left alone in focus mode`);
+	}
+	assert.equal(pressed(canvas, "gd-comment"), "false");
+	assert.equal(canvas.document.getElementById("gd-nav").hidden, false);
+	assert.equal(canvas.world.style.transform, transform);
+	assert.match(canvas.navMode.textContent, /^Using:/);
+	press(canvas, "Escape", { shiftKey: true });
+	assert.equal(canvas.navMode.textContent, "Navigating", "Shift+Esc still leaves focus mode");
+	press(canvas, "c");
+	assert.equal(pressed(canvas, "gd-comment"), "true", "shortcuts work again outside focus mode");
+});
+
+test("the Design system tool is disabled without a system board and focuses it when there is one", async () => {
+	const without = await loadRail();
+	assert.equal(without.document.getElementById("gd-rail-system").disabled, true);
+
+	const canvas = await loadRail(300, { "/t/api/system": { exists: true, file: "system.html", width: 1440, height: 1200 } });
+	const system = canvas.document.getElementById("gd-rail-system");
+	assert.equal(system.disabled, false);
+	system.dispatch("click");
+	assert.equal(canvas.navMode.textContent, "Using: Design system · Shift+Esc to exit");
+	// Overview is off while focused, and back on after.
+	const fit = canvas.document.getElementById("gd-rail-fit");
+	assert.equal(fit.disabled, true);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(fit.disabled, false);
+});
+
+test("the rail Fit and the artboard count follow the canvas", async () => {
+	const canvas = await loadRail();
+	Object.defineProperty(canvas.world, "offsetWidth", { value: 2000 });
+	Object.defineProperty(canvas.world, "offsetHeight", { value: 400 });
+	canvas.viewport.dispatch("wheel", { deltaX: 0, deltaY: 40, deltaMode: 0, ctrlKey: true, metaKey: false, shiftKey: false, clientX: 300, clientY: 300 });
+	canvas.document.getElementById("gd-rail-fit").dispatch("click");
+	assert.equal(canvas.zoomLevel.textContent, "45%");
+	assert.equal(canvas.document.getElementById("gd-nav-title").textContent, "Artboards · 2");
+});
+
+test("index.html: one sprite, named icon buttons with shortcut titles, a shortcuts dialog and a labeled rail", () => {
+	const html = read("index.html");
+	assert.equal(html.split("<symbol ").length - 1, new Set(html.match(/<symbol id="[^"]+"/g)).size, "sprite ids are unique");
+	assert.equal(html.split("<svg ").filter((part) => /aria-hidden="true"/.test(part.split(">")[0]) && /<symbol/.test(part)).length, 1, "a single sprite");
+	for (const match of html.matchAll(/<use href="#([^"]+)"/g)) assert.ok(html.includes(`<symbol id="${match[1]}"`), `${match[1]} exists in the sprite`);
+	const iconButtons = [...html.matchAll(/<button\b([^>]*)>\s*<svg[^>]*><use [^>]*\/><\/svg>\s*<\/button>/g)];
+	assert.ok(iconButtons.length >= 8);
+	for (const [, attributes] of iconButtons) {
+		assert.match(attributes, /aria-label="[^"]+"/);
+		assert.match(attributes, /title="[^"]+"/);
+	}
+	for (const [id, shortcut] of [["gd-tool-navigate", "V"], ["gd-comment", "C"], ["gd-rail-fit", "F"], ["gd-nav-toggle", "["], ["gd-shortcuts-open", "?"]] as const) {
+		assert.match(html, new RegExp(`id="${id.replace(/[[\]]/g, "\\$&")}"[^>]*title="[^"]*\\(${shortcut.replace(/[[\]?]/g, "\\$&")}\\)"`), `${id} names ${shortcut}`);
+	}
+	assert.match(html, /<nav class="gd-rail" aria-label="Tools"/);
+	assert.match(html, /<dialog id="gd-shortcuts"[^>]*aria-labelledby=/);
+	assert.match(html, /<aside id="gd-nav"[^>]*aria-labelledby="gd-nav-title"/);
+	assert.match(html, /id="gd-nav-list"/);
+	assert.ok(!/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/u.test(html), "no emoji icons");
+});
+
+test("canvas.css takes its colors from the brand tokens: no raw hex outside :root, except the artboard's white", () => {
+	const css = read("canvas.css");
+	const root = css.match(/:root\s*{[^}]*}/)![0];
+	for (const [token, value] of [["--bg", "#1a1218"], ["--bg-deep", "#000000"], ["--surface", "#20161e"], ["--surface-1", "#241822"], ["--surface-2", "#342230"], ["--border", "#342230"], ["--border-soft", "#ffffff17"], ["--text", "#f6eff3"], ["--text-muted", "#a78e9b"], ["--text-faint", "#76616b"], ["--accent", "#f095c8"], ["--accent-strong", "#ff76c3"], ["--accent-soft", "#ffb1dd"], ["--success", "#b4e7c7"], ["--warning", "#e0c27a"], ["--error", "#ff718f"], ["--info", "#a9c7ee"]] as const) {
+		assert.ok(root.includes(`${token}: ${value}`), `${token} is ${value}`);
+	}
+	assert.match(root, /--font-sans: Inter,/);
+	assert.match(root, /--font-mono: "IosevkaTerm NF"/);
+	const outside = css.replace(root, "");
+	assert.deepEqual([...outside.matchAll(/#[0-9a-fA-F]{3,8}\b(?![\w-])/g)].map((match) => match[0]).filter((value) => value !== "#fff"), []);
+	assert.match(css, /prefers-reduced-motion: no-preference/);
+	assert.match(css, /outline: 2px solid var\(--accent\)/);
+});
+
+// Brand rail, review workspace (S6-S9, S10 header): navigator, Compare with app, tabs, Brief, handoff timeline.
+
+const comment = (id: string, file: string, status = "open", extra: Record<string, unknown> = {}) => ({ id, slug: "alpha", file, selector: `main > .${id}`, excerpt: "", comment: `Text of ${id}`, status, sentAt: null, ...extra });
+const commentsDoc = (...comments: Array<Record<string, unknown>>) => ({ "/t/api/designs/alpha/comments": { comments } });
+const navItems = (canvas: Canvas) => withClass(canvas.document.getElementById("gd-nav-list"), "gd-nav-item");
+const navTexts = (canvas: Canvas, name: string) => texts(canvas.document.getElementById("gd-nav-list"), name);
+const setComments = async (canvas: Canvas, ...comments: Array<Record<string, unknown>>) => {
+	canvas.replies["/t/api/designs/alpha/comments"] = { comments };
+	await canvas.serverEvent("change", { slug: "alpha", file: "comments.json" });
+};
+
+test("the navigator lists the artboards with a number, a comment summary and a title for the count", async () => {
+	const canvas = await loadRail(300, commentsDoc(comment("a1", "01-a.html"), comment("a2", "01-a.html"), comment("a3", "01-a.html", "resolved"), comment("b1", "02-b.html", "resolved")));
+	assert.equal(canvas.document.getElementById("gd-nav-title").textContent, "Artboards · 2");
+	assert.deepEqual(navTexts(canvas, "gd-nav-item-title"), ["01 First", "02 Second"]);
+	// Open comments first, then resolved; either alone stands alone; none says so.
+	assert.deepEqual(navTexts(canvas, "gd-nav-summary"), ["2 open comments · 1 resolved", "1 resolved"]);
+	assert.equal(withClass(navItems(canvas)[0], "gd-nav-thumb").length, 1, "each item has a thumbnail block");
+
+	await setComments(canvas, comment("a1", "01-a.html"));
+	assert.deepEqual(navTexts(canvas, "gd-nav-summary"), ["1 open comment", "No comments"], "the summary follows comments.json live");
+	await setComments(canvas);
+	assert.deepEqual(navTexts(canvas, "gd-nav-summary"), ["No comments", "No comments"]);
+});
+
+test("the navigator tags Chosen and Alternative only once an artboard is chosen, live", async () => {
+	const canvas = await loadRail();
+	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), [], "no tags without a chosen artboard");
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": {} }));
+	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Alternative", "Chosen"]);
+	const [first, second] = withClass(canvas.document.getElementById("gd-nav-list"), "gd-nav-tag");
+	assert.ok(second.classes.has("gd-nav-tag-chosen") && !first.classes.has("gd-nav-tag-chosen"));
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), []);
+});
+
+test("activating a navigator item enters focus mode on it and marks it aria-current", async () => {
+	const canvas = await loadRail();
+	assert.deepEqual(navItems(canvas).map((item) => item.getAttribute("aria-current")), [null, null]);
+	navItems(canvas)[1].dispatch("click");
+	assert.equal(canvas.navMode.textContent, "Using: Second · Shift+Esc to exit");
+	assert.deepEqual(navItems(canvas).map((item) => item.getAttribute("aria-current")), [null, "true"]);
+	// Another item moves focus mode to that artboard.
+	navItems(canvas)[0].dispatch("click");
+	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit");
+	assert.deepEqual(navItems(canvas).map((item) => item.getAttribute("aria-current")), ["true", null]);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.deepEqual(navItems(canvas).map((item) => item.getAttribute("aria-current")), [null, null]);
+});
+
+test("the navigator footer note appears only when a system board exists", async () => {
+	const without = await loadRail();
+	assert.equal(without.document.getElementById("gd-nav-note").hidden, true);
+	const withSystem = await loadRail(300, { "/t/api/system": { exists: true, file: "system.html", width: 1440, height: 1200 } });
+	const note = withSystem.document.getElementById("gd-nav-note");
+	assert.equal(note.hidden, false);
+	assert.equal(withSystem.document.getElementById("gd-nav-title").textContent, "Artboards · 2", "the system board is not counted");
+	assert.deepEqual(navTexts(withSystem, "gd-nav-item-title"), ["01 First", "02 Second"], "nor listed");
+});
+
+test("the top bar shows the feature as a chip with its separator, and hides both without one", async () => {
+	const without = await loadRail();
+	assert.equal(without.document.getElementById("gd-feature").hidden, true);
+	assert.equal(without.document.getElementById("gd-feature-sep").hidden, true);
+	assert.match(read("index.html"), /<h1 class="gd-title" id="gd-title">Gentle Design<\/h1>/);
+	assert.equal(without.document.getElementById("gd-title").textContent, "", "the breadcrumb is static: the design's title is never written into it");
+
+	const canvas = await loadRail(300, { "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "Make a checkout.", feature: "odd/tasks/checkout.md", artboards: [{ file: "01-a.html", title: "First", tradeoff: "", width: 400, height: 300 }] } });
+	assert.equal(canvas.document.getElementById("gd-feature").textContent, "odd/tasks/checkout.md");
+	assert.equal(canvas.document.getElementById("gd-feature").hidden, false);
+	assert.equal(canvas.document.getElementById("gd-feature-sep").hidden, false);
+	assert.equal(canvas.document.getElementById("gd-title").textContent, "");
+});
+
+test("Compare with app shows only for the chosen artboard when implemented with a loopback previewUrl, and opens Compare", async () => {
+	const button = (canvas: Canvas) => canvas.document.getElementById("gd-compare-app");
+	const implemented = (previewUrl: unknown, extra: Record<string, unknown> = {}) => ({ status: "implemented", previewUrl, ...extra });
+	const canvas = await loadRail(300, { "/t/api/designs/alpha/handoffs": handoffDoc("01-a.html", { "01-a.html": { status: "sent" } }) });
+	assert.equal(button(canvas).hidden, true, "not implemented yet");
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": implemented(undefined) }));
+	assert.equal(button(canvas).hidden, true, "no previewUrl");
+	for (const url of ["http://example.com:3000/", "javascript:alert(1)", "http://127.0.0.1:4100/", "http://user:pw@localhost:3000/"]) {
+		await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": implemented(url) }));
+		assert.equal(button(canvas).hidden, true, `${url} is refused`);
+	}
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "01-a.html": implemented("http://localhost:3000/"), "02-b.html": { status: "sent" } }));
+	assert.equal(button(canvas).hidden, true, "an implemented alternative does not count");
+
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": implemented("http://localhost:3000/") }));
+	assert.equal(button(canvas).hidden, false);
+	button(canvas).dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-compare").hidden, false);
+	assert.equal(canvas.document.getElementById("gd-compare-open").href, "http://localhost:3000/");
+	assert.equal(button(canvas).disabled, true, "off while Compare is open");
+	canvas.document.getElementById("gd-compare-back").dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-compare").hidden, true);
+	assert.equal(button(canvas).disabled, false);
+});
+
+test("the review side has Comments, Resolved and Brief tabs that drive the list", async () => {
+	const canvas = await loadRail(300, { ...commentsDoc(comment("a1", "01-a.html"), comment("a2", "02-b.html", "resolved", { sentAt: "2026-10-26T10:00:00.000Z" })), "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "Make a checkout.", feature: "odd/tasks/checkout.md", artboards: [{ file: "01-a.html", title: "First", tradeoff: "", width: 400, height: 300 }, { file: "02-b.html", title: "Second", tradeoff: "", width: 400, height: 300 }] } });
+	const doc = canvas.document;
+	const tabs = ["gd-filter-open", "gd-filter-resolved", "gd-tab-brief"];
+	const selected = () => tabs.map((id) => doc.getElementById(id).getAttribute("aria-selected"));
+	const list = doc.getElementById("gd-comment-list");
+	const brief = doc.getElementById("gd-brief");
+	assert.deepEqual(selected(), ["true", "false", "false"]);
+	assert.equal(doc.getElementById("gd-count-open").textContent, "1");
+	assert.equal(doc.getElementById("gd-count-resolved").textContent, "1");
+	assert.equal(brief.hidden, true);
+	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a1"]);
+
+	doc.getElementById("gd-filter-resolved").dispatch("click");
+	assert.deepEqual(selected(), ["false", "true", "false"]);
+	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a2"]);
+
+	doc.getElementById("gd-tab-brief").dispatch("click");
+	assert.deepEqual(selected(), ["false", "false", "true"]);
+	assert.equal(brief.hidden, false);
+	assert.equal(list.hidden, true);
+	assert.equal(doc.getElementById("gd-panel-empty").hidden, true);
+	assert.equal(doc.getElementById("gd-brief-title").textContent, "Alpha");
+	assert.equal(doc.getElementById("gd-brief-text").textContent, "Make a checkout.");
+	assert.equal(doc.getElementById("gd-brief-feature").textContent, "odd/tasks/checkout.md");
+	assert.equal(doc.getElementById("gd-brief-feature").hidden, false);
+	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-labelledby"), "gd-tab-brief");
+
+	// Arrow keys move between tabs (roving tabindex), wrapping around.
+	const tablist = doc.getElementById("gd-tabs");
+	tablist.dispatch("keydown", { key: "ArrowRight" });
+	assert.deepEqual(selected(), ["true", "false", "false"]);
+	assert.equal(doc.activeElement, doc.getElementById("gd-filter-open"));
+	assert.equal(doc.getElementById("gd-filter-open").getAttribute("tabindex"), "0");
+	assert.equal(doc.getElementById("gd-tab-brief").getAttribute("tabindex"), "-1");
+	tablist.dispatch("keydown", { key: "End" });
+	assert.deepEqual(selected(), ["false", "false", "true"]);
+	tablist.dispatch("keydown", { key: "ArrowLeft" });
+	assert.deepEqual(selected(), ["false", "true", "false"]);
+	assert.equal(brief.hidden, true);
+});
+
+test("the Brief tab says so when the design has no brief, and keeps the Send footer", async () => {
+	const canvas = await loadRail();
+	canvas.document.getElementById("gd-tab-brief").dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-brief-title").textContent, "Alpha");
+	assert.equal(canvas.document.getElementById("gd-brief-text").textContent, "No brief written.");
+	assert.equal(canvas.document.getElementById("gd-brief-feature").hidden, true);
+	assert.equal(canvas.document.getElementById("gd-send-all").disabled, true, "the footer stays under every tab");
+});
+
+test("a comment card shows its number, selector chip, waiting or sent state, text and actions", async () => {
+	const canvas = await loadRail(300, commentsDoc(comment("a1", "01-a.html"), comment("a2", "01-a.html", "open", { sentAt: "2026-10-26T10:00:00.000Z", screenshot: { path: "x.png", mimeType: "image/png" } })));
+	const list = canvas.document.getElementById("gd-comment-list");
+	assert.deepEqual(texts(list, "gd-comment-number"), ["1", "2"]);
+	assert.deepEqual(texts(list, "gd-comment-selector"), ["main > .a1", "main > .a2"]);
+	assert.deepEqual(texts(list, "gd-badge"), ["Waiting", "Sent"]);
+	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a1", "Text of a2"]);
+	assert.equal(withClass(list, "gd-comment-shot").length, 1);
+	assert.equal(withClass(list, "gd-comment-actions").length, 2);
+	assert.equal(canvas.document.getElementById("gd-send-all").textContent, "Send all (1)");
+	// Resolving still goes through the same action.
+	findAll(list, (element) => element.localName === "button" && element.textContent === "Resolve")[0].dispatch("click");
+	await flush();
+	assert.ok(canvas.posts.some((post) => post.url.endsWith("/comments/a1/status")));
+});
+
+test("the handoff timeline is hidden until an artboard is chosen, then names it", async () => {
+	const canvas = await loadRail();
+	const panel = canvas.document.getElementById("gd-handoff-panel");
+	assert.equal(panel.hidden, true);
+	await setHandoffs(canvas, handoffDoc("02-b.html", {}));
+	assert.equal(panel.hidden, false);
+	assert.equal(canvas.document.getElementById("gd-handoff-title").textContent, "Handoff · Second");
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.equal(panel.hidden, true);
+});
+
+const steps = (canvas: Canvas) => withClass(canvas.document.getElementById("gd-timeline"), "gd-step");
+const stepStates = (canvas: Canvas) => steps(canvas).map((step) => `${texts(step, "gd-step-label")[0]}=${step.dataset.state}`);
+
+test("timeline steps: chosen only; queued; sent; in progress with a note; implemented", async () => {
+	const canvas = await loadRail();
+	await setHandoffs(canvas, handoffDoc("01-a.html", {}));
+	assert.deepEqual(stepStates(canvas), ["Chosen=done", "Sent to the session=pending", "In progress=pending", "Implemented=pending"]);
+
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": { status: "sent", queued: true } }));
+	assert.deepEqual(stepStates(canvas), ["Chosen=done", "Sent to the session=current", "In progress=pending", "Implemented=pending"]);
+	assert.match(texts(steps(canvas)[1], "gd-step-detail")[0], /^Queued · /, "a queued send says Queued on the Sent step");
+
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": { status: "sent", queued: false } }));
+	assert.deepEqual(stepStates(canvas), ["Chosen=done", "Sent to the session=done", "In progress=current", "Implemented=pending"]);
+	assert.doesNotMatch(texts(steps(canvas)[1], "gd-step-detail").join("|"), /Queued/);
+
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": { status: "in_progress", startedAt: "2026-10-26T10:05:00.000Z", note: "Building the summary block" } }));
+	assert.deepEqual(stepStates(canvas), ["Chosen=done", "Sent to the session=done", "In progress=current", "Implemented=pending"]);
+	assert.ok(texts(steps(canvas)[2], "gd-step-detail").includes("“Building the summary block”"), "the note sits under In progress");
+	assert.equal(steps(canvas)[2].getAttribute("aria-current"), "step");
+	assert.equal(steps(canvas)[1].getAttribute("aria-current"), null);
+
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": { status: "implemented", implementedAt: "2026-10-26T11:00:00.000Z", previewUrl: "http://localhost:3000/" } }));
+	assert.deepEqual(stepStates(canvas), ["Chosen=done", "Sent to the session=done", "In progress=done", "Implemented=done"]);
+	assert.equal(steps(canvas).filter((step) => step.getAttribute("aria-current") === "step").length, 0);
+	for (const step of steps(canvas)) assert.ok(texts(step, "gd-step-state").length === 1, "every state also has a text label");
+});
+
+test("timeline timestamps are short local times: Today HH:MM, otherwise month day, with the year when it differs", async () => {
+	const canvas = await loadRail();
+	const old = new Date(2020, 2, 4, 9, 5);
+	const now = new Date();
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": { status: "implemented", sentAt: old.toISOString(), startedAt: now.toISOString(), implementedAt: "not a date" } }));
+	assert.deepEqual(texts(steps(canvas)[1], "gd-step-detail"), ["Mar 4 2020, 09:05"]);
+	const started = texts(steps(canvas)[2], "gd-step-detail")[0];
+	assert.match(started, /^Today \d\d:\d\d$/);
+	assert.equal(started, `Today ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`);
+	assert.deepEqual(texts(steps(canvas)[3], "gd-step-detail"), [], "an unreadable timestamp shows nothing");
+});
+
+test("the timeline follows a handoff accepted by Implement this before handoffs.json changes", async () => {
+	const canvas = await loadRail(300, { "/t/api/designs/alpha/implement": { ok: true, slug: "alpha", file: "01-a.html", queued: true } });
+	const wrapper = boardsOf(canvas)[0];
+	const implement = findAll(wrapper, (element) => element.classes.has("gd-implement-start"))[0];
+	implement.dispatch("click");
+	findAll(wrapper, (element) => element.localName === "button" && element.textContent === "Send")[0].dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.equal(canvas.document.getElementById("gd-handoff-panel").hidden, false);
+	assert.deepEqual(stepStates(canvas), ["Chosen=done", "Sent to the session=current", "In progress=pending", "Implemented=pending"]);
+});
+
+test("the focused artboard header shows its number, title and handoff state chip", async () => {
+	const canvas = await loadRail(300, { "/t/api/system": { exists: true, file: "system.html", width: 1440, height: 1200 }, "/t/api/designs/alpha/handoffs": handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }) });
+	const [system, first, second] = boardsOf(canvas);
+	assert.deepEqual(texts(first, "gd-artboard-num"), ["01"]);
+	assert.deepEqual(texts(second, "gd-artboard-num"), ["02"]);
+	assert.deepEqual(texts(second, "gd-artboard-title"), ["Second"]);
+	assert.deepEqual(texts(system, "gd-artboard-num"), [], "the system board has no number");
+	const chip = withClass(second, "gd-artboard-state")[0];
+	assert.equal(chip.textContent, "In progress");
+	assert.equal(chip.dataset.status, "in_progress");
+	assert.equal(chip.hidden, false);
+	assert.equal(withClass(first, "gd-artboard-state")[0].hidden, true, "no state, no chip");
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented" } }));
+	assert.equal(chip.textContent, "Implemented ✓");
+	assert.equal(chip.dataset.status, "implemented");
+});
+
+test("the T2 markup: tablist with three tabs, tabpanel, timeline region, Compare with app and the navigator note", () => {
+	const html = read("index.html");
+	assert.match(html, /role="tablist"/);
+	assert.equal([...html.matchAll(/role="tab"/g)].length, 3);
+	assert.match(html, /id="gd-filter-open"[^>]*role="tab"|role="tab"[^>]*id="gd-filter-open"/);
+	assert.match(html, /role="tabpanel"/);
+	assert.match(html, /<section id="gd-handoff-panel"[^>]*aria-labelledby="gd-handoff-title"/);
+	assert.match(html, /id="gd-compare-app"[^>]*hidden>.*Compare with app<\/button>/);
+	assert.match(html, /Design system board is always first in Overview\./);
+	assert.match(html, /<code id="gd-feature"/);
+});
+
+test("zoomed out, each artboard collapses its handoff row and Implement this so they never overlap; zoomed in they return", async () => {
+	const canvas = await loadCanvas();
+	const wheel = (deltaY: number) => canvas.viewport.dispatch("wheel", { deltaX: 0, deltaY, deltaMode: 0, ctrlKey: true, metaKey: false, shiftKey: false, clientX: 300, clientY: 300 });
+	const compact = () => canvas.boards.map((board) => board.wrapper.classes.has("gd-compact"));
+	for (let step = 0; step < 8; step += 1) wheel(50);
+	assert.deepEqual(compact(), [true, true]);
+	for (let step = 0; step < 8; step += 1) wheel(-50);
+	assert.deepEqual(compact(), [false, false]);
+});
+
+// Readable errors, feedback next to the action, status line scope, delivery capabilities (S12-S15).
+
+const SEND_ALL = "/t/api/designs/alpha/comments/send-all";
+const IMPLEMENT = "/t/api/designs/alpha/implement";
+const unsentComment = comment("u1", "01-a.html");
+const alertOf = (canvas: Canvas, prefix: string) => ({
+	root: canvas.document.getElementById(`${prefix}`),
+	text: canvas.document.getElementById(`${prefix}-text`),
+	detail: canvas.document.getElementById(`${prefix}-detail`),
+	dismiss: canvas.document.getElementById(`${prefix}-dismiss`),
+});
+const sendAllFails = async (canvas: Canvas, reply: Record<string, unknown>) => {
+	canvas.replies[SEND_ALL] = reply;
+	canvas.document.getElementById("gd-send-all").dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	return alertOf(canvas, "gd-send-alert");
+};
+const statusLine = (canvas: Canvas) => canvas.document.getElementById("gd-status");
+
+// Every code the canvas routes can answer, with the sentence's cause and way out.
+const CODES: Array<[string, number, RegExp]> = [
+	["batch-delivery-unavailable", 501, /not connected to a Pi session[^]*saved[^]*\/gentle:design open/],
+	["implement-unavailable", 501, /not connected to a Pi session[^]*\/gentle:design open/],
+	["delivery-failed", 500, /session did not accept[^]*saved[^]*try/i],
+	["too-many-comments", 409, /too many comments[^]*resolve/i],
+	["too-many-handoffs", 409, /too many handoffs/i],
+	["invalid-comments", 422, /comments\.json[^]*not valid/i],
+	["invalid-handoffs", 422, /handoffs\.json[^]*not valid/i],
+	["invalid-comment", 400, /comment[^]*rejected/i],
+	["invalid-handoff", 400, /handoff[^]*rejected/i],
+	["invalid-screenshot", 400, /screenshot[^]*PNG, JPEG, WebP or GIF/i],
+	["body-too-large", 413, /too large[^]*smaller/i],
+	["file-too-large", 413, /too large/i],
+	["not-found", 404, /no longer exists[^]*reload/i],
+	["too-many-streams", 503, /too many canvas tabs[^]*close/i],
+	["internal", 500, /unexpected error[^]*canvas server/i],
+	["invalid-status", 400, /rejected the request as invalid/i],
+	["forbidden", 403, /refused[^]*reload/i],
+];
+
+test("S12: every reason code becomes a sentence with its cause and way out, and the raw code stays as the detail", async () => {
+	const seen = new Set<string>();
+	for (const [code, status, pattern] of CODES) {
+		const canvas = await loadRail(300, commentsDoc(unsentComment));
+		const alert = await sendAllFails(canvas, { __http: status, error: code });
+		assert.equal(alert.root.hidden, false, code);
+		assert.match(alert.text.textContent, pattern, code);
+		assert.doesNotMatch(alert.text.textContent, /Something went wrong/, `${code} is mapped, not a fallback`);
+		assert.ok(alert.detail.textContent.includes(code), `${code} stays as the small detail`);
+		assert.ok(alert.root.title.includes(code), `${code} stays in the title`);
+		assert.ok(!seen.has(alert.text.textContent) || code.startsWith("invalid-s") || code === "implement-unavailable", `${code} has its own sentence`);
+		seen.add(alert.text.textContent);
+	}
+});
+
+test("S12: the server's own reason text is kept in the detail, an unknown code falls back to a generic sentence with it, and a network failure says so", async () => {
+	const withReason = await loadRail(300, commentsDoc(unsentComment));
+	const reasoned = await sendAllFails(withReason, { __http: 409, error: "too-many-comments", reason: "comments.json has 500 comments" });
+	assert.ok(reasoned.detail.textContent.includes("comments.json has 500 comments"));
+
+	const unknown = await loadRail(300, commentsDoc(unsentComment));
+	const generic = await sendAllFails(unknown, { __http: 418, error: "teapot" });
+	assert.match(generic.text.textContent, /^Something went wrong/);
+	assert.match(generic.text.textContent, /\/gentle:design open/);
+	assert.ok(generic.detail.textContent.includes("teapot"));
+
+	const bare = await loadRail(300, commentsDoc(unsentComment));
+	const status = await sendAllFails(bare, { __http: 502 });
+	assert.match(status.text.textContent, /^Something went wrong/);
+	assert.ok(status.detail.textContent.includes("502"), "an answer without a code names its HTTP status");
+
+	const offline = await loadRail(300, commentsDoc(unsentComment));
+	const network = await sendAllFails(offline, { __throw: "Failed to fetch" });
+	assert.match(network.text.textContent, /could not reach[^]*\/gentle:design open/i);
+	assert.ok(network.detail.textContent.includes("Failed to fetch"));
+});
+
+test("S13: a failed Send all shows an alert above the button, dismissible, cleared on the next attempt, and a success is a toast", async () => {
+	const html = read("index.html");
+	assert.match(html, /<div id="gd-send-alert" class="gd-alert" role="alert" hidden>[^]*<use href="#i-alert"\/>[^]*id="gd-send-alert-dismiss"[^>]*aria-label="Dismiss/);
+	assert.ok(html.indexOf('id="gd-send-alert"') < html.indexOf('id="gd-send-all"'), "above Send all");
+	assert.match(html, /<symbol id="i-alert"/);
+	assert.match(html, /<symbol id="i-x"/);
+
+	const canvas = await loadRail(300, commentsDoc(unsentComment));
+	const alert = alertOf(canvas, "gd-send-alert");
+	assert.equal(alert.root.hidden, true, "no alert before an attempt");
+	await sendAllFails(canvas, { __http: 501, error: "batch-delivery-unavailable" });
+	assert.equal(alert.root.hidden, false);
+	alert.dismiss.dispatch("click");
+	assert.equal(alert.root.hidden, true, "the dismiss button closes it");
+
+	await sendAllFails(canvas, { __http: 501, error: "batch-delivery-unavailable" });
+	assert.equal(alert.root.hidden, false);
+	canvas.replies[SEND_ALL] = { ok: true, sent: 1, ids: ["u1"] };
+	canvas.document.getElementById("gd-send-all").dispatch("click");
+	assert.equal(alert.root.hidden, true, "the next attempt clears it at once");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.equal(alert.root.hidden, true);
+	const toast = canvas.document.getElementById("gd-toast");
+	assert.equal(toast.hidden, false);
+	assert.equal(toast.textContent, "Sent 1 comment to the session");
+	assert.equal(statusLine(canvas).textContent, "", "S14: no result in the status line");
+});
+
+test("S13: a failed resolve shows the alert inside that comment's card, dismissible and cleared by the next attempt", async () => {
+	const canvas = await loadRail(300, commentsDoc(comment("c1", "01-a.html"), comment("c2", "01-a.html")));
+	const list = canvas.document.getElementById("gd-comment-list");
+	const visible = () => withClass(list, "gd-alert").filter((alert) => !alert.hidden).length;
+	const resolve = (index: number) => findAll(list, (element) => element.localName === "button" && element.textContent === "Resolve")[index];
+	canvas.replies["/t/api/designs/alpha/comments/c1/status"] = { __http: 404, error: "not-found" };
+	resolve(0).dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	const cards = withClass(list, "gd-comment-item");
+	assert.equal(withClass(cards[0], "gd-alert").length, 1, "the alert is in the failing card");
+	assert.equal(withClass(cards[1], "gd-alert").length, 0, "and only there");
+	const alert = withClass(cards[0], "gd-alert")[0];
+	assert.equal(alert.getAttribute("role"), "alert");
+	assert.match(texts(alert, "gd-alert-text")[0], /no longer exists/i);
+	assert.ok(texts(alert, "gd-alert-detail")[0].includes("not-found"));
+	assert.equal(withClass(alert, "gd-i").length, 2, "an error icon and the dismiss icon, from the sprite");
+	assert.equal(statusLine(canvas).textContent, "", "S14");
+
+	// Re-rendering the list (a comments.json change) keeps the alert until it is dismissed.
+	await canvas.serverEvent("change", { slug: "alpha", file: "comments.json" });
+	assert.equal(withClass(withClass(list, "gd-comment-item")[0], "gd-alert").length, 1);
+	findAll(withClass(list, "gd-comment-item")[0], (element) => element.classes.has("gd-alert-dismiss"))[0].dispatch("click");
+	assert.equal(visible(), 0, "dismissed");
+
+	resolve(0).dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.equal(visible(), 1);
+	canvas.replies["/t/api/designs/alpha/comments/c1/status"] = { ok: true };
+	resolve(0).dispatch("click");
+	assert.equal(visible(), 0, "the next attempt clears it");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.equal(canvas.document.getElementById("gd-toast").textContent, "Comment resolved");
+});
+
+test("S13: a failed Implement this shows the alert in that artboard's implement control, without repeating it in a toast", async () => {
+	const canvas = await loadRail();
+	const [control] = withClass(boardsOf(canvas)[0], "gd-implement");
+	const attempt = async () => {
+		withClass(control, "gd-implement-start")[0].dispatch("click");
+		withClass(control, "gd-primary")[0].dispatch("click");
+		for (let i = 0; i < 5; i++) await flush();
+	};
+	canvas.replies[IMPLEMENT] = { __http: 501, error: "implement-unavailable" };
+	await attempt();
+	const alerts = withClass(control, "gd-alert");
+	assert.equal(alerts.length, 1);
+	assert.equal(alerts[0].getAttribute("role"), "alert");
+	assert.equal(alerts[0].hidden, false);
+	assert.match(texts(control, "gd-alert-text")[0], /not connected to a Pi session/);
+	assert.equal(withClass(boardsOf(canvas)[1], "gd-alert").length, 1, "each artboard has its own, hidden until it fails");
+	assert.equal(withClass(boardsOf(canvas)[1], "gd-alert")[0].hidden, true);
+	assert.equal(canvas.document.getElementById("gd-toast").textContent, "", "the alert is in view, so no toast repeats it");
+	assert.equal(statusLine(canvas).textContent, "", "S14");
+	withClass(control, "gd-alert-dismiss")[0].dispatch("click");
+	assert.equal(alerts[0].hidden, true);
+
+	await attempt();
+	assert.equal(alerts[0].hidden, false);
+	canvas.replies[IMPLEMENT] = { ok: true, slug: "alpha", file: "01-a.html", queued: false };
+	await attempt();
+	assert.equal(alerts[0].hidden, true, "the next attempt clears it");
+	assert.equal(canvas.document.getElementById("gd-toast").textContent, "Sent: the session is implementing First now.");
+});
+
+test("S12/S13: the comment popover keeps its message line, in S12 wording", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	canvas.message(first.frame.contentWindow, { type: "gd:pick", selector: "#cta", excerpt: "", rect: { x: 1, y: 2, width: 3, height: 4 } });
+	const message = canvas.document.getElementById("gd-popover-message");
+	canvas.document.getElementById("gd-popover-text").value = "Bigger";
+	canvas.replies["/t/api/comments"] = { __http: 400, error: "invalid-screenshot", reason: "too big" };
+	canvas.document.getElementById("gd-popover-form").dispatch("submit");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.match(message.textContent, /screenshot[^]*PNG, JPEG, WebP or GIF/i);
+	assert.ok(message.classes.has("gd-error"));
+	assert.ok(message.title.includes("invalid-screenshot"));
+	assert.equal(canvas.document.getElementById("gd-popover").hidden, false, "the popover stays open to retry");
+	assert.equal(statusLine(canvas).textContent, "", "S14");
+
+	canvas.replies["/t/api/comments"] = { __throw: "Failed to fetch" };
+	canvas.document.getElementById("gd-popover-form").dispatch("submit");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.match(message.textContent, /could not reach/i);
+
+	canvas.replies["/t/api/comments"] = { __http: 500, error: "delivery-failed", saved: true, sent: false };
+	canvas.document.getElementById("gd-popover-form").dispatch("submit");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.match(message.textContent, /^Saved, but not sent/);
+	assert.ok(message.classes.has("gd-error"));
+	assert.equal(statusLine(canvas).textContent, "", "S14");
+});
+
+test("S14: the top status line keeps canvas state (live reload) and Comment mode no longer wipes it", async () => {
+	const canvas = await loadRail();
+	await canvas.serverEvent("error", {});
+	assert.equal(statusLine(canvas).textContent, "Live reload disconnected, retrying…");
+	assert.ok(statusLine(canvas).classes.has("gd-error"));
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	assert.equal(statusLine(canvas).textContent, "Live reload disconnected, retrying…", "toggling Comment mode leaves canvas state alone");
+	await canvas.serverEvent("open", {});
+	assert.equal(statusLine(canvas).textContent, "", "reconnecting clears it");
+});
+
+test("S15: without batch delivery Send all is disabled up front and the footer explains why; Implement this explains too", async () => {
+	const delivery = { comment: true, batch: false, implement: false };
+	const canvas = await loadRail(300, commentsDoc(unsentComment), { delivery });
+	const sendAll = canvas.document.getElementById("gd-send-all");
+	const note = canvas.document.getElementById("gd-send-note");
+	assert.equal(sendAll.disabled, true, "an unsent comment does not enable it");
+	assert.equal(note.hidden, false);
+	assert.match(note.textContent, /not connected to a Pi session[^]*\/gentle:design open/);
+	assert.ok(note.title.includes("batch-delivery-unavailable"));
+	assert.match(read("index.html"), /id="gd-send-all"[^>]*aria-describedby="gd-send-note"/);
+	assert.equal(canvas.document.getElementById("gd-send-alert").hidden, true);
+
+	const [control] = withClass(boardsOf(canvas)[0], "gd-implement");
+	const start = withClass(control, "gd-implement-start")[0];
+	assert.equal(start.disabled, true);
+	assert.match(texts(control, "gd-implement-note")[0], /not connected to a Pi session/);
+	// The visible line stays short so it never runs over the artboard header; the full way out is in its tooltip.
+	assert.match(withClass(control, "gd-implement-note")[0].title, /\/gentle:design open/);
+	assert.ok(start.title.includes("implement-unavailable"));
+	assert.equal(start.getAttribute("aria-describedby"), withClass(control, "gd-implement-note")[0].id);
+	start.dispatch("click");
+	assert.equal(canvas.fetched.filter((url) => url === IMPLEMENT).length, 0, "nothing is sent");
+});
+
+test("S15: with every delivery available, or no capabilities in the config, nothing is disabled or explained", async () => {
+	for (const config of [{}, { delivery: { comment: true, batch: true, implement: true } }]) {
+		const canvas = await loadRail(300, commentsDoc(unsentComment), config);
+		assert.equal(canvas.document.getElementById("gd-send-all").disabled, false);
+		assert.equal(canvas.document.getElementById("gd-send-note").hidden, true);
+		const [control] = withClass(boardsOf(canvas)[0], "gd-implement");
+		assert.equal(withClass(control, "gd-implement-start")[0].disabled, false);
+		assert.deepEqual(texts(control, "gd-implement-note"), []);
+	}
+});
+
+test("S15: only the missing delivery is disabled", async () => {
+	const canvas = await loadRail(300, commentsDoc(unsentComment), { delivery: { comment: true, batch: true, implement: false } });
+	assert.equal(canvas.document.getElementById("gd-send-all").disabled, false);
+	assert.equal(withClass(withClass(boardsOf(canvas)[0], "gd-implement")[0], "gd-implement-start")[0].disabled, true);
+});
+
+test("S12: a handoff the session refuses is explained as a handoff that was not recorded, never as unsent comments", async () => {
+	const canvas = await loadRail();
+	const [control] = withClass(boardsOf(canvas)[0], "gd-implement");
+	canvas.replies[IMPLEMENT] = { __http: 500, error: "delivery-failed" };
+	withClass(control, "gd-implement-start")[0].dispatch("click");
+	withClass(control, "gd-primary")[0].dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	const text = texts(control, "gd-alert-text")[0];
+	assert.match(text, /did not accept the handoff[^]*not recorded[^]*Implement this again/);
+	assert.doesNotMatch(text, /comments/i);
+	assert.equal(texts(control, "gd-alert-detail")[0], "delivery-failed");
+	assert.equal(canvas.document.getElementById("gd-toast").textContent, "", "no toast while the alert is in view");
+});
+
+test("a failed Implement this toasts only while its artboard is collapsed by zoom and the alert cannot be seen", async () => {
+	const canvas = await loadRail();
+	const toast = canvas.document.getElementById("gd-toast");
+	const [control] = withClass(boardsOf(canvas)[0], "gd-implement");
+	canvas.replies[IMPLEMENT] = { __http: 500, error: "delivery-failed" };
+	// Open the confirm step at full size, then zoom out until the artboard collapses before confirming.
+	withClass(control, "gd-implement-start")[0].dispatch("click");
+	for (let step = 0; step < 8; step += 1) canvas.viewport.dispatch("wheel", { deltaX: 0, deltaY: 50, deltaMode: 0, ctrlKey: true, metaKey: false, shiftKey: false, clientX: 300, clientY: 300 });
+	assert.equal(boardsOf(canvas)[0].classes.has("gd-compact"), true);
+	withClass(control, "gd-primary")[0].dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.equal(toast.hidden, false);
+	assert.equal(toast.textContent, texts(control, "gd-alert-text")[0]);
+});
+
+test("focus mode hides the artboard list only when the focused artboard would not fit beside it, and restores it on exit", async () => {
+	const canvas = await loadRail();
+	const nav = canvas.document.getElementById("gd-nav");
+	const [first] = canvas.boards;
+	assert.equal(nav.hidden, false);
+
+	click(first.shield!, 200, 200);
+	assert.equal(nav.hidden, false, "a 400 px artboard fits a 1000 px canvas: the list stays");
+	canvas.document.getElementById("gd-back").dispatch("click");
+
+	canvas.viewport.rect = { left: 0, top: 50, width: 380, height: 700 };
+	click(first.shield!, 200, 200);
+	assert.equal(nav.hidden, true, "too narrow: the list gives its room to the artboard");
+	assert.equal(canvas.document.getElementById("gd-nav-toggle").getAttribute("aria-pressed"), "false");
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(nav.hidden, false, "exit restores it");
+
+	canvas.document.getElementById("gd-nav-toggle").dispatch("click");
+	click(first.shield!, 200, 200);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(nav.hidden, true, "a list the user had hidden stays hidden");
 });
