@@ -2,8 +2,9 @@
 // artboard. In comment mode it highlights the hovered element and reports the
 // clicked one to the canvas; otherwise it only forwards canvas zoom and pan.
 // It also reports where each commented element is, so the canvas can pin it.
-// In navigation mode the canvas covers the artboard with a shield and routes
-// comment-mode hovers and clicks here as points; in focus mode the artboard
+// In navigation mode the canvas covers the artboard with a shield, and a click opens focus mode
+// (in Comment mode too), so picks happen at full size; gd:hover-at and gd:pick-at still take a
+// point routed from the canvas. In focus mode the artboard
 // owns the wheel and the keyboard, and Shift+Esc asks the canvas to leave.
 // It also says whether the page is wider than its frame (gd:overflow), so the canvas can flag
 // a size at which content is cut off or needs sideways scrolling.
