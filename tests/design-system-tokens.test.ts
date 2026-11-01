@@ -22,10 +22,10 @@ const byName = (text: string) => new Map(parseSystemTokens(text).map((token) => 
 
 test("S1: the real design/system.md yields its colors, fonts, radius, shadows and layout tokens, grouped by section", () => {
 	const tokens = byName(REAL);
-	assert.deepEqual(tokens.get("--bg"), { name: "--bg", value: "#1a1218", section: "Colors — brand set (both sources)", group: "color" });
+	assert.deepEqual(tokens.get("--bg"), { name: "--bg", value: "#1a1218", section: "Colors — brand set", group: "color" });
 	assert.equal(tokens.get("--accent")?.value, "#f095c8");
 	assert.equal(tokens.get("--text-muted")?.group, "color");
-	assert.equal(tokens.get("--accent-line")?.section, "Colors — canvas derived tokens (`assets/design-canvas/canvas.css`)");
+	assert.equal(tokens.get("--accent-line")?.section, "Colors — canvas derived tokens");
 	assert.equal(tokens.get("--rail-width")?.value, "60px");
 	assert.equal(tokens.get("--rail-width")?.group, "layout");
 	assert.equal(tokens.get("--side-width")?.value, "360px");

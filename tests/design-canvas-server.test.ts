@@ -1117,7 +1117,8 @@ test("the canvas CSP frames only loopback previews, and the artboard CSP is unch
 		"style-src 'self'",
 		"img-src 'self' data:",
 		"connect-src 'self'",
-		"frame-src 'self' http://localhost:* http://127.0.0.1:* http://[::1]:* https://localhost:* https://127.0.0.1:* https://[::1]:*",
+		// No [::1]: CSP host sources have no IPv6 form, so browsers reject it and log an error on every load.
+		"frame-src 'self' http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*",
 		"base-uri 'none'",
 		"form-action 'none'",
 		"frame-ancestors 'none'",

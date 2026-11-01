@@ -48,6 +48,7 @@ Both stylesheets are dark only (`color-scheme: dark`) and use local font stacks 
 | `--warning-line` | `#e0c27a66` | Waiting/advice chip border, overflow chip, history warning | `assets/design-canvas/canvas.css` |
 | `--warning-halo` | `#e0c27a33` | Advice check ring halo | `assets/design-canvas/canvas.css` |
 | `--scrim` | `#000000b3` | Dialog backdrop | `assets/design-canvas/canvas.css` |
+| `--selection` | `#f095c84d` | Text selection background (the wizard's `::selection`) | `assets/design-canvas/canvas.css` |
 
 ## Colors — wizard literal values (not tokens)
 
