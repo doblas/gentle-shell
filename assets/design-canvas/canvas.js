@@ -120,6 +120,8 @@
 			"nav.summary.resolved.one": "{count} resolved",
 			"nav.summary.resolved.other": "{count} resolved",
 			"nav.summary.none": "No comments",
+			"nav.hideDiscarded": "Hide discarded ({count})",
+			"nav.showDiscarded": "Show discarded ({count})",
 			"a11y.ok": "A11y ✓",
 			"a11y.fails.one": "{count} check",
 			"a11y.fails.other": "{count} checks",
@@ -142,6 +144,8 @@
 			"tab.history": "History",
 			"tab.checks": "Checks",
 			"tab.brief": "Brief",
+			"tabs.prev": "Earlier tabs",
+			"tabs.next": "More tabs",
 			"panel.comments": "Comments",
 			"panel.empty.none": "No comments yet. Turn on Comment mode and click an element.",
 			"panel.empty.open": "No open comments.",
@@ -224,6 +228,9 @@
 			"implement.startAria": "Implement {title} in the project",
 			"implement.confirmAria": "Confirm implementing {title}",
 			"implement.question": "Send it to the session to implement?",
+			"implement.switch": "Switch to this…",
+			"implement.switchAria": "Switch the implementation to {title}",
+			"implement.switchQuestion": "Move the implementation to this direction? The session gets it as a new handoff.",
 			"implement.queued": "Queued: the session will implement {title} after its current task.",
 			"implement.sent": "Sent: the session is implementing {title} now.",
 			"menu.aria": "{title} actions",
@@ -231,7 +238,11 @@
 			"menu.compare": "Compare with app",
 			"menu.exportPng": "Export as PNG",
 			"menu.exportPng2x": "Export as PNG at 2×",
+			"menu.exportPdf": "Export as PDF",
+			"menu.downloadHtml": "Download HTML",
+			"download.failed": "Could not download the artboard. Open it from design/ in your project instead.",
 			"menu.implement": "Implement this",
+			"menu.switch": "Switch to this…",
 			"export.failed": "Could not export the artboard. Use your browser's screenshot tool instead.",
 			"export.unavailable": "Tab capture is not available in this browser.",
 			"export.confirm": "Choose this canvas tab in the browser's capture selector. Choosing another tab or screen may export the wrong content.",
@@ -264,7 +275,14 @@
 			"handoff.in_progress": "In progress",
 			"handoff.implemented": "Implemented ✓",
 			"choice.chosen": "Chosen",
-			"choice.alternative": "Alternative",
+			"choice.discarded": "Discarded",
+			"work.implementing": "Implementing",
+			"work.title": "“{title}”",
+			"work.since": "{state} since {time}",
+			"work.at": "at {time}",
+			"work.notSent": "Not sent yet",
+			"work.show": "Show",
+			"work.showAria": "Show {title} on the canvas",
 			"handoff.featureTitle": "Tracked in this ODD feature document",
 			"handoff.compare": "Compare",
 			"handoff.compareAria": "Compare {title} with the running app",
@@ -277,6 +295,8 @@
 			"timeline.done": "(done)",
 			"timeline.current": "(current)",
 			"timeline.pending": "(not yet)",
+			"stepper.sent": "Sent",
+			"stepper.position": "Step {n} of {total}: {step}",
 			"time.today": "Today {clock}",
 			"compare.title": "Compare",
 			"compare.titleFor": "Compare: {title}",
@@ -296,7 +316,7 @@
 			"compare.overlayAria": "Design and running app overlaid, app at {opacity}% opacity",
 			"compare.sliderAria": "Design and running app, split at {pos}%",
 			"compare.valueText": "{pos}%: Design on the left, App on the right",
-			"compare.hint": "If the app refuses to be framed, use Open in new tab.",
+			"compare.hint": "If the app pane stays empty, the app may not be running at {url} or may refuse to be framed: start it, or use Open in new tab.",
 			"compare.hintIpv6": "Browsers do not frame [::1] under the canvas policy (CSP has no IPv6 sources): use Open in new tab, or report the preview on localhost.",
 			"compare.errorFrame": "The app at {url} could not be loaded in the frame. Use Open in new tab.",
 			"compare.errorTimeout": "The app at {url} has not loaded; it may be down or refuse to be framed. Use Open in new tab.",
@@ -337,6 +357,7 @@
 			"checks.showAria": "Show {title} on {label} in {name}",
 			"checks.fix": "Ask the agent to fix",
 			"checks.fixAria": "Ask the agent to fix {title} on {label}",
+			"checks.hidden": "This element is hidden or off-screen; it appears when it receives focus",
 			"check.name.contrast": "Text contrast",
 			"check.name.target": "Target size",
 			"check.name.alt": "Images have alt text",
@@ -490,6 +511,8 @@
 			"nav.summary.resolved.one": "{count} resuelto",
 			"nav.summary.resolved.other": "{count} resueltos",
 			"nav.summary.none": "Sin comentarios",
+			"nav.hideDiscarded": "Ocultar descartadas ({count})",
+			"nav.showDiscarded": "Mostrar descartadas ({count})",
 			"a11y.ok": "A11y ✓",
 			"a11y.fails.one": "{count} comprobación",
 			"a11y.fails.other": "{count} comprobaciones",
@@ -512,6 +535,8 @@
 			"tab.history": "Historial",
 			"tab.checks": "Comprobaciones",
 			"tab.brief": "Encargo",
+			"tabs.prev": "Pestañas anteriores",
+			"tabs.next": "Más pestañas",
 			"panel.comments": "Comentarios",
 			"panel.empty.none": "Aún no hay comentarios. Activa el modo Comentar y haz clic en un elemento.",
 			"panel.empty.open": "No hay comentarios abiertos.",
@@ -594,6 +619,9 @@
 			"implement.startAria": "Implementar {title} en el proyecto",
 			"implement.confirmAria": "Confirmar la implementación de {title}",
 			"implement.question": "¿Enviarlo a la sesión para implementarlo?",
+			"implement.switch": "Cambiar a esta…",
+			"implement.switchAria": "Cambiar la implementación a {title}",
+			"implement.switchQuestion": "¿Mover la implementación a esta dirección? La sesión la recibirá como un handoff nuevo.",
 			"implement.queued": "En cola: la sesión implementará {title} cuando termine su tarea actual.",
 			"implement.sent": "Enviado: la sesión está implementando {title} ahora.",
 			"menu.aria": "Acciones de {title}",
@@ -601,7 +629,11 @@
 			"menu.compare": "Comparar con la app",
 			"menu.exportPng": "Exportar como PNG",
 			"menu.exportPng2x": "Exportar como PNG a 2×",
+			"menu.exportPdf": "Exportar como PDF",
+			"menu.downloadHtml": "Descargar HTML",
+			"download.failed": "No se pudo descargar el artboard. Ábrelo desde design/ en tu proyecto.",
 			"menu.implement": "Implementar esto",
+			"menu.switch": "Cambiar a esta…",
 			"export.failed": "No se pudo exportar el artboard. Usa en su lugar la herramienta de capturas de tu navegador.",
 			"export.unavailable": "La captura de pestañas no está disponible en este navegador.",
 			"export.confirm": "Elige esta pestaña del canvas en el selector de captura del navegador. Si eliges otra pestaña o pantalla, puede exportarse un contenido equivocado.",
@@ -634,7 +666,14 @@
 			"handoff.in_progress": "En curso",
 			"handoff.implemented": "Implementado ✓",
 			"choice.chosen": "Elegido",
-			"choice.alternative": "Alternativa",
+			"choice.discarded": "Descartada",
+			"work.implementing": "Implementando",
+			"work.title": "«{title}»",
+			"work.since": "{state} desde {time}",
+			"work.at": "a las {time}",
+			"work.notSent": "Aún sin enviar",
+			"work.show": "Ver",
+			"work.showAria": "Ver {title} en el canvas",
 			"handoff.featureTitle": "Seguimiento en este documento de funcionalidad ODD",
 			"handoff.compare": "Comparar",
 			"handoff.compareAria": "Comparar {title} con la app en ejecución",
@@ -647,6 +686,8 @@
 			"timeline.done": "(hecho)",
 			"timeline.current": "(actual)",
 			"timeline.pending": "(pendiente)",
+			"stepper.sent": "Enviado",
+			"stepper.position": "Paso {n} de {total}: {step}",
 			"time.today": "Hoy {clock}",
 			"compare.title": "Comparar",
 			"compare.titleFor": "Comparar: {title}",
@@ -666,7 +707,7 @@
 			"compare.overlayAria": "Diseño y app en ejecución superpuestos, app al {opacity}% de opacidad",
 			"compare.sliderAria": "Diseño y app en ejecución, divididos al {pos}%",
 			"compare.valueText": "{pos}%: Diseño a la izquierda, App a la derecha",
-			"compare.hint": "Si la app no permite mostrarse en un marco, usa Abrir en una pestaña nueva.",
+			"compare.hint": "Si el panel de la app se queda vacío, puede que la app no esté en marcha en {url} o que no permita mostrarse en un marco: arráncala o usa Abrir en una pestaña nueva.",
 			"compare.hintIpv6": "Los navegadores no muestran [::1] en un marco con la política del canvas (CSP no admite fuentes IPv6): usa Abrir en una pestaña nueva, o indica la vista previa en localhost.",
 			"compare.errorFrame": "No se pudo cargar la app de {url} en el marco. Usa Abrir en una pestaña nueva.",
 			"compare.errorTimeout": "La app de {url} no se ha cargado; puede estar caída o no permitir mostrarse en un marco. Usa Abrir en una pestaña nueva.",
@@ -707,6 +748,7 @@
 			"checks.showAria": "Mostrar {title} en {label} de {name}",
 			"checks.fix": "Pedir al agente que lo corrija",
 			"checks.fixAria": "Pedir al agente que corrija {title} en {label}",
+			"checks.hidden": "Este elemento está oculto o fuera de pantalla; aparece al recibir foco",
 			"check.name.contrast": "Contraste del texto",
 			"check.name.target": "Tamaño de los objetivos táctiles",
 			"check.name.alt": "Imágenes con texto alternativo",
@@ -943,9 +985,12 @@
 		navTitle: $("gd-nav-title"),
 		navList: $("gd-nav-list"),
 		navNote: $("gd-nav-note"),
+		navDiscarded: $("gd-nav-discarded"),
 		featureSep: $("gd-feature-sep"),
 		compareApp: $("gd-compare-app"),
 		tabs: $("gd-tabs"),
+		tabsPrev: $("gd-tabs-prev"),
+		tabsNext: $("gd-tabs-next"),
 		tabHistory: $("gd-tab-history"),
 		countHistory: $("gd-count-history"),
 		history: $("gd-history"),
@@ -967,6 +1012,7 @@
 		briefText: $("gd-brief-text"),
 		briefFeature: $("gd-brief-feature"),
 		handoffPanel: $("gd-handoff-panel"),
+		work: $("gd-work"),
 		handoffTitle: $("gd-handoff-title"),
 		timeline: $("gd-timeline"),
 		back: $("gd-back"),
@@ -1061,6 +1107,8 @@
 		shotToken: 0,
 		closeTimer: 0,
 		comments: [],
+		// Whether the navigator hides the discarded artboards while one is chosen.
+		hideDiscarded: false,
 		// The review tab: "open" or "resolved" (the comment list) or "brief".
 		tab: "open",
 		mode: storedMode(),
@@ -1098,6 +1146,8 @@
 		historyFocus: null,
 		// The project's design tokens (design/system.md), for the inspector: [{ name, value, section, group }].
 		tokens: [],
+		// The ring Show draws around a finding's element: { board, issue, ring, label, card }, or null. One at a time.
+		mark: null,
 		// The element the inspector panel shows: { surface, measure, flags, text }, and what keeps the panel open.
 		inspect: null,
 		inspectGen: 0,
@@ -1339,6 +1389,7 @@
 			const block = blocks[index];
 			block.classList.toggle("gd-minimap-system", Boolean(entry.board && entry.board.system));
 			block.classList.toggle("gd-minimap-chosen", Boolean(entry.board && entry.board === chosen));
+			block.classList.toggle("gd-minimap-discarded", Boolean(chosen && entry.board && !entry.board.system && entry.board !== chosen));
 			block.classList.toggle("gd-minimap-placeholder", !entry.board);
 			block.title = minimapTitle(entry);
 			block.style.left = rounded(map.x + entry.rect.x * map.scale);
@@ -1454,6 +1505,19 @@
 	els.viewport.addEventListener("pointerup", endDrag);
 	els.viewport.addEventListener("pointercancel", endDrag);
 	els.viewport.addEventListener("pointerleave", () => setHoverBoard(null));
+
+	// A still click on the canvas (its background, an artboard, a header; also in focus mode) clears a check's ring; a drag keeps it.
+	let markPress = null;
+	els.viewport.addEventListener("pointerdown", (event) => {
+		const target = event.target;
+		const onCanvas = target === els.viewport || target === els.world || target.closest(".gd-shield") || target.closest(".gd-artboard-label");
+		markPress = state.mark && event.button === 0 && onCanvas && !target.closest("button") ? { id: event.pointerId, x: event.clientX, y: event.clientY } : null;
+	});
+	els.viewport.addEventListener("pointerup", (event) => {
+		const press = markPress;
+		markPress = null;
+		if (press && press.id === event.pointerId && Math.abs(event.clientX - press.x) <= CLICK_SLOP && Math.abs(event.clientY - press.y) <= CLICK_SLOP) clearMark();
+	});
 
 	els.viewport.addEventListener("keydown", (event) => {
 		if (event.target !== els.viewport || state.focus) return;
@@ -1677,6 +1741,7 @@
 		state.placeholder = null;
 		els.world.replaceChildren();
 		state.boards = [];
+		clearMark();
 		els.railSystem.disabled = !state.systemBoard;
 		renderHandoffViews();
 		renderMinimap();
@@ -1826,6 +1891,8 @@
 	/** A frame (the board's own or a size frame) finished loading: it knows nothing yet, so tell it the state. */
 	function surfaceLoaded(surface) {
 		surface.rects = null;
+		// A check's ring belongs to the page it was measured in.
+		if (state.mark && state.mark.board === ownerOf(surface)) clearMark();
 		// A reloaded artboard is checked again: its old result no longer describes it.
 		if (surface === ownerOf(surface) && !surface.system && surface.checks) {
 			surface.checks = null;
@@ -1975,6 +2042,8 @@
 		const board = state.focus;
 		if (!board) return;
 		closePopover();
+		// Another size is another layout: the ring would be measured in the wrong one.
+		clearMark();
 		const control = board.sizeControl;
 		control.input.removeAttribute("aria-invalid");
 		control.error.hidden = true;
@@ -2095,6 +2164,7 @@
 		loc(confirm, "aria-label", "implement.confirmAria", { title: artboard.title });
 		confirm.hidden = true;
 		const question = document.createElement("span");
+		question.className = "gd-implement-question";
 		loc(question, "text", "implement.question");
 		const yes = document.createElement("button");
 		yes.type = "button";
@@ -2167,7 +2237,17 @@
 			close(true);
 		});
 		box.append(start, confirm, ...(note ? [note] : []), alert.root);
-		return { root: box, open, refresh: refreshNote };
+		// Once another artboard is chosen this one is discarded: the button switches the handoff to it instead.
+		let discarded = false;
+		const setDiscarded = (value) => {
+			if (value === discarded) return;
+			discarded = value;
+			start.classList.toggle("gd-implement-switch", value);
+			loc(start, "text", value ? "implement.switch" : "implement.start");
+			loc(start, "aria-label", value ? "implement.switchAria" : "implement.startAria", { title: artboard.title });
+			loc(question, "text", value ? "implement.switchQuestion" : "implement.question");
+		};
+		return { root: box, open, refresh: refreshNote, setDiscarded, isDiscarded: () => discarded };
 	}
 
 	// ---- artboard menu ---------------------------------------------------------
@@ -2198,7 +2278,9 @@
 		actions.push(
 			{ label: "menu.exportPng", icon: "i-image", separator: true, run: () => exportArtboard(board, 1) },
 			{ label: "menu.exportPng2x", icon: "i-image", run: () => exportArtboard(board, 2) },
-			{ label: "menu.implement", separator: true, off: off(DELIVERY.implement, "implement-unavailable"), run: () => board.implement.open() },
+			{ label: "menu.exportPdf", icon: "i-image", run: () => exportPdf(board) },
+			{ label: "menu.downloadHtml", icon: "i-download", run: () => downloadHtml(board) },
+			{ label: board.implement.isDiscarded() ? "menu.switch" : "menu.implement", separator: true, off: off(DELIVERY.implement, "implement-unavailable"), run: () => board.implement.open() },
 		);
 		return actions;
 	}
@@ -2295,6 +2377,75 @@
 			if (previous.focus && state.focus === previous.focus) setSize(previous.size);
 			Object.assign(state, { zoom: previous.zoom, x: previous.x, y: previous.y });
 			applyView();
+		}
+	}
+
+	/**
+	 * Prints the artboard alone, at its own size, from this page (artboards are sandboxed without modals, so
+	 * they cannot print themselves): the browser's print dialog saves it as PDF. Nothing goes to the server.
+	 */
+	function exportPdf(board) {
+		document.querySelector?.(".gd-print")?.remove();
+		const { width, height, title, file } = board.artboard;
+		const holder = document.createElement("div");
+		holder.className = "gd-print";
+		const frame = document.createElement("iframe");
+		frame.setAttribute("sandbox", "allow-scripts");
+		frame.setAttribute("referrerpolicy", "no-referrer");
+		loc(frame, "title", "board.frameTitle", { title });
+		frame.style.width = `${width}px`;
+		frame.style.height = `${height}px`;
+		holder.append(frame);
+		document.body.append(holder);
+		document.body.classList.add("gd-printing");
+		const page = setPrintPage(width, height);
+		const done = () => {
+			page?.();
+			holder.remove();
+			document.body.classList.remove("gd-printing");
+		};
+		window.addEventListener("afterprint", done, { once: true });
+		frame.addEventListener("load", () => window.print(), { once: true });
+		frame.setAttribute("src", fileUrl(board.slug, file));
+	}
+
+	/** One page the artboard's size (canvas.css sets no margin); returns how to remove it, or null where the browser gives no CSSOM. */
+	function setPrintPage(width, height) {
+		const sheet = [...(document.styleSheets ?? [])].find((candidate) => /canvas\.css(\?|$)/.test(candidate.href ?? ""));
+		if (!sheet?.insertRule) return null;
+		try {
+			const size = [width, height].map((value) => `${value}px`).join(" ");
+			const index = sheet.insertRule(`@page { size: ${size}; }`, sheet.cssRules.length);
+			return () => { if (sheet.cssRules[index]) sheet.deleteRule(index); };
+		} catch {
+			return null;
+		}
+	}
+
+	/** Saves the artboard file as written: the server injects the inspector into every artboard, so remove that tag again. */
+	async function downloadHtml(board) {
+		const alert = board.exportAlert || (board.exportAlert = createAlert());
+		if (!alert.root.parentElement) board.implement.root.append(alert.root);
+		hideAlert(alert);
+		const url = fileUrl(board.slug, board.artboard.file);
+		try {
+			const response = await fetch(url, { cache: "no-store" });
+			if (!response.ok) throw new Error(`HTTP ${response.status}`);
+			const served = await response.text();
+			const tag = `<script src="${base}assets/inspector.js"></script>`;
+			const at = served.lastIndexOf(tag);
+			const html = at === -1 ? served : served.slice(0, at) + served.slice(at + tag.length);
+			const link = document.createElement("a");
+			const blobUrl = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+			try {
+				link.href = blobUrl;
+				link.download = board.artboard.file.split("/").pop();
+				link.click();
+			} finally { URL.revokeObjectURL(blobUrl); }
+		} catch (error) {
+			loc(alert.text, "text", "download.failed");
+			setRaw(alert.detail, error?.message || "");
+			alert.root.hidden = false;
 		}
 	}
 
@@ -2558,6 +2709,7 @@
 		if (state.focus) renderSizeControl(state.focus);
 		renderCompareText();
 		renderVersionText();
+		renderMark();
 		if (state.inspect && !els.inspector.hidden) showInspector(state.inspect.surface, state.inspect.measure);
 	}
 
@@ -2745,15 +2897,51 @@
 		return element;
 	}
 
-	/** The header row of one artboard: Chosen or Alternative, the handoff badge, its feature document, note and Compare. */
+	// The four handoff steps, as the timeline and the chosen artboard's stepper show them.
+	const STEPPER_KEYS = ["choice.chosen", "stepper.sent", "handoff.in_progress", "timeline.implemented"];
+
+	/** Where a handoff of this kind stands on the four steps: each one done, current or pending. */
+	function handoffSteps(kind) {
+		// The index of the step the handoff is at; steps before it are done, a step at it is current.
+		const at = { queued: 1, sent: 2, in_progress: 2, implemented: 4 }[kind] ?? 1;
+		return STEPPER_KEYS.map((key, index) => (index < at ? "done" : index === at && kind ? "current" : "pending"));
+	}
+
+	/** The chosen artboard's mini stepper: Chosen → Sent → In progress → Implemented, and in words which step it is at. */
+	function miniStepper(kind) {
+		const steps = handoffSteps(kind);
+		const current = steps.indexOf("current");
+		const at = current >= 0 ? current : steps.lastIndexOf("done");
+		const root = chip("gd-ministep", "");
+		// Never color alone: the position is in words for assistive technology, the dots are decoration.
+		const words = chip("gd-visually-hidden gd-ministep-words", t("stepper.position", { n: at + 1, total: steps.length, step: t(STEPPER_KEYS[at]) }));
+		const list = document.createElement("ol");
+		list.className = "gd-ministep-list";
+		list.setAttribute("aria-hidden", "true");
+		list.append(...steps.map((status, index) => {
+			const item = document.createElement("li");
+			item.className = "gd-ministep-step";
+			item.dataset.state = status;
+			item.append(chip("gd-ministep-dot", ""), chip("gd-ministep-label", t(STEPPER_KEYS[index])));
+			return item;
+		}));
+		root.append(words, list);
+		return root;
+	}
+
+	/** The header row of one artboard: Chosen or Discarded, the chosen one's stepper, the handoff badge, its feature document, note and Compare. */
 	function renderHandoff(board) {
 		if (board.system || !board.handoff) return;
 		const { chosen, entry } = handoffOf(board);
 		const isChosen = typeof chosen === "string" && chosen === board.artboard.file;
+		const isDiscarded = typeof chosen === "string" && !isChosen;
 		board.wrapper.classList.toggle("gd-chosen", isChosen);
+		board.wrapper.classList.toggle("gd-discarded", isDiscarded);
+		board.implement.setDiscarded(isDiscarded);
 		const parts = [];
-		if (typeof chosen === "string") parts.push(chip(`gd-choice ${isChosen ? "gd-choice-chosen" : "gd-choice-alternative"}`, t(isChosen ? "choice.chosen" : "choice.alternative")));
 		const kind = entry ? handoffKind(entry) : null;
+		if (isChosen) parts.push(miniStepper(kind));
+		if (typeof chosen === "string") parts.push(chip(`gd-choice ${isChosen ? "gd-choice-chosen" : "gd-choice-discarded"}`, t(isChosen ? "choice.chosen" : "choice.discarded")));
 		board.stateChip.hidden = !kind;
 		board.stateChip.textContent = kind ? t(`handoff.${kind}`) : "";
 		if (kind) board.stateChip.dataset.status = kind;
@@ -2788,6 +2976,7 @@
 		board.handoff.replaceChildren(...parts);
 		board.handoff.hidden = parts.length === 0;
 		board.wrapper.classList.toggle("gd-has-handoff", parts.length > 0);
+		board.wrapper.classList.toggle("gd-has-stepper", isChosen);
 		if (hadFocus && compare) compare.focus();
 	}
 
@@ -2805,6 +2994,7 @@
 	/** Everything outside the artboards that follows handoffs, boards and comments: navigator, Compare with app, timeline. */
 	function renderHandoffViews() {
 		renderMinimap();
+		renderWork();
 		renderCompareApp();
 		renderTimeline();
 		renderNav();
@@ -2837,6 +3027,61 @@
 		return `${date.getFullYear() === now.getFullYear() ? day : `${day} ${date.getFullYear()}`}, ${clock}`;
 	}
 
+	/** A time in the top bar: just HH:MM today, otherwise the short date as the timeline writes it. */
+	function clockOrDate(value) {
+		const date = typeof value === "string" ? new Date(value) : null;
+		if (!date || Number.isNaN(date.getTime())) return "";
+		if (date.toDateString() !== new Date().toDateString()) return shortTime(value);
+		return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+	}
+
+	/**
+	 * The top-bar status of the chosen direction: what is being built, its state since when, the agent's last note,
+	 * and Show to open it in focus mode. Implemented leaves comparing to the bar's Compare with app.
+	 */
+	function renderWork() {
+		const board = chosenBoard();
+		const hadFocus = els.work.contains(document.activeElement);
+		els.work.hidden = !board;
+		if (!board) {
+			els.work.replaceChildren();
+			return;
+		}
+		const entry = handoffOf(board).entry;
+		const kind = entry ? handoffKind(entry) : null;
+		const dot = chip("gd-work-dot", "");
+		dot.setAttribute("aria-hidden", "true");
+		dot.dataset.status = kind ?? "chosen";
+		const leadKey = !kind ? "choice.chosen" : kind === "implemented" ? "handoff.implemented" : "work.implementing";
+		const lead = chip("gd-work-lead", t(leadKey));
+		const title = chip("gd-work-title", t("work.title", { title: board.artboard.title }));
+		let stateText;
+		if (!kind) stateText = t("work.notSent");
+		else if (kind === "implemented") {
+			const time = clockOrDate(entry.implementedAt);
+			stateText = time ? t("work.at", { time }) : "";
+		} else {
+			const time = clockOrDate(kind === "in_progress" ? entry.startedAt ?? entry.sentAt : entry.sentAt);
+			stateText = time ? t("work.since", { state: t(`handoff.${kind}`), time }) : t(`handoff.${kind}`);
+		}
+		const parts = [dot, lead, title];
+		if (stateText) parts.push(chip("gd-work-state", stateText));
+		if (kind && typeof entry.note === "string" && entry.note) {
+			const note = chip("gd-work-note", entry.note);
+			note.title = entry.note;
+			parts.push(note);
+		}
+		const show = document.createElement("button");
+		show.type = "button";
+		show.className = "gd-work-show";
+		show.textContent = t("work.show");
+		show.setAttribute("aria-label", t("work.showAria", { title: board.artboard.title }));
+		show.addEventListener("click", () => enterFocus(board));
+		parts.push(show);
+		els.work.replaceChildren(...parts);
+		if (hadFocus) show.focus();
+	}
+
 	/** Chosen, Sent to the session, In progress, Implemented: done, current or pending, with timestamps. */
 	function renderTimeline() {
 		const board = chosenBoard();
@@ -2848,9 +3093,7 @@
 		els.handoffTitle.textContent = t("timeline.title", { title: board.artboard.title });
 		const entry = handoffOf(board).entry;
 		const kind = entry ? handoffKind(entry) : null;
-		// The index of the step the handoff is at; steps before it are done, a step at it is current.
-		const at = { queued: 1, sent: 2, in_progress: 2, implemented: 4 }[kind] ?? 1;
-		const stateOf = (index) => (index < at ? "done" : index === at && kind ? "current" : "pending");
+		const steps = handoffSteps(kind);
 		const sent = entry ? shortTime(entry.sentAt) : "";
 		const started = entry ? shortTime(entry.startedAt) : "";
 		const finished = entry ? shortTime(entry.implementedAt) : "";
@@ -2863,7 +3106,7 @@
 			[t("timeline.implemented"), [kind === "implemented" ? finished : t("timeline.compareWhenReady")]],
 		];
 		els.timeline.replaceChildren(...defs.map(([label, details], index) => {
-			const status = stateOf(index);
+			const status = steps[index];
 			const item = document.createElement("li");
 			item.className = `gd-step gd-step-${status}`;
 			item.dataset.state = status;
@@ -2948,11 +3191,16 @@
 		if (board.nav) board.nav.thumb.frame.src = `${boardUrl(board)}?v=${Date.now()}`;
 	}
 
-	/** The artboard navigator: one item per design artboard; the system board is not listed. */
+	/**
+	 * The artboard navigator: one item per design artboard; the system board is not listed. Once one is chosen it is marked
+	 * and the others are dimmed, and Hide discarded hides them in place: an item never moves, or its thumbnail would reload.
+	 */
 	function renderNav() {
 		loc(els.navTitle, "text", "nav.title", { count: state.boards.length });
 		els.navNote.hidden = !state.systemBoard;
 		const refocus = els.navList.contains(document.activeElement) ? document.activeElement.dataset.file : null;
+		let discardedCount = 0;
+		let anyChosen = false;
 		const items = state.boards.map((board) => {
 			const nav = board.nav;
 			if (board === state.focus) nav.button.setAttribute("aria-current", "true");
@@ -2961,10 +3209,16 @@
 			nav.summary.textContent = commentSummary(board);
 			const tags = [];
 			const { chosen } = handoffOf(board);
+			const isChosen = typeof chosen === "string" && chosen === board.artboard.file;
+			const isDiscarded = typeof chosen === "string" && !isChosen;
+			if (typeof chosen === "string") anyChosen = true;
+			if (isDiscarded) discardedCount += 1;
+			nav.button.classList.toggle("gd-nav-item-chosen", isChosen);
+			nav.button.classList.toggle("gd-nav-item-discarded", isDiscarded);
+			nav.item.hidden = isDiscarded && state.hideDiscarded;
 			if (typeof chosen === "string") {
-				const isChosen = chosen === board.artboard.file;
 				nav.tag.className = `gd-nav-tag${isChosen ? " gd-nav-tag-chosen" : ""}`;
-				nav.tag.textContent = t(isChosen ? "choice.chosen" : "choice.alternative");
+				nav.tag.textContent = t(isChosen ? "choice.chosen" : "choice.discarded");
 				tags.push(nav.tag);
 			}
 			const failures = checkFailures(board);
@@ -2977,12 +3231,27 @@
 			nav.tags.replaceChildren(...tags);
 			return nav.item;
 		});
+		renderNavDiscarded(anyChosen, discardedCount);
 		// Putting the same items back would reload their thumbnails: rebuild the list only when it changed.
 		const current = Array.from(els.navList.children);
 		if (items.length === current.length && items.every((item, index) => item === current[index])) return;
 		els.navList.replaceChildren(...items);
 		if (refocus) els.navList.querySelector?.(`[data-file="${CSS.escape(refocus)}"]`)?.focus();
 	}
+
+	/** Hide discarded (N) or Show discarded (N): only while an artboard is chosen; clearing the choice shows everything again. */
+	function renderNavDiscarded(anyChosen, count) {
+		// Nothing is discarded without a choice, so no item is hidden; the next choice starts with everything shown.
+		if (!anyChosen) state.hideDiscarded = false;
+		els.navDiscarded.hidden = !anyChosen;
+		els.navDiscarded.setAttribute("aria-expanded", String(!state.hideDiscarded));
+		loc(els.navDiscarded, "text", state.hideDiscarded ? "nav.showDiscarded" : "nav.hideDiscarded", { count });
+	}
+
+	els.navDiscarded.addEventListener("click", () => {
+		state.hideDiscarded = !state.hideDiscarded;
+		renderNav();
+	});
 
 	function setHandoffs(slug, data) {
 		const valid = Boolean(data && typeof data === "object" && data.handoffs && typeof data.handoffs === "object" && !Array.isArray(data.handoffs));
@@ -3155,7 +3424,7 @@
 		els.compareOpen.setAttribute("target", "_blank");
 		els.compareOpen.setAttribute("rel", "noopener noreferrer");
 		els.compareOpen.href = preview;
-		setCompareMessage(new URL(preview).hostname === "[::1]" ? "compare.hintIpv6" : "compare.hint", undefined, false);
+		setCompareMessage(new URL(preview).hostname === "[::1]" ? "compare.hintIpv6" : "compare.hint", { url: new URL(preview).origin }, false);
 		els.comparePanes.replaceChildren(design.figure, running.figure, handle, shield);
 		els.compareFit.checked = false;
 		els.compare.hidden = false;
@@ -3284,6 +3553,7 @@
 		const boards = allBoards();
 		closeMenu(false);
 		els.world.replaceChildren(...boards.map((board) => board.wrapper), ...(state.placeholder ? [state.placeholder] : []));
+		if (state.mark && !boards.includes(state.mark.board)) clearMark();
 		if (state.focus && !boards.includes(state.focus)) exitFocus();
 		else applyFocusState();
 	}
@@ -3893,7 +4163,8 @@
 			const label = boundedText(raw.label, 80);
 			const rect = raw.rect && typeof raw.rect === "object" ? raw.rect : null;
 			if (!title || detail === null || !selector || label === null || !rect || !["x", "y", "width", "height"].every((key) => isFiniteNumber(rect[key]))) return null;
-			issues.push({ check: raw.check, severity: raw.severity, title, detail, selector, label, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } });
+			// Only `hidden: true` means out of sight; an older inspector leaves it out, and that reads as visible.
+			issues.push({ check: raw.check, severity: raw.severity, title, detail, selector, label, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, hidden: raw.hidden === true });
 		}
 		return { checks, issues };
 	}
@@ -3963,10 +4234,17 @@
 		return group;
 	}
 
+	let hiddenNotes = 0;
+
 	function checkCard(board, issue) {
 		const fail = issue.severity === "fail";
 		const card = document.createElement("article");
 		card.className = `gd-check ${fail ? "gd-check-fail" : "gd-check-advice"}`;
+		// A re-render (another tab and back, a language switch) keeps the card of the ring linked to it.
+		if (isMarked(board, issue)) {
+			state.mark.card = card;
+			setCardMarked(card, true);
+		}
 		const body = document.createElement("div");
 		body.className = "gd-check-body";
 		const words = issueWords(issue);
@@ -3990,7 +4268,7 @@
 		show.className = "gd-check-show gd-small";
 		show.setAttribute("aria-label", t("checks.showAria", { title: words.title, label: issue.label, name: `${String(board.number).padStart(2, "0")} ${board.artboard.title}` }));
 		show.append(icon("i-target", "gd-i gd-i-s"), chip("", t("checks.show")));
-		show.addEventListener("click", () => showIssue(board, issue));
+		show.addEventListener("click", () => showIssue(board, issue, card));
 		const fix = document.createElement("button");
 		fix.type = "button";
 		fix.className = "gd-check-fix gd-small";
@@ -3998,30 +4276,127 @@
 		fix.append(chip("", t("checks.fix")));
 		fix.addEventListener("click", () => askAboutIssue(board, issue));
 		actions.append(show, fix);
-		body.append(heading, detail, selector, actions);
+		body.append(heading, detail, selector);
+		// Show cannot point at what is out of sight: the card says why nothing is marked.
+		if (issue.hidden) {
+			const note = chip("gd-check-hidden", t("checks.hidden"));
+			note.id = `gd-check-hidden-${++hiddenNotes}`;
+			show.setAttribute("aria-describedby", note.id);
+			body.append(note);
+		}
+		body.append(actions);
 		card.append(icon("i-alert", "gd-i gd-i-s gd-check-icon"), body);
 		return card;
 	}
 
-	/** Brings an issue's artboard into view: another artboard's focus ends, and with none focused the canvas centers the element. */
-	function revealIssue(board, issue) {
+	// Under SHOW_ZOOM, Show zooms in to it, or less when the element would not fit in SHOW_ROOM of the view at that zoom.
+	const SHOW_ZOOM = 1;
+	const SHOW_ROOM = 0.8;
+
+	/**
+	 * Brings a rect of an artboard (its CSS px) into view: another artboard's focus ends, and with none focused the canvas
+	 * centers the rect. With zoomIn, a canvas under SHOW_ZOOM first zooms in about the rect; it never zooms out.
+	 */
+	function revealIssue(board, rect, zoomIn = false) {
 		if (state.focus && state.focus !== board) exitFocus();
 		if (state.focus) return;
 		const viewport = els.viewport.getBoundingClientRect();
 		const frame = board.frame.getBoundingClientRect();
 		const scale = frame.width / board.viewWidth || 1;
-		const x = frame.left + (issue.rect.x + issue.rect.width / 2) * scale;
-		const y = frame.top + (issue.rect.y + issue.rect.height / 2) * scale;
+		const x = frame.left + (rect.x + rect.width / 2) * scale;
+		const y = frame.top + (rect.y + rect.height / 2) * scale;
+		if (zoomIn && state.zoom < SHOW_ZOOM) {
+			const clear = Math.min(SHOW_ZOOM, (viewport.width * SHOW_ROOM) / rect.width, (viewport.height * SHOW_ROOM) / rect.height);
+			// Zooming about the rect's center keeps it at (x, y), so the pan below still centers it.
+			zoomAt(Math.max(state.zoom, clear), x - viewport.left, y - viewport.top);
+		}
 		panBy(viewport.left + viewport.width / 2 - x, viewport.top + viewport.height / 2 - y);
 	}
 
-	function showIssue(board, issue) {
-		revealIssue(board, issue);
+	/** Show: the canvas zooms to the element and rings it; an element out of sight gets no ring, and its artboard is centered instead. */
+	function showIssue(board, issue, card) {
+		if (issue.hidden) {
+			clearMark();
+			revealIssue(board, { x: 0, y: 0, width: board.viewWidth, height: board.viewHeight });
+		} else {
+			revealIssue(board, issue.rect, true);
+			placeMark(board, issue, card);
+		}
 		for (const surface of surfacesOf(board)) surface.frame.contentWindow?.postMessage({ type: "gd:highlight", selector: issue.selector }, "*");
 	}
 
+	// ---- the ring of Show ----
+	// Drawn by the canvas, never by the artboard's page: a box in the transformed world like the pins, so it follows zoom and
+	// pan, with its stroke, label and smallest size kept on screen by --gd-inv-zoom (canvas.css). Esc, a still click on the
+	// canvas, another Show, a reload of its artboard, another size or another design clear it.
+
+	function isMarked(board, issue) {
+		return Boolean(state.mark) && state.mark.board === board && state.mark.issue === issue;
+	}
+
+	function setCardMarked(card, marked) {
+		if (!card) return;
+		card.classList.toggle("gd-check-active", marked);
+		if (marked) card.setAttribute("aria-current", "true");
+		else card.removeAttribute("aria-current");
+	}
+
+	/** The frame the checks ran in: the artboard's own, or in All sizes its Desktop frame (the manifest size). */
+	function markHost(board) {
+		return board.sizeFrames.length > 0 ? board.sizeFrames[board.sizeFrames.length - 1].stage : board.frame.parentElement;
+	}
+
+	function placeMark(board, issue, card) {
+		clearMark();
+		const ring = document.createElement("div");
+		ring.className = `gd-check-mark ${issue.severity === "fail" ? "gd-check-mark-fail" : "gd-check-mark-advice"}`;
+		// The card is the accessible path (aria-current); the ring is only drawn.
+		ring.setAttribute("aria-hidden", "true");
+		const label = chip("gd-check-mark-label", "");
+		ring.append(label);
+		state.mark = { board, issue, ring, label, card };
+		renderMark();
+		markHost(board).append(ring);
+		setCardMarked(card, true);
+	}
+
+	/** The ring at its finding's rect, centered (artboard CSS px), with the check's title in the current language. */
+	function renderMark() {
+		const mark = state.mark;
+		if (!mark) return;
+		const { rect } = mark.issue;
+		mark.ring.style.left = `${rect.x + rect.width / 2}px`;
+		mark.ring.style.top = `${rect.y + rect.height / 2}px`;
+		mark.ring.style.setProperty("--gd-mark-w", `${rect.width}px`);
+		mark.ring.style.setProperty("--gd-mark-h", `${rect.height}px`);
+		mark.label.textContent = issueWords(mark.issue).title;
+	}
+
+	function clearMark() {
+		const mark = state.mark;
+		if (!mark) return;
+		state.mark = null;
+		mark.ring.remove();
+		setCardMarked(mark.card, false);
+	}
+
+	/** A new report of the ringed artboard (after a resize): the ring moves to the same finding (check, kind, element), or goes. */
+	function followMark(board) {
+		const mark = state.mark;
+		if (!mark || mark.board !== board) return;
+		const same = board.checks.issues.find((issue) => issue.check === mark.issue.check && issue.severity === mark.issue.severity && issue.selector === mark.issue.selector);
+		if (!same || same.hidden) {
+			clearMark();
+			return;
+		}
+		mark.issue = same;
+		renderMark();
+	}
+
 	function askAboutIssue(board, issue) {
-		revealIssue(board, issue);
+		// Asking about another finding moves the canvas away from the ring.
+		if (!isMarked(board, issue)) clearMark();
+		revealIssue(board, issue.rect);
 		for (const surface of surfacesOf(board)) surface.frame.contentWindow?.postMessage({ type: "gd:highlight", selector: issue.selector }, "*");
 		const fail = issue.severity === "fail";
 		const text = fail
@@ -4797,16 +5172,37 @@
 		updateTabFades();
 	}
 
-	/** The tab row scrolls when it is wider than the panel; each edge with tabs behind it fades (L10, A2). */
+	/** The tab row scrolls when it is wider than the panel; each edge with tabs behind it fades and shows its arrow (L10, A2). */
 	function updateTabFades() {
 		const tabs = els.tabs;
 		const left = Number(tabs.scrollLeft) || 0;
 		const hidden = (Number(tabs.scrollWidth) || 0) - (Number(tabs.clientWidth) || 0);
-		tabs.classList.toggle("gd-tabs-more-start", left > 1);
-		tabs.classList.toggle("gd-tabs-more-end", left < hidden - 1);
+		const start = left > 1;
+		const end = left < hidden - 1;
+		tabs.classList.toggle("gd-tabs-more-start", start);
+		tabs.classList.toggle("gd-tabs-more-end", end);
+		els.tabsPrev.hidden = !start;
+		els.tabsNext.hidden = !end;
+	}
+
+	/** An arrow scrolls the row by most of its width toward its side; the keyboard path is still the tabs' own arrow keys. */
+	function scrollTabs(direction) {
+		const tabs = els.tabs;
+		const step = Math.max(80, (Number(tabs.clientWidth) || 0) * 0.7);
+		const max = Math.max(0, (Number(tabs.scrollWidth) || 0) - (Number(tabs.clientWidth) || 0));
+		let left = Math.min(max, Math.max(0, (Number(tabs.scrollLeft) || 0) + direction * step));
+		// A sliver left over would show the arrow again for a few pixels: go to the edge instead.
+		if (left < 40) left = 0;
+		else if (max - left < 40) left = max;
+		const smooth = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+		if (typeof tabs.scrollTo === "function") tabs.scrollTo({ left, behavior: smooth ? "smooth" : "auto" });
+		else tabs.scrollLeft = left;
+		updateTabFades();
 	}
 
 	els.tabs.addEventListener("scroll", updateTabFades);
+	els.tabsPrev.addEventListener("click", () => scrollTabs(-1));
+	els.tabsNext.addEventListener("click", () => scrollTabs(1));
 	tabButtons().forEach((tab, index) => tab.addEventListener("click", () => setTab(TAB_NAMES[index])));
 	// Arrow keys, Home and End move between the tabs, wrapping around.
 	els.tabs.addEventListener("keydown", (event) => {
@@ -5058,6 +5454,10 @@
 			if (!state.focus) return;
 			event.preventDefault();
 			exitFocus();
+		} else if (state.mark && els.popover.hidden && !state.compare && !els.shortcuts.hasAttribute("open") && !els.variantDialog.hasAttribute("open")) {
+			// A check's ring goes first; the next Esc leaves comment mode as before.
+			event.preventDefault();
+			clearMark();
 		} else if (state.commenting && els.popover.hidden && event.target === document.body) setCommenting(false);
 	});
 
@@ -5150,10 +5550,12 @@
 			const result = readChecks(data);
 			if (!result) return;
 			board.checks = result;
+			followMark(board);
 			renderChecks();
 			renderNav();
 		} else if (data.type === "gd:escape") {
 			if (!els.popover.hidden) closePopover();
+			else if (state.mark) clearMark();
 			else if (state.commenting) setCommenting(false);
 		} else if (data.type === "gd:exit-focus") {
 			// Only the focused artboard may end its own focus mode.

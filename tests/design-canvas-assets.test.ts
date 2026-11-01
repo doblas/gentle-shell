@@ -255,7 +255,7 @@ async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknow
 			const reply = replies[url] as Record<string, unknown> | undefined;
 			if (reply && "__throw" in reply) throw new TypeError(String(reply.__throw));
 			const status = reply && typeof reply.__http === "number" ? reply.__http : url in replies ? 200 : 404;
-			return { ok: status < 400, status, json: async () => reply ?? {} };
+			return { ok: status < 400, status, json: async () => reply ?? {}, text: async () => String(reply?.__text ?? "") };
 		},
 		EventSource: class {
 			addEventListener(type: string, listener: Listener) {
@@ -641,7 +641,7 @@ test("the handoff badge follows the state live, and shows the linked feature doc
 	assert.equal(boardsOf(canvas)[0], first, "a handoffs.json change does not reload the artboards");
 });
 
-test("the chosen artboard gets a Chosen badge and an accent frame; the others are labeled Alternative", async () => {
+test("the chosen artboard gets a Chosen badge and an accent frame; the others are labeled Discarded", async () => {
 	const canvas = await loadCanvas(300, { "/t/api/designs/alpha/handoffs": handoffDoc(null, {}) });
 	for (const board of boardsOf(canvas)) {
 		assert.deepEqual(texts(board, "gd-choice"), [], "nothing is chosen yet");
@@ -651,10 +651,10 @@ test("the chosen artboard gets a Chosen badge and an accent frame; the others ar
 	const [first, second] = boardsOf(canvas);
 	assert.deepEqual(texts(second, "gd-choice"), ["Chosen"]);
 	assert.equal(second.classes.has("gd-chosen"), true);
-	assert.deepEqual(texts(first, "gd-choice"), ["Alternative"]);
+	assert.deepEqual(texts(first, "gd-choice"), ["Discarded"]);
 	assert.equal(first.classes.has("gd-chosen"), false);
 	await setHandoffs(canvas, handoffDoc("01-a.html", { "02-b.html": {}, "01-a.html": {} }));
-	assert.deepEqual(boardsOf(canvas).map((board) => texts(board, "gd-choice")[0]), ["Chosen", "Alternative"], "a new handoff moves Chosen");
+	assert.deepEqual(boardsOf(canvas).map((board) => texts(board, "gd-choice")[0]), ["Chosen", "Discarded"], "a new handoff moves Chosen");
 });
 
 test("Compare appears only on an implemented artboard with a loopback previewUrl other than the canvas", async () => {
@@ -758,7 +758,7 @@ test("Implement this shows a toast and the badge at once: Queued when busy, Impl
 	assert.equal(toast.textContent, "Queued: the session will implement First after its current task.");
 	assert.deepEqual(texts(boardsOf(canvas)[0], "gd-handoff-badge"), ["Queued"]);
 	assert.deepEqual(texts(boardsOf(canvas)[0], "gd-choice"), ["Chosen"]);
-	assert.deepEqual(texts(boardsOf(canvas)[1], "gd-choice"), ["Alternative"]);
+	assert.deepEqual(texts(boardsOf(canvas)[1], "gd-choice"), ["Discarded"]);
 
 	canvas.replies["/t/api/designs/alpha/implement"] = { ok: true, slug: "alpha", file: "01-a.html", queued: false };
 	await send();
@@ -1027,11 +1027,11 @@ test("the navigator lists the artboards with a number, a comment summary and a t
 	assert.deepEqual(navTexts(canvas, "gd-nav-summary"), ["No comments", "No comments"]);
 });
 
-test("the navigator tags Chosen and Alternative only once an artboard is chosen, live", async () => {
+test("the navigator tags Chosen and Discarded only once an artboard is chosen, live", async () => {
 	const canvas = await loadRail();
 	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), [], "no tags without a chosen artboard");
 	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": {} }));
-	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Alternative", "Chosen"]);
+	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Discarded", "Chosen"]);
 	const [first, second] = withClass(canvas.document.getElementById("gd-nav-list"), "gd-nav-tag");
 	assert.ok(second.classes.has("gd-nav-tag-chosen") && !first.classes.has("gd-nav-tag-chosen"));
 	await setHandoffs(canvas, handoffDoc(null, {}));
@@ -1113,7 +1113,7 @@ test("S6: thumbnails keep their iframes when the list re-renders, so comment and
 	assert.deepEqual([thumbFrame(canvas, 0), thumbFrame(canvas, 1)], frames, "with the same iframes");
 	assert.deepEqual(frames.map((frame) => frame.src), srcs, "that were not reloaded");
 	assert.deepEqual(navTexts(canvas, "gd-nav-summary"), ["1 open comment", "No comments"], "while the text still follows the state");
-	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Alternative", "Chosen"]);
+	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Discarded", "Chosen"]);
 	assert.equal(canvas.document.getElementById("gd-nav-list").children.length, 2);
 });
 
@@ -2880,7 +2880,7 @@ test("S2/S3: the panel is in index.html and canvas.css with tokens only, focus r
 
 // Accessibility checks (T3): the inspector checks the page after load; the canvas shows the results.
 
-type PageSpec = { tag: string; attrs?: Record<string, string>; style?: Record<string, string>; size?: [number, number]; text?: string; kids?: PageSpec[] };
+type PageSpec = { tag: string; attrs?: Record<string, string>; style?: Record<string, string>; size?: [number, number]; at?: [number, number]; text?: string; kids?: PageSpec[] };
 
 /** A small page for the inspector: elements in document order, with computed styles and boxes. */
 function checkPage(specs: PageSpec[]) {
@@ -2902,7 +2902,8 @@ function checkPage(specs: PageSpec[]) {
 		node.index = all.length;
 		Object.defineProperty(node, "textContent", { get: () => node.childNodes.map((child: any) => child.textContent).join("") });
 		Object.defineProperty(node, "innerText", { get: () => node.textContent });
-		node.getBoundingClientRect = () => ({ left: 8, top: 8 + node.index * 30, width: node.size[0], height: node.size[1] });
+		// `at` places the box (left, top); without it the elements stack down the page.
+		node.getBoundingClientRect = () => ({ left: spec.at?.[0] ?? 8, top: spec.at?.[1] ?? 8 + node.index * 30, width: node.size[0], height: node.size[1] });
 		if (spec.text) node.childNodes.push({ nodeType: 3, textContent: spec.text });
 		for (const kid of spec.kids ?? []) {
 			const child = build(kid, node);
@@ -3222,7 +3223,7 @@ test("S4: each artboard's list item carries A11y ✓ or N checks; none before th
 	assert.equal(navA11y(canvas)[1].textContent, "1 check", "singular");
 	// A chosen tag and the checks tag live side by side.
 	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": {} }));
-	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Alternative", "Chosen"]);
+	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Discarded", "Chosen"]);
 	assert.equal(navA11y(canvas).length, 2);
 });
 
@@ -3920,10 +3921,48 @@ test("S2-S4: the History tab and the comparison are in index.html and canvas.css
 	assert.match(css, /\.gd-version-reply\s*{[^}]*border-left:[^}]*var\(--success\)/);
 });
 
-test("S2: five tabs never squeeze their labels into each other: the tab row scrolls instead", () => {
+test("S2: five tabs never squeeze their labels into each other and stay on one row: the tab row scrolls", () => {
 	const css = read("canvas.css");
 	assert.match(css, /\.gd-tabs\s*{[^}]*overflow-x:\s*auto/);
+	assert.ok(!/\.gd-tabs\s*{[^}]*flex-wrap:\s*wrap/.test(css), "never stacked on two rows");
 	assert.match(css, /\.gd-tab\s*{[^}]*flex:\s*none/);
+});
+
+test("Tabs: arrows show only on an edge with tabs behind it, and each scrolls the row toward its side", async () => {
+	const canvas = await loadCanvas();
+	const tabs = canvas.document.getElementById("gd-tabs");
+	const prev = canvas.document.getElementById("gd-tabs-prev");
+	const next = canvas.document.getElementById("gd-tabs-next");
+	const shown = () => [prev.hidden ? "" : "prev", next.hidden ? "" : "next"].filter(Boolean).join(" ");
+	Object.assign(tabs, { scrollWidth: 359, clientWidth: 359, scrollLeft: 0 });
+	tabs.dispatch("scroll");
+	assert.equal(shown(), "", "a row that fits has no arrows");
+	Object.assign(tabs, { scrollWidth: 503, clientWidth: 359, scrollLeft: 0 });
+	tabs.dispatch("scroll");
+	assert.equal(shown(), "next", "at the start only the right arrow");
+	next.dispatch("click");
+	assert.ok(tabs.scrollLeft > 0, "the right arrow scrolls toward the end");
+	tabs.scrollLeft = 144;
+	tabs.dispatch("scroll");
+	assert.equal(shown(), "prev", "at the end only the left arrow");
+	prev.dispatch("click");
+	assert.ok(tabs.scrollLeft < 144, "the left arrow scrolls toward the start");
+	tabs.scrollLeft = 60;
+	tabs.dispatch("scroll");
+	assert.equal(shown(), "prev next", "in the middle both arrows");
+});
+
+test("Tabs: the arrows are outside the tablist, pointer helpers named from the catalog, and the keyboard path stays the tabs", () => {
+	const html = read("index.html");
+	const tablist = html.slice(html.indexOf('<div id="gd-tabs"'), html.indexOf("</div>", html.indexOf('<div id="gd-tabs"')));
+	assert.ok(!tablist.includes("gd-tabs-prev") && !tablist.includes("gd-tabs-next"), "only tabs inside the tablist");
+	for (const [id, key] of [["gd-tabs-prev", "tabs.prev"], ["gd-tabs-next", "tabs.next"]]) {
+		const tag = html.match(new RegExp(`<button[^>]*id="${id}"[^>]*>`))?.[0] ?? "";
+		assert.match(tag, /tabindex="-1"/, `${id} is not a tab stop`);
+		assert.match(tag, /aria-hidden="true"/, `${id} is hidden from assistive technology, which moves with the arrow keys`);
+		assert.ok(tag.includes(`data-i18n-title="${key}"`), `${id} title from the catalog`);
+		assert.match(tag, / hidden[ >]/, `${id} starts hidden`);
+	}
 });
 
 test("L10 (A2): the tab row hides its scrollbar and fades only the edges that have more tabs behind them", async () => {
@@ -4709,7 +4748,7 @@ test("T2/S2: opening the menu lists the actions, marks the button expanded and f
 	assert.equal(button.getAttribute("aria-expanded"), "true");
 	assert.equal(menuEl(canvas).getAttribute("aria-label"), "Second actions");
 	// Compare with app is offered only when the app can be compared.
-	assert.deepEqual(itemLabels(canvas), ["Try another direction from this…", "Export as PNG", "Export as PNG at 2×", "Implement this"]);
+	assert.deepEqual(itemLabels(canvas), ["Try another direction from this…", "Export as PNG", "Export as PNG at 2×", "Export as PDF", "Download HTML", "Implement this"]);
 	assert.ok(menuItems(canvas).every((item) => item.localName === "button" && item.getAttribute("tabindex") === "-1"));
 	assert.ok(canvas.document.activeElement === menuItems(canvas)[0]);
 	assert.equal(menuEl(canvas).style.left, "0px", "placed at the button");
@@ -4723,7 +4762,7 @@ test("T2/S2: opening the menu lists the actions, marks the button expanded and f
 test("T2/S2: Compare with app is in the menu only for an implemented artboard with a preview, and opens Compare", async () => {
 	const canvas = await loadRail(300, { "/t/api/designs/alpha/handoffs": implementedDoc("01-a.html") });
 	openMenu(canvas, 0);
-	assert.deepEqual(itemLabels(canvas), ["Try another direction from this…", "Compare with app", "Export as PNG", "Export as PNG at 2×", "Implement this"]);
+	assert.deepEqual(itemLabels(canvas), ["Try another direction from this…", "Compare with app", "Export as PNG", "Export as PNG at 2×", "Export as PDF", "Download HTML", "Implement this"]);
 	itemNamed(canvas, "Compare with app").dispatch("click");
 	assert.equal(menuEl(canvas).hidden, true, "choosing closes the menu");
 	assert.equal(canvas.document.getElementById("gd-compare").hidden, false, "Compare is open");
@@ -4974,6 +5013,86 @@ for (const surface of ["window", "monitor"]) test(`T3/S4: sharing a ${surface} i
 	assert.equal(canvas.document.body.classList.contains("gd-exporting"), false);
 	assert.equal(canvas.world.style.transform, before);
 	assert.equal(canvas.posts.length, 0);
+});
+
+test("PDF: Export as PDF prints the artboard alone at its size once its frame has loaded, then cleans up", async () => {
+	let printed = 0;
+	const canvas = await loadRail(300, {}, {}, { print: () => printed++ });
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Export as PDF").dispatch("click");
+	const body = canvas.document.body;
+	const holder = withClass(body, "gd-print")[0];
+	assert.ok(holder, "a print container is added to the page");
+	assert.equal(body.classList.contains("gd-printing"), true);
+	const frame = holder.children[0];
+	assert.equal(frame.localName, "iframe");
+	assert.equal(frame.getAttribute("src"), "/t/files/alpha/01-a.html");
+	assert.equal(frame.getAttribute("sandbox"), "allow-scripts", "sandboxed like the canvas frames");
+	assert.equal(frame.style.width, canvas.boards[0].frame.style.width);
+	assert.match(frame.style.height, /^\d+px$/);
+	assert.equal(printed, 0, "printing waits for the artboard");
+	frame.dispatch("load");
+	assert.equal(printed, 1);
+	canvas.windowEvent("afterprint");
+	assert.equal(withClass(body, "gd-print").length, 0, "the container is removed after printing");
+	assert.equal(body.classList.contains("gd-printing"), false);
+	assert.equal(canvas.posts.length, 0, "nothing is sent to the server");
+});
+
+test("HTML: Download HTML saves the artboard file without the injected inspector", async () => {
+	const names: string[] = [];
+	const blobs: unknown[][] = [];
+	const original = "<!doctype html><title>A</title><p>Hello</p></body></html>";
+	const served = original.replace("</body>", '<script src="/t/assets/inspector.js"></script></body>');
+	const canvas = await loadRail(300, { "/t/files/alpha/01-a.html": { __text: served } }, {}, {
+		Blob: class { constructor(parts: unknown[]) { blobs.push(parts); } },
+		URL: { createObjectURL: () => "blob:test", revokeObjectURL: () => {} },
+	});
+	const create = canvas.document.createElement.bind(canvas.document);
+	canvas.document.createElement = ((tag: string) => tag === "a" ? { click() { names.push(this.download); }, href: "", download: "" } : create(tag)) as typeof canvas.document.createElement;
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Download HTML").dispatch("click");
+	for (let i = 0; i < 4; i++) await flush();
+	assert.deepEqual(names, ["01-a.html"]);
+	assert.deepEqual(JSON.parse(JSON.stringify(blobs)), [[original]]);
+	assert.equal(canvas.posts.length, 0);
+});
+
+test("HTML: a failed Download HTML shows an inline alert and downloads nothing", async () => {
+	const names: string[] = [];
+	const canvas = await loadRail(300);
+	const create = canvas.document.createElement.bind(canvas.document);
+	canvas.document.createElement = ((tag: string) => tag === "a" ? { click() { names.push(this.download); }, href: "", download: "" } : create(tag)) as typeof canvas.document.createElement;
+	openMenu(canvas, 0);
+	itemNamed(canvas, "Download HTML").dispatch("click");
+	for (let i = 0; i < 4; i++) await flush();
+	assert.deepEqual(names, []);
+	const shown = withClass(canvas.world, "gd-alert").filter((alert) => !alert.hidden);
+	assert.equal(shown.length, 1);
+	assert.match(texts(shown[0], "gd-alert-text").join(" "), /Could not download the artboard/);
+});
+
+test("brand: the rail mark is the Gentle rose of the startup banner, dot for dot, decorative", () => {
+	const html = read("index.html");
+	// The same rose as the terminal banner: every raised braille dot becomes one 1x1 square of a 2x4 grid per character.
+	const banner = readFileSync(join(import.meta.dirname, "..", "extensions", "startup-banner.ts"), "utf8");
+	const rows = [...banner.match(/const ROSE_LARGE_RAW = \[([^]*?)\];/)![1].matchAll(/"([^"]*)"/g)].map((match) => match[1]);
+	const bits: Array<[number, number, number]> = [[0x01, 0, 0], [0x02, 0, 1], [0x04, 0, 2], [0x40, 0, 3], [0x08, 1, 0], [0x10, 1, 1], [0x20, 1, 2], [0x80, 1, 3]];
+	let path = "";
+	rows.forEach((line, row) => [...line].forEach((char, column) => {
+		const code = char.codePointAt(0)! - 0x2800;
+		if (code > 0 && code <= 0xff) for (const [bit, dx, dy] of bits) if (code & bit) path += `M${column * 2 + dx} ${row * 4 + dy}h1v1h-1z`;
+	}));
+	const width = Math.max(...rows.map((line) => [...line].length)) * 2;
+	assert.ok(html.includes(`<symbol id="i-rose" viewBox="0 0 ${width} ${rows.length * 4}"><path d="${path}"/></symbol>`));
+	assert.match(html, /<span class="gd-mark" aria-hidden="true"><svg class="gd-i gd-rose"><use href="#i-rose"\/><\/svg><\/span>/);
+	assert.ok(!/<span class="gd-mark"[^>]*>GD<\/span>/.test(html), "no GD letters");
+});
+
+test("PDF: canvas.css prints only the print container, with no page margin", () => {
+	const css = read("canvas.css");
+	assert.match(css, /@media print\s*\{[^]*body\.gd-printing > :not\(\.gd-print\)\s*\{\s*display:\s*none/);
+	assert.match(css, /@page\s*\{\s*margin:\s*0/);
 });
 
 test("T3/S4: cancelling the tab-selection warning does not start a capture", async () => {
@@ -5525,7 +5644,7 @@ test("S2: the navigator, tabs, cards and Send all speak Spanish with plural coun
 	const spanish = await loadLang({ browser: "es", replies });
 	const summaries = withClass(spanish.document.getElementById("gd-nav-list"), "gd-nav-summary").map((element) => element.textContent);
 	assert.deepEqual(summaries, ["2 comentarios abiertos · 1 resuelto", "1 comentario abierto"]);
-	assert.deepEqual(withClass(spanish.document.getElementById("gd-nav-list"), "gd-nav-tag").map((element) => element.textContent), ["Elegido", "Alternativa"]);
+	assert.deepEqual(withClass(spanish.document.getElementById("gd-nav-list"), "gd-nav-tag").map((element) => element.textContent), ["Elegido", "Descartada"]);
 	assert.equal(spanish.document.getElementById("gd-send-all").textContent, "Enviar todo (2)", "c1 and c4 are open and unsent");
 	const badges = withClass(spanish.document.getElementById("gd-comment-list"), "gd-badge").map((element) => element.textContent);
 	assert.deepEqual(badges.slice(0, 2), ["Esperando", "Enviado"]);
@@ -5678,7 +5797,7 @@ test("S2: the artboard menu, the variant dialog and its suggestions are Spanish"
 	const canvas = await loadLang({ browser: "es" });
 	const button = menuButtonOf(boardsOf(canvas)[0]);
 	button.dispatch("click");
-	assert.deepEqual(itemLabels(canvas as unknown as Canvas), ["Probar otra dirección a partir de esta…", "Exportar como PNG", "Exportar como PNG a 2×", "Implementar esto"]);
+	assert.deepEqual(itemLabels(canvas as unknown as Canvas), ["Probar otra dirección a partir de esta…", "Exportar como PNG", "Exportar como PNG a 2×", "Exportar como PDF", "Descargar HTML", "Implementar esto"]);
 	assert.equal(menuEl(canvas as unknown as Canvas).getAttribute("aria-label"), "Acciones de First");
 	itemNamed(canvas as unknown as Canvas, "Probar otra dirección a partir de esta…").dispatch("click");
 	assert.equal(canvas.document.getElementById("gd-variant-note").textContent, "La sesión escribe un nuevo artboard, 03, y conserva los demás.");
@@ -5749,7 +5868,7 @@ test("S2: Compare is Spanish and follows a switch while it is open", async () =>
 	assert.equal(canvas.document.getElementById("gd-compare-title").textContent, "Comparar: First");
 	const captions = () => texts(canvas.document.getElementById("gd-compare-panes"), "gd-compare-caption");
 	assert.deepEqual(captions(), ["Diseño: 01-a.html", "Implementación: http://localhost:3000/"]);
-	assert.equal(canvas.document.getElementById("gd-compare-message").textContent, "Si la app no permite mostrarse en un marco, usa Abrir en una pestaña nueva.");
+	assert.equal(canvas.document.getElementById("gd-compare-message").textContent, "Si el panel de la app se queda vacío, puede que la app no esté en marcha en http://localhost:3000 o que no permita mostrarse en un marco: arráncala o usa Abrir en una pestaña nueva.");
 	canvas.document.getElementById("gd-compare-mode-slider").dispatch("click");
 	assert.deepEqual(captions(), ["Diseño", "App"]);
 	assert.equal(canvas.document.getElementById("gd-compare-panes").getAttribute("aria-label"), "Diseño y app en ejecución, divididos al 50%");
@@ -5757,7 +5876,7 @@ test("S2: Compare is Spanish and follows a switch while it is open", async () =>
 	assert.equal(canvas.document.getElementById("gd-compare-title").textContent, "Compare: First");
 	assert.deepEqual(captions(), ["Design", "App"]);
 	assert.equal(canvas.document.getElementById("gd-compare-panes").getAttribute("aria-label"), "Design and running app, split at 50%");
-	assert.equal(canvas.document.getElementById("gd-compare-message").textContent, "If the app refuses to be framed, use Open in new tab.");
+	assert.equal(canvas.document.getElementById("gd-compare-message").textContent, "If the app pane stays empty, the app may not be running at http://localhost:3000 or may refuse to be framed: start it, or use Open in new tab.");
 });
 
 test("S2: popover messages, screenshot errors and the Send/Save label are Spanish", async () => {
@@ -5965,7 +6084,7 @@ test("S2: the Spanish is neutral and professional: tú forms, no voseo", () => {
 	const voseo = /\b(vos|tenés|podés|querés|sabés|hacé|hacés|mirá|elegí|enviá|tocá|aprobá|fijate|andá|vení|decí|escribí|usá|abrí|cerrá|guardá|volvé|probá|revisá)\b/i;
 	for (const [key, text] of Object.entries(es)) assert.ok(!voseo.test(text), `${key}: voseo in "${text}"`);
 	const all = Object.values(es).join("\n");
-	for (const term of ["Comentar", "Ver todo", "Elegido", "Alternativa", "En curso", "Implementado", "Enviar todo", "Acumular", "Encargo"]) assert.ok(all.includes(term), `the Spanish uses ${term}`);
+	for (const term of ["Comentar", "Ver todo", "Elegido", "Descartada", "En curso", "Implementado", "Enviar todo", "Acumular", "Encargo"]) assert.ok(all.includes(term), `the Spanish uses ${term}`);
 	assert.ok(/\bHaz clic\b/.test(all) && /\bEscribe\b/.test(all), "imperatives are tú forms");
 });
 
@@ -6233,4 +6352,669 @@ test("S2: after a switch nothing of the old language is left in Compare, a versi
 		chooseLang(variant, to);
 		assert.deepEqual(leftovers(variant, from), [], `${from} -> ${to} with a placeholder board`);
 	}
+});
+
+// ---- Chosen direction: top-bar status and discarded alternatives (canvas-chosen-direction T1/S1-S2)
+
+const workBar = (canvas: Canvas) => canvas.document.getElementById("gd-work");
+const workTexts = (canvas: Canvas) => ({
+	lead: texts(workBar(canvas), "gd-work-lead"),
+	title: texts(workBar(canvas), "gd-work-title"),
+	state: texts(workBar(canvas), "gd-work-state"),
+	note: texts(workBar(canvas), "gd-work-note"),
+});
+/** Today at hh:mm, local time, as the ISO string handoffs.json stores. */
+const todayAt = (hours: number, minutes: number) => { const date = new Date(); date.setHours(hours, minutes, 0, 0); return date.toISOString(); };
+
+test("chosen-direction S1: the top bar names the chosen direction with its state, time and note, live", async () => {
+	const canvas = await loadRail();
+	assert.equal(workBar(canvas).hidden, true, "hidden while nothing is chosen");
+
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "sent", queued: true, sentAt: todayAt(9, 47) } }));
+	assert.equal(workBar(canvas).hidden, false);
+	assert.deepEqual(workTexts(canvas), { lead: ["Implementing"], title: ["“Second”"], state: ["Queued since 09:47"], note: [] });
+
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", sentAt: todayAt(9, 47), startedAt: todayAt(9, 48), note: "Exploring the current code (navigation and the Usage screen) before planning." } }));
+	assert.deepEqual(workTexts(canvas), { lead: ["Implementing"], title: ["“Second”"], state: ["In progress since 09:48"], note: ["Exploring the current code (navigation and the Usage screen) before planning."] });
+	const [note] = withClass(workBar(canvas), "gd-work-note");
+	assert.equal(note.title, "Exploring the current code (navigation and the Usage screen) before planning.", "the full note is in the tooltip");
+	assert.equal(withClass(workBar(canvas), "gd-work-dot")[0].dataset.status, "in_progress");
+
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented", implementedAt: "2020-03-04T09:05:00.000Z", previewUrl: "http://localhost:3000/" } }));
+	assert.deepEqual(workTexts(canvas).lead, ["Implemented ✓"]);
+	assert.match(workTexts(canvas).state[0], /^at Mar 4 2020, \d\d:\d\d$/, "another day keeps its date");
+	assert.equal(canvas.document.getElementById("gd-compare-app").hidden, false, "Compare with app stays the way to compare");
+
+	await setHandoffs(canvas, handoffDoc("01-a.html", {}));
+	assert.deepEqual(workTexts(canvas), { lead: ["Chosen"], title: ["“First”"], state: ["Not sent yet"], note: [] });
+
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.equal(workBar(canvas).hidden, true, "hidden again when nothing is chosen");
+});
+
+test("chosen-direction S1: Show opens the chosen artboard in focus mode and keeps keyboard focus on the bar across updates", async () => {
+	const canvas = await loadRail();
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }));
+	const [show] = withClass(workBar(canvas), "gd-work-show");
+	assert.equal(show.textContent, "Show");
+	assert.equal(show.getAttribute("aria-label"), "Show Second on the canvas");
+	show.dispatch("click");
+	assert.equal(navItems(canvas)[1].getAttribute("aria-current"), "true", "the chosen artboard is focused");
+	assert.equal(navItems(canvas)[0].getAttribute("aria-current"), null);
+	canvas.document.getElementById("gd-back").dispatch("click");
+
+	const [again] = withClass(workBar(canvas), "gd-work-show");
+	again.focus();
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", note: "Next step" } }));
+	assert.equal(canvas.document.activeElement, withClass(workBar(canvas), "gd-work-show")[0], "an update does not drop keyboard focus");
+});
+
+test("chosen-direction S1: index.html puts the status in the bar after the breadcrumb, as a polite live region", () => {
+	const html = read("index.html");
+	assert.match(html, /<div id="gd-work" class="gd-work" role="status" aria-live="polite" hidden><\/div>/);
+	assert.ok(html.indexOf('class="gd-crumbs"') < html.indexOf('id="gd-work"') && html.indexOf('id="gd-work"') < html.indexOf('class="gd-spacer"'));
+});
+
+test("chosen-direction S1/S2: the status and the discarded labels are in Spanish too", async () => {
+	const canvas = await loadLang({ browser: "es", replies: { "/t/api/designs/alpha/handoffs": handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", startedAt: todayAt(9, 48) } }) } });
+	const c = canvas as unknown as Canvas;
+	assert.deepEqual(workTexts(c), { lead: ["Implementando"], title: ["«Second»"], state: ["En curso desde 09:48"], note: [] });
+	assert.equal(withClass(workBar(c), "gd-work-show")[0].textContent, "Ver");
+	assert.deepEqual(texts(boardsOf(c)[0], "gd-choice"), ["Descartada"]);
+	assert.equal(withClass(boardsOf(c)[0], "gd-implement-start")[0].textContent, "Cambiar a esta…");
+	assert.deepEqual(navTexts(c, "gd-nav-tag"), ["Descartada", "Elegido"]);
+});
+
+test("chosen-direction S2: once one is chosen the others are Discarded and dimmed, and offer Switch to this… instead of Implement this", async () => {
+	const canvas = await loadRail(300, { [IMPLEMENT]: { ok: true, slug: "alpha", file: "01-a.html", queued: false } });
+	const start = (index: number) => withClass(boardsOf(canvas)[index], "gd-implement-start")[0];
+	for (const index of [0, 1]) {
+		assert.equal(boardsOf(canvas)[index].classes.has("gd-discarded"), false, "nothing is discarded before a choice");
+		assert.equal(start(index).textContent, "Implement this");
+	}
+
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }));
+	const [first, second] = boardsOf(canvas);
+	assert.deepEqual(texts(first, "gd-choice"), ["Discarded"]);
+	assert.equal(first.classes.has("gd-discarded"), true);
+	assert.equal(second.classes.has("gd-discarded"), false);
+	assert.deepEqual(navTexts(canvas, "gd-nav-tag"), ["Discarded", "Chosen"]);
+	assert.equal(start(1).textContent, "Implement this", "the chosen artboard keeps Implement this");
+	assert.equal(start(0).textContent, "Switch to this…");
+	assert.equal(start(0).getAttribute("aria-label"), "Switch the implementation to First");
+	assert.equal(start(0).classes.has("gd-implement-switch"), true);
+
+	start(0).dispatch("click");
+	const [control] = withClass(first, "gd-implement");
+	const question = withClass(control, "gd-implement-question")[0];
+	assert.equal(question.textContent, "Move the implementation to this direction? The session gets it as a new handoff.");
+	withClass(control, "gd-primary")[0].dispatch("click");
+	for (let i = 0; i < 10; i++) await flush();
+	assert.deepEqual(canvas.posts.at(-1), { url: IMPLEMENT, body: { file: "01-a.html" } }, "switching is a handoff of this artboard");
+	assert.deepEqual(boardsOf(canvas).map((board) => texts(board, "gd-choice")[0]), ["Chosen", "Discarded"], "the choice moves at once");
+	assert.equal(start(0).textContent, "Implement this");
+	assert.equal(start(1).textContent, "Switch to this…");
+
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.deepEqual(boardsOf(canvas).map((board) => board.classes.has("gd-discarded")), [false, false]);
+	assert.deepEqual([start(0).textContent, start(1).textContent], ["Implement this", "Implement this"]);
+	start(1).dispatch("click");
+	assert.equal(withClass(withClass(boardsOf(canvas)[1], "gd-implement")[0], "gd-implement-question")[0].textContent, "Send it to the session to implement?", "an undecided design asks the usual question");
+});
+
+test("chosen-direction S2: a discarded artboard's menu says Switch to this…, the chosen one's Implement this", async () => {
+	const canvas = await loadRail();
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": {} }));
+	openMenu(canvas, 0);
+	assert.ok(itemLabels(canvas).includes("Switch to this…"));
+	assert.ok(!itemLabels(canvas).includes("Implement this"));
+	keyOn(menuEl(canvas), "Escape");
+	openMenu(canvas, 1);
+	assert.ok(itemLabels(canvas).includes("Implement this"));
+});
+
+test("chosen-direction S2: the minimap dims discarded blocks, never the system board", async () => {
+	const canvas = await minimapCanvas();
+	assert.deepEqual(miniBlocks(canvas).map((block) => block.classes.has("gd-minimap-discarded")), [false, false, false]);
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": {} }));
+	assert.deepEqual(miniBlocks(canvas).map((block) => block.classes.has("gd-minimap-discarded")), [false, true, false]);
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.deepEqual(miniBlocks(canvas).map((block) => block.classes.has("gd-minimap-discarded")), [false, false, false]);
+});
+
+test("chosen-direction S2: canvas.css dims a discarded artboard and restores it on hover or keyboard focus, with tokens only", () => {
+	const css = read("canvas.css");
+	const rule = (selector: string) => {
+		const start = css.indexOf(`${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	assert.match(rule(".gd-discarded .gd-frame-box"), /opacity:\s*\.45/);
+	assert.match(rule(".gd-discarded .gd-frame-box"), /filter:\s*grayscale\(\.6\)/);
+	assert.match(css, /\.gd-discarded:hover \.gd-frame-box,\s*\.gd-discarded:focus-within \.gd-frame-box \{[^}]*opacity:\s*1[^}]*filter:\s*none/);
+	for (const selector of [".gd-discarded .gd-frame-box", ".gd-choice-discarded", ".gd-minimap-discarded", ".gd-work"]) assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule(selector)), `${selector}: tokens only`);
+	assert.match(css, /@media \(prefers-reduced-motion: no-preference\) \{[^]*\.gd-discarded \.gd-frame-box \{ transition:/, "the fade only animates without reduced motion");
+});
+
+// ---- Chosen direction: the chosen artboard's stepper and pulse, the navigator's accent, dim and toggle (canvas-chosen-direction T2/S3-S5)
+
+/** The chosen artboard's mini stepper: each step's label and state, and the position in words for assistive technology. */
+const ministep = (board: FakeElement) => {
+	const [root] = withClass(board, "gd-ministep");
+	if (!root) return null;
+	const steps = withClass(root, "gd-ministep-step");
+	return {
+		labels: steps.map((step) => texts(step, "gd-ministep-label")[0]),
+		states: steps.map((step) => step.dataset.state),
+		words: texts(root, "gd-ministep-words"),
+		hiddenList: withClass(root, "gd-ministep-list").map((list) => list.getAttribute("aria-hidden")),
+	};
+};
+const navToggle = (canvas: Canvas) => canvas.document.getElementById("gd-nav-discarded");
+const navLis = (canvas: Canvas) => canvas.document.getElementById("gd-nav-list").children;
+
+test("chosen-direction S3: the chosen artboard's handoff row has a 4-step mini stepper that follows the handoff, with the step in words", async () => {
+	const canvas = await loadRail();
+	assert.deepEqual(boardsOf(canvas).map(ministep), [null, null], "no stepper before a choice");
+
+	await setHandoffs(canvas, handoffDoc("02-b.html", {}));
+	const [first, second] = boardsOf(canvas);
+	assert.equal(ministep(first), null, "a discarded artboard has no stepper");
+	assert.deepEqual(ministep(second), { labels: ["Chosen", "Sent", "In progress", "Implemented"], states: ["done", "pending", "pending", "pending"], words: ["Step 1 of 4: Chosen"], hiddenList: ["true"] });
+
+	const cases: Array<[Record<string, unknown>, string[], string]> = [
+		[{ status: "sent", queued: true }, ["done", "current", "pending", "pending"], "Step 2 of 4: Sent"],
+		[{ status: "sent" }, ["done", "done", "current", "pending"], "Step 3 of 4: In progress"],
+		[{ status: "in_progress", note: "Wiring the header" }, ["done", "done", "current", "pending"], "Step 3 of 4: In progress"],
+		[{ status: "implemented" }, ["done", "done", "done", "done"], "Step 4 of 4: Implemented"],
+	];
+	for (const [entry, states, words] of cases) {
+		await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": entry }));
+		const stepper = ministep(boardsOf(canvas)[1])!;
+		assert.deepEqual([stepper.states, stepper.words], [states, [words]], JSON.stringify(entry));
+	}
+	// The timeline in the review side reads the same steps.
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", note: "Wiring the header" } }));
+	assert.deepEqual(withClass(canvas.document.getElementById("gd-timeline"), "gd-step").map((step) => step.dataset.state), ["done", "done", "current", "pending"]);
+	const [note] = withClass(boardsOf(canvas)[1], "gd-handoff-note");
+	assert.equal(note.title, "Wiring the header", "the note keeps its full text in the tooltip");
+
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.deepEqual(boardsOf(canvas).map(ministep), [null, null], "gone again when nothing is chosen");
+});
+
+test("chosen-direction S3: canvas.css pulses the sent and in-progress dot only without reduced motion, and the note reads in one plain line", () => {
+	const css = read("canvas.css");
+	// The rule of the selector alone, not a list that names it.
+	const rule = (selector: string) => {
+		const start = css.indexOf(`\n${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	assert.match(css, /\.gd-handoff-badge\[data-status="sent"\]::before,\s*\.gd-handoff-badge\[data-status="in_progress"\]::before \{[^}]*border-radius:\s*50%[^}]*background:\s*var\(--info\)/, "a dot leads the sent and in-progress badge");
+	assert.match(css, /@keyframes gd-pulse \{/);
+	const motion = css.slice(css.indexOf("@media (prefers-reduced-motion: no-preference) {"));
+	assert.match(motion.slice(0, motion.indexOf("\n}\n")), /\.gd-handoff-badge\[data-status="sent"\]::before,\s*\.gd-handoff-badge\[data-status="in_progress"\]::before \{ animation: gd-pulse/, "the pulse runs only without reduced motion");
+	const outsideMotion = css.replace(/@media \(prefers-reduced-motion: no-preference\) \{[^]*?\n\}\n/g, "");
+	assert.ok(!/animation:\s*gd-pulse/.test(outsideMotion), "nothing pulses under reduced motion");
+	const note = rule(".gd-handoff-note");
+	assert.ok(!/italic/.test(note), "the note is not italic");
+	assert.match(note, /max-width:\s*(\d+)ch/);
+	assert.ok(Number(/max-width:\s*(\d+)ch/.exec(note)![1]) >= 48, "the note is wider than before");
+	for (const selector of [".gd-handoff-note", ".gd-ministep", ".gd-ministep-list", ".gd-ministep-step", ".gd-ministep-dot"]) assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule(selector)), `${selector}: tokens only`);
+	assert.match(css, /\.gd-ministep-step\[data-state="done"\] \.gd-ministep-dot \{[^}]*var\(--success\)/);
+	assert.match(css, /\.gd-ministep-step\[data-state="current"\] \.gd-ministep-dot \{[^}]*var\(--info\)/);
+});
+
+test("chosen-direction S4: the navigator marks the chosen item with an accent and dims the discarded ones, without moving any item", async () => {
+	const canvas = await loadRail();
+	const items = [...navLis(canvas)];
+	const frames = [thumbFrame(canvas, 0), thumbFrame(canvas, 1)];
+	const marks = () => navItems(canvas).map((button) => [button.classes.has("gd-nav-item-chosen"), button.classes.has("gd-nav-item-discarded")]);
+	assert.deepEqual(marks(), [[false, false], [false, false]], "nothing is marked before a choice");
+
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }));
+	assert.deepEqual(marks(), [[false, true], [true, false]]);
+	assert.deepEqual([...navLis(canvas)], items, "the chosen item is not moved first: same items, same order");
+	assert.deepEqual([thumbFrame(canvas, 0), thumbFrame(canvas, 1)], frames, "so no thumbnail reloads");
+
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": {} }));
+	assert.deepEqual(marks(), [[true, false], [false, true]], "the marks follow a switch");
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.deepEqual(marks(), [[false, false], [false, false]]);
+});
+
+test("chosen-direction S4: Hide discarded (N) hides the discarded items in place and Show discarded (N) brings them back; it hides with the choice", async () => {
+	const canvas = await loadRail();
+	const toggle = navToggle(canvas);
+	assert.equal(toggle.hidden, true, "hidden while nothing is chosen");
+
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }));
+	const items = [...navLis(canvas)];
+	const frames = [thumbFrame(canvas, 0), thumbFrame(canvas, 1)];
+	assert.equal(toggle.hidden, false);
+	assert.equal(toggle.textContent, "Hide discarded (1)");
+	assert.equal(toggle.getAttribute("aria-expanded"), "true");
+
+	toggle.focus();
+	toggle.dispatch("click");
+	assert.deepEqual(items.map((item) => item.hidden), [true, false], "the discarded item is hidden");
+	assert.equal(toggle.textContent, "Show discarded (1)");
+	assert.equal(toggle.getAttribute("aria-expanded"), "false");
+	assert.equal(canvas.document.activeElement, toggle, "focus stays on the toggle");
+	assert.deepEqual([...navLis(canvas)], items, "hidden in place, never removed or moved");
+	assert.deepEqual([thumbFrame(canvas, 0), thumbFrame(canvas, 1)], frames);
+
+	await setComments(canvas, comment("a1", "01-a.html"));
+	assert.deepEqual(items.map((item) => item.hidden), [true, false], "a re-render keeps them hidden");
+	await setHandoffs(canvas, handoffDoc("01-a.html", { "01-a.html": {} }));
+	assert.deepEqual(items.map((item) => item.hidden), [false, true], "a switch hides the newly discarded one");
+
+	toggle.dispatch("click");
+	assert.deepEqual(items.map((item) => item.hidden), [false, false]);
+	assert.equal(toggle.textContent, "Hide discarded (1)");
+
+	toggle.dispatch("click");
+	await setHandoffs(canvas, handoffDoc(null, {}));
+	assert.deepEqual(items.map((item) => item.hidden), [false, false], "clearing the choice shows everything");
+	assert.equal(toggle.hidden, true, "and hides the toggle");
+	await setHandoffs(canvas, handoffDoc("02-b.html", {}));
+	assert.deepEqual([items.map((item) => item.hidden), toggle.textContent], [[false, false], "Hide discarded (1)"], "a new choice starts with everything shown");
+});
+
+test("chosen-direction S4: index.html puts the toggle under the navigator title, outside the list, hidden at first", () => {
+	const html = read("index.html");
+	assert.match(html, /<button type="button" id="gd-nav-discarded" class="gd-nav-discarded" aria-expanded="true" aria-controls="gd-nav-list" data-i18n="nav.hideDiscarded" hidden>Hide discarded \(0\)<\/button>/);
+	assert.ok(html.indexOf('id="gd-nav-title"') < html.indexOf('id="gd-nav-discarded"') && html.indexOf('id="gd-nav-discarded"') < html.indexOf('id="gd-nav-list"'));
+	const css = read("canvas.css");
+	const rule = (selector: string) => {
+		const start = css.indexOf(`${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	assert.match(rule(".gd-nav-item-chosen"), /var\(--accent\)/);
+	assert.match(rule(".gd-nav-item-discarded .gd-nav-thumb"), /opacity:\s*\.45/);
+	assert.match(css, /\.gd-nav-item-discarded:hover \.gd-nav-thumb,\s*\.gd-nav-item-discarded:focus-visible \.gd-nav-thumb \{[^}]*opacity:\s*1/, "restored on hover or keyboard focus");
+	for (const selector of [".gd-nav-item-chosen", ".gd-nav-item-discarded .gd-nav-thumb", ".gd-nav-discarded"]) assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule(selector)), `${selector}: tokens only`);
+	assert.match(css, /\.gd-nav-discarded\[hidden\] \{ display: none; \}/);
+});
+
+test("chosen-direction S3/S4: the stepper and the navigator toggle speak Spanish", async () => {
+	const canvas = await loadLang({ browser: "es", replies: { "/t/api/designs/alpha/handoffs": handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }) } });
+	const c = canvas as unknown as Canvas;
+	assert.deepEqual(ministep(boardsOf(c)[1]), { labels: ["Elegido", "Enviado", "En curso", "Implementado"], states: ["done", "done", "current", "pending"], words: ["Paso 3 de 4: En curso"], hiddenList: ["true"] });
+	assert.equal(navToggle(c).textContent, "Ocultar descartadas (1)");
+	navToggle(c).dispatch("click");
+	assert.equal(navToggle(c).textContent, "Mostrar descartadas (1)");
+	chooseLang(canvas, "en");
+	assert.equal(navToggle(c).textContent, "Show discarded (1)", "a switch of language rewrites it");
+	assert.deepEqual(ministep(boardsOf(c)[1])!.words, ["Step 3 of 4: In progress"]);
+});
+
+test("chosen-direction S5: the docs describe the stepper, the pulsing dot, the readable note and the navigator toggle", () => {
+	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
+	const section = docs.slice(docs.indexOf("### Gentle Design"));
+	assert.match(section, /mini stepper/i);
+	assert.match(section, /\*\*Chosen\*\* → \*\*Sent\*\* → \*\*In progress\*\* → \*\*Implemented\*\*/);
+	assert.match(section, /puls/i);
+	assert.match(section, /reduced motion/i);
+	assert.match(section, /\*\*Hide discarded \(N\)\*\*/);
+	assert.match(section, /\*\*Show discarded \(N\)\*\*/);
+});
+
+// ---- canvas-check-highlight: Show marks the element of a check on the canvas, zooms, and links the card ----
+
+const marks = (canvas: Canvas) => withClass(canvas.viewport, "gd-check-mark");
+const showCard = (canvas: Canvas, index: number) => withClass(checkCards(canvas)[index], "gd-check-show")[0].dispatch("click");
+const activeCards = (canvas: Canvas) => checkCards(canvas).map((card, index) => (card.classes.has("gd-check-active") ? index : -1)).filter((index) => index >= 0);
+const worldView = (canvas: Canvas) => {
+	const match = /^translate\((-?[\d.e+-]+)px, (-?[\d.e+-]+)px\) scale\(([\d.e+-]+)\)$/.exec(canvas.world.style.transform)!;
+	return { x: Number(match[1]), y: Number(match[2]), zoom: Number(match[3]) };
+};
+const advice = (extra: Record<string, unknown> = {}) => finding({ check: "target", severity: "advice", title: "Touch target under 44 px", detail: '"Pay" is 100 × 28 px; 44 × 44 px is recommended for touch.', selector: "#pay", label: "button#pay", rect: { x: 10, y: 250, width: 4, height: 2 }, ...extra });
+const markBox = (ring: FakeElement) => [ring.style.left, ring.style.top, ring.style["--gd-mark-w"], ring.style["--gd-mark-h"]];
+/** A still click (no movement) on the canvas at a point, from `target`. */
+const stillClick = (target: FakeElement) => click(target, 500, 400);
+
+test("check-highlight S1: Show draws one canvas ring over the element, at its rect, in the severity color, labeled with the check", async () => {
+	const canvas = await loadRail();
+	const [first, second] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	second.frame.rect = { left: 600, top: 120, width: 400, height: 300 };
+	report_(canvas, first.frame, [finding(), advice()]);
+	report_(canvas, second.frame, [finding({ selector: "#second" })]);
+	openChecks(canvas);
+	assert.deepEqual(marks(canvas), [], "nothing is marked before Show");
+	showCard(canvas, 0);
+	assert.equal(marks(canvas).length, 1);
+	const ring = marks(canvas)[0];
+	assert.equal(ring.parentElement, first.frame.parentElement, "drawn by the canvas beside the artboard's frame, in the transformed world");
+	assert.ok(canvas.world.contains(ring), "it follows zoom and pan with the artboard");
+	assert.equal(ring.getAttribute("aria-hidden"), "true", "the card is the accessible path; the ring is only drawn");
+	assert.ok(ring.classes.has("gd-check-mark-fail") && !ring.classes.has("gd-check-mark-advice"), "red for a problem");
+	assert.deepEqual(markBox(ring), ["130px", "50px", "200px", "20px"], "centered on the element's rect, in artboard CSS px");
+	assert.deepEqual(texts(ring, "gd-check-mark-label"), ["Low contrast"]);
+	assert.deepEqual(first.frame.contentWindow!.posted.at(-1), { type: "gd:highlight", selector: "main > p.or" }, "the page gets the same highlight as before, nothing else");
+	// Another Show replaces it: one mark at a time.
+	showCard(canvas, 1);
+	assert.equal(marks(canvas).length, 1);
+	const amber = marks(canvas)[0];
+	assert.ok(amber.classes.has("gd-check-mark-advice") && !amber.classes.has("gd-check-mark-fail"), "amber for advice");
+	assert.deepEqual(markBox(amber), ["12px", "251px", "4px", "2px"]);
+	assert.deepEqual(texts(amber, "gd-check-mark-label"), ["Touch target under 44 px"]);
+	// Zooming keeps the same ring in place in world coordinates.
+	canvas.document.getElementById("gd-zoom-in").dispatch("click");
+	assert.deepEqual(marks(canvas), [amber]);
+	assert.deepEqual(markBox(amber), ["12px", "251px", "4px", "2px"]);
+	// A finding of another artboard moves the ring there.
+	showCard(canvas, 2);
+	assert.equal(marks(canvas).length, 1);
+	assert.equal(marks(canvas)[0].parentElement, second.frame.parentElement);
+});
+
+test("check-highlight S1/S5: canvas.css keeps the ring a fixed size on screen with tokens, and animates it only with motion allowed", () => {
+	const css = read("canvas.css");
+	const rule = (selector: string) => css.match(new RegExp(`(?:^|\\n)${selector.replace(/[.-]/g, (char) => `\\${char}`)} \\{([^}]*)\\}`))?.[1] ?? "";
+	const mark = rule(".gd-check-mark");
+	assert.ok(mark, ".gd-check-mark is styled");
+	assert.match(mark, /pointer-events:\s*none/);
+	assert.match(mark, /border:\s*calc\(2px \* var\(--gd-inv-zoom, 1\)\) solid var\(--gd-mark-color\)/, "the stroke keeps its screen width at any zoom");
+	assert.match(mark, /width:\s*max\(calc\(var\(--gd-mark-w\)[^;]*calc\(\d+px \* var\(--gd-inv-zoom, 1\)\)\)/, "a minimum on-screen size, so a tiny element stays visible");
+	assert.match(mark, /height:\s*max\(calc\(var\(--gd-mark-h\)[^;]*calc\(\d+px \* var\(--gd-inv-zoom, 1\)\)\)/);
+	assert.match(mark, /--gd-mark-color:\s*var\(--warning\)/, "amber for advice");
+	assert.match(rule(".gd-check-mark-fail"), /--gd-mark-color:\s*var\(--error\)/, "red for a problem");
+	assert.match(rule(".gd-check-mark-label"), /transform:\s*scale\(var\(--gd-inv-zoom, 1\)\)/, "the label keeps its screen size like the pins");
+	assert.match(rule(".gd-check-active"), /var\(--/, "the linked card is styled with tokens");
+	const motion = css.slice(css.indexOf("@media (prefers-reduced-motion: no-preference)"));
+	const block = motion.slice(0, motion.indexOf("\n}\n"));
+	assert.match(block, /\.gd-check-mark \{[^}]*animation:/, "the ring pulses only when motion is allowed");
+	assert.doesNotMatch(css.replace(block, ""), /\.gd-check-mark[^{]*\{[^}]*animation/, "and nowhere else");
+	assert.match(css, /\.gd-exporting \.gd-check-mark/, "an export never includes the ring");
+});
+
+test("check-highlight S1: Esc clears the ring, after what already owns Esc; commenting and focus mode keep their Esc", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	report_(canvas, first.frame, [finding()]);
+	openChecks(canvas);
+	showCard(canvas, 0);
+	// Something that handled Esc first (the comment box, a menu, a confirm step) keeps the ring.
+	press(canvas, "Escape", { defaultPrevented: true });
+	assert.equal(marks(canvas).length, 1);
+	const event = press(canvas, "Escape");
+	assert.equal(event.defaultPrevented, true);
+	assert.deepEqual(marks(canvas), []);
+	assert.deepEqual(activeCards(canvas), []);
+	// In comment mode the first Esc clears the ring, the next one leaves comment mode, as before.
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	showCard(canvas, 0);
+	press(canvas, "Escape");
+	assert.deepEqual(marks(canvas), []);
+	assert.equal(pressed(canvas, "gd-comment"), "true");
+	press(canvas, "Escape");
+	assert.equal(pressed(canvas, "gd-comment"), "false");
+	// Esc forwarded by the artboard while commenting does the same.
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	showCard(canvas, 0);
+	canvas.message(first.frame.contentWindow, { type: "gd:escape" });
+	assert.deepEqual(marks(canvas), []);
+	assert.equal(pressed(canvas, "gd-comment"), "true");
+	canvas.message(first.frame.contentWindow, { type: "gd:escape" });
+	assert.equal(pressed(canvas, "gd-comment"), "false");
+	// A dialog open over the canvas keeps its own Esc.
+	showCard(canvas, 0);
+	canvas.document.getElementById("gd-shortcuts").setAttribute("open", "");
+	press(canvas, "Escape");
+	assert.equal(marks(canvas).length, 1);
+	canvas.document.getElementById("gd-shortcuts").removeAttribute("open");
+	// Focus mode: the ring is drawn on the focused artboard and Shift+Esc still leaves focus mode.
+	navItems(canvas)[0].dispatch("click");
+	showCard(canvas, 0);
+	assert.equal(marks(canvas).length, 1);
+	assert.equal(marks(canvas)[0].parentElement, first.frame.parentElement);
+	press(canvas, "Escape", { shiftKey: true });
+	assert.doesNotMatch(canvas.navMode.textContent, /^Using:/);
+});
+
+test("check-highlight S1: a still click on the canvas clears the ring; a drag pans and keeps it", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	report_(canvas, first.frame, [finding()]);
+	openChecks(canvas);
+	showCard(canvas, 0);
+	canvas.viewport.dispatch("pointerdown", { button: 0, pointerId: 1, clientX: 500, clientY: 400 });
+	canvas.viewport.dispatch("pointermove", { pointerId: 1, clientX: 560, clientY: 430 });
+	canvas.viewport.dispatch("pointerup", { button: 0, pointerId: 1, clientX: 560, clientY: 430 });
+	assert.equal(marks(canvas).length, 1, "a drag is a pan, not a click");
+	stillClick(canvas.viewport);
+	assert.deepEqual(marks(canvas), []);
+	assert.deepEqual(activeCards(canvas), []);
+	// A click on an artboard (its shield) is a click on the canvas too.
+	showCard(canvas, 0);
+	stillClick(canvas.boards[1].shield!);
+	assert.deepEqual(marks(canvas), []);
+});
+
+test("check-highlight S1: the ring goes when its artboard reloads or the design changes, and follows a new report of the same finding", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	report_(canvas, first.frame, [finding(), advice()]);
+	openChecks(canvas);
+	showCard(canvas, 0);
+	// A resize re-reports: the same finding (same check, kind and element) keeps the ring at its new rect, and its card stays linked.
+	report_(canvas, first.frame, [advice(), finding({ rect: { x: 0, y: 0, width: 50, height: 10 } })]);
+	assert.equal(marks(canvas).length, 1);
+	assert.deepEqual(markBox(marks(canvas)[0]), ["25px", "5px", "50px", "10px"]);
+	assert.deepEqual(activeCards(canvas), [1]);
+	// A report without it drops the ring.
+	report_(canvas, first.frame, [advice()]);
+	assert.deepEqual(marks(canvas), []);
+	assert.deepEqual(activeCards(canvas), []);
+	// A reload drops it.
+	report_(canvas, first.frame, [finding()]);
+	showCard(canvas, 0);
+	first.frame.dispatch("load");
+	assert.deepEqual(marks(canvas), []);
+	// Another design drops it.
+	report_(canvas, first.frame, [finding()]);
+	showCard(canvas, 0);
+	assert.equal(marks(canvas).length, 1);
+	await canvas.serverEvent("show", { slug: "beta" });
+	assert.deepEqual(marks(canvas), []);
+});
+
+test("check-highlight S2: under 100% Show zooms in about the element and centers it; it never zooms out", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	report_(canvas, first.frame, [finding(), finding({ selector: "#hero", rect: { x: 0, y: 0, width: 1000, height: 100 } }), finding({ selector: "#page", rect: { x: 0, y: 0, width: 2000, height: 100 } })]);
+	openChecks(canvas);
+	const zoomOut = () => canvas.document.getElementById("gd-zoom-out").dispatch("click");
+	/** Show at the current zoom, with the frame where that zoom puts it; returns the view before and after. */
+	const showAt = (index: number) => {
+		const before = worldView(canvas);
+		first.frame.rect = { left: 100, top: 120, width: 400 * before.zoom, height: 300 * before.zoom };
+		showCard(canvas, index);
+		return { before, after: worldView(canvas) };
+	};
+	/** Where the element's center lands in the viewport (1000 × 700, 50 px down the page) after Show. */
+	const landed = ({ before, after }: ReturnType<typeof showAt>, rect: { x: number; y: number; width: number; height: number }) => {
+		const worldX = (100 + (rect.x + rect.width / 2) * before.zoom - before.x) / before.zoom;
+		const worldY = (120 - 50 + (rect.y + rect.height / 2) * before.zoom - before.y) / before.zoom;
+		return [after.x + worldX * after.zoom, after.y + worldY * after.zoom];
+	};
+	zoomOut(); zoomOut(); zoomOut();
+	assert.ok(Math.abs(worldView(canvas).zoom - 0.512) < 1e-9);
+	const small = showAt(0);
+	assert.equal(small.after.zoom, 1, "a small element: up to 100%");
+	near(landed(small, finding().rect), [500, 350]);
+	assert.equal(canvas.zoomLevel.textContent, "100%");
+	// A wide element gets the zoom at which it fills most of the view, still a zoom in.
+	zoomOut(); zoomOut(); zoomOut();
+	const wide = showAt(1);
+	assert.ok(Math.abs(wide.after.zoom - 0.8) < 1e-9, `0.8, got ${wide.after.zoom}`);
+	near(landed(wide, { x: 0, y: 0, width: 1000, height: 100 }), [500, 350]);
+	// Wider than that at the current zoom: the zoom stays; it never zooms out.
+	zoomOut(); zoomOut();
+	const zoom = worldView(canvas).zoom;
+	const huge = showAt(2);
+	assert.equal(huge.after.zoom, zoom);
+	// At 100% or more the zoom stays.
+	canvas.document.getElementById("gd-zoom-in").dispatch("click");
+	canvas.document.getElementById("gd-zoom-in").dispatch("click");
+	canvas.document.getElementById("gd-zoom-in").dispatch("click");
+	canvas.document.getElementById("gd-zoom-in").dispatch("click");
+	const above = worldView(canvas).zoom;
+	assert.ok(above > 1);
+	assert.equal(showAt(0).after.zoom, above, "Show never zooms out");
+	// Ask the agent to fix only pans, as before.
+	zoomOut(); zoomOut(); zoomOut(); zoomOut(); zoomOut();
+	const asked = worldView(canvas).zoom;
+	withClass(checkCards(canvas)[0], "gd-check-fix")[0].dispatch("click");
+	assert.equal(worldView(canvas).zoom, asked);
+});
+
+test("check-highlight S2: in focus mode Show keeps the artboard where it is and adds the ring; in All sizes the ring is on the Desktop frame", async () => {
+	const canvas = await loadRail(300, wideAlpha);
+	const [first] = canvas.boards;
+	report_(canvas, first.frame, [finding()]);
+	navItems(canvas)[0].dispatch("click");
+	openChecks(canvas);
+	const transform = canvas.world.style.transform;
+	showCard(canvas, 0);
+	assert.equal(canvas.world.style.transform, transform, "no zoom and no pan while focused");
+	assert.equal(marks(canvas).length, 1);
+	assert.equal(marks(canvas)[0].parentElement, first.frame.parentElement);
+	// Picking a size changes the frame the ring was measured in: it goes.
+	sizeButton(canvas, "all").dispatch("click");
+	assert.deepEqual(marks(canvas), []);
+	showCard(canvas, 0);
+	const desktop = sizeSections(canvas).at(-1)!;
+	assert.equal(marks(canvas).length, 1);
+	assert.ok(desktop.contains(marks(canvas)[0]), "the Desktop frame is the size the checks ran at");
+	assert.equal(marks(canvas)[0].parentElement, iframeOf(desktop).parentElement);
+});
+
+test("check-highlight S3: the card being shown is marked current until the ring goes, across re-renders", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	report_(canvas, first.frame, [finding(), advice(), finding({ selector: "#third" })]);
+	openChecks(canvas);
+	assert.deepEqual(activeCards(canvas), []);
+	showCard(canvas, 1);
+	assert.deepEqual(activeCards(canvas), [1]);
+	assert.deepEqual(checkCards(canvas).map((card) => card.getAttribute("aria-current")), [null, "true", null]);
+	showCard(canvas, 0);
+	assert.deepEqual(activeCards(canvas), [0]);
+	assert.deepEqual(checkCards(canvas).map((card) => card.getAttribute("aria-current")), ["true", null, null]);
+	// The panel re-renders (another tab and back): the same card stays linked to the ring.
+	canvas.document.getElementById("gd-filter-open").dispatch("click");
+	openChecks(canvas);
+	assert.deepEqual(activeCards(canvas), [0]);
+	assert.equal(checkCards(canvas)[0].getAttribute("aria-current"), "true");
+	// Ask the agent to fix on the shown finding keeps the ring; on another finding it clears it.
+	withClass(checkCards(canvas)[0], "gd-check-fix")[0].dispatch("click");
+	assert.equal(marks(canvas).length, 1);
+	canvas.document.getElementById("gd-popover-cancel").dispatch("click");
+	withClass(checkCards(canvas)[2], "gd-check-fix")[0].dispatch("click");
+	assert.deepEqual(marks(canvas), []);
+	assert.deepEqual(activeCards(canvas), []);
+	assert.deepEqual(checkCards(canvas).map((card) => card.getAttribute("aria-current")), [null, null, null]);
+});
+
+test("check-highlight S4: the inspector flags a finding whose element is hidden or off-screen, and leaves the flag out otherwise", () => {
+	const page = checkPage([
+		{ tag: "a", attrs: { id: "skip", href: "#main" }, text: "Skip to content", size: [120, 20], style: { display: "block" }, at: [-9999, 8] },
+		{ tag: "a", attrs: { id: "above", href: "#top" }, text: "Back up", size: [120, 20], style: { display: "block" }, at: [8, -200] },
+		{ tag: "button", attrs: { id: "clipped" }, text: "Go", size: [20, 20], style: { clip: "rect(0px, 0px, 0px, 0px)" } },
+		{ tag: "button", attrs: { id: "inset" }, text: "Go", size: [20, 20], style: { clipPath: "inset(50%)" } },
+		{ tag: "img", attrs: { id: "dot", src: "dot.png" }, size: [0, 0] },
+		{ tag: "button", attrs: { id: "speck" }, text: "Go", size: [1, 1] },
+		{ tag: "div", style: { overflowX: "hidden", overflowY: "hidden" }, size: [100, 100], at: [0, 0], kids: [{ tag: "button", attrs: { id: "cut" }, text: "Go", size: [20, 20], at: [300, 0] }] },
+		{ tag: "div", style: { overflowX: "visible", overflowY: "visible" }, size: [100, 100], at: [0, 0], kids: [{ tag: "button", attrs: { id: "spills" }, text: "Go", size: [20, 20], at: [300, 0] }] },
+		{ tag: "button", attrs: { id: "tiny" }, text: "Go", size: [20, 20] },
+		{ tag: "button", attrs: { id: "below" }, text: "Go", size: [20, 20], at: [8, 5000] },
+	]);
+	const report = page.run();
+	const flags = (selector: string) => report.issues.filter((issue) => issue.selector === selector).map((issue) => ("hidden" in issue ? issue.hidden : "absent"));
+	for (const selector of ["#skip", "#above", "#clipped", "#inset", "#dot", "#speck", "#cut"]) {
+		assert.ok(flags(selector).length > 0, `${selector} has a finding`);
+		assert.ok(flags(selector).every((flag) => flag === true), `${selector} is hidden or off-screen: ${flags(selector)}`);
+	}
+	for (const selector of ["#spills", "#tiny", "#below"]) {
+		assert.ok(flags(selector).length > 0, `${selector} has a finding`);
+		assert.ok(flags(selector).every((flag) => flag === "absent"), `${selector} is visible (below the fold can be scrolled to): no flag, as before`);
+	}
+});
+
+test("check-highlight S4: a hidden finding's card says so, Show draws no ring and does not zoom; a missing flag reads as visible", async () => {
+	const canvas = await loadRail();
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	report_(canvas, first.frame, [
+		finding({ selector: "body > a", label: "a", hidden: true, rect: { x: -9999, y: 8, width: 120, height: 20 } }),
+		finding(),
+		finding({ selector: "#off", hidden: false }),
+		finding({ selector: "#odd", hidden: "yes" }),
+	]);
+	openChecks(canvas);
+	const cards = checkCards(canvas);
+	assert.deepEqual(cards.map((card) => texts(card, "gd-check-hidden")), [["This element is hidden or off-screen; it appears when it receives focus"], [], [], []]);
+	const note = withClass(cards[0], "gd-check-hidden")[0];
+	assert.ok(note.id, "the note has an id");
+	assert.equal(withClass(cards[0], "gd-check-show")[0].getAttribute("aria-describedby"), note.id, "Show is described by the note");
+	assert.equal(withClass(cards[1], "gd-check-show")[0].getAttribute("aria-describedby"), null);
+	// Show on the visible one first, then on the hidden one: the ring goes and none is drawn.
+	showCard(canvas, 1);
+	assert.equal(marks(canvas).length, 1);
+	canvas.document.getElementById("gd-zoom-out").dispatch("click");
+	const before = worldView(canvas);
+	first.frame.rect = { left: 100, top: 120, width: 400 * before.zoom, height: 300 * before.zoom };
+	showCard(canvas, 0);
+	assert.deepEqual(marks(canvas), []);
+	assert.deepEqual(activeCards(canvas), []);
+	assert.deepEqual(first.frame.contentWindow!.posted.at(-1), { type: "gd:highlight", selector: "body > a" }, "the page still gets the highlight");
+	const after = worldView(canvas);
+	assert.equal(after.zoom, before.zoom, "nothing to zoom to");
+	// It centers the artboard, not a point thousands of px away.
+	near([after.x - before.x, after.y - before.y], [500 - (100 + 200 * before.zoom), 400 - (120 + 150 * before.zoom)]);
+	// hidden: false and a malformed flag draw the ring like a finding without the flag.
+	showCard(canvas, 2);
+	assert.equal(marks(canvas).length, 1);
+	showCard(canvas, 3);
+	assert.equal(marks(canvas).length, 1);
+});
+
+test("check-highlight S5: the hidden note and the ring's label are Spanish, and follow a switch of language", async () => {
+	const canvas = await loadLang({ browser: "es" });
+	const [first] = canvas.boards;
+	first.frame.rect = { left: 100, top: 120, width: 400, height: 300 };
+	report_(canvas as unknown as Canvas, first.frame, [finding({ hidden: true, selector: "body > a" }), finding()]);
+	openChecks(canvas as unknown as Canvas);
+	const panel = checksPanel(canvas as unknown as Canvas);
+	assert.deepEqual(texts(panel, "gd-check-hidden"), ["Este elemento está oculto o fuera de pantalla; aparece al recibir foco"]);
+	showCard(canvas as unknown as Canvas, 1);
+	const ring = marks(canvas as unknown as Canvas)[0];
+	assert.deepEqual(texts(ring, "gd-check-mark-label"), ["Contraste bajo"]);
+	chooseLang(canvas, "en");
+	assert.deepEqual(texts(ring, "gd-check-mark-label"), ["Low contrast"]);
+	assert.deepEqual(texts(panel, "gd-check-hidden"), ["This element is hidden or off-screen; it appears when it receives focus"]);
+	assert.equal(activeCards(canvas as unknown as Canvas).length, 1, "the switch keeps the card linked");
+});
+
+test("check-highlight S5: the docs describe the ring, the zoom, the linked card and the hidden note", () => {
+	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
+	const line = docs.split("\n").find((candidate) => candidate.startsWith("- Accessibility checks:"))!;
+	assert.ok(line, "the Accessibility checks paragraph is there");
+	assert.match(line, /\*\*Show\*\*[^.]*ring/i);
+	assert.match(line, /amber[^.]*advice|advice[^.]*amber/i);
+	assert.match(line, /red[^.]*problem|problem[^.]*red/i);
+	assert.match(line, /100 %|100%/);
+	assert.match(line, /never zooms out/i);
+	assert.match(line, /`Esc`/);
+	assert.match(line, /This element is hidden or off-screen; it appears when it receives focus/);
+	assert.match(line, /reduced motion/i);
 });
