@@ -43,8 +43,6 @@ const LIMITS = Object.freeze({
 	bodyBytes: 16 * 1024,
 	/** POST api/comments may carry one base64 screenshot; its other fields keep `bodyBytes`. */
 	commentBodyBytes: 8 * 1024 * 1024,
-	/** POST api/designs/<slug>/mix: up to `DESIGN_MIX_PICKS_MAX` picks, each with comment-sized fields. */
-	mixBodyBytes: 256 * 1024,
 	...DESIGN_COMMENT_LIMITS,
 	manifestBytes: 256 * 1024,
 	fileBytes: 32 * 1024 * 1024,
@@ -116,12 +114,6 @@ export type DesignCanvasServerOptions = {
 	 */
 	onVariant?: (request: DesignVariantRequest) => DesignHandoffDelivery | Promise<DesignHandoffDelivery>;
 	/**
-	 * "Create combined direction": a base artboard and the picked elements of the manifest's artboards,
-	 * already validated. It answers whether the message was queued behind a busy agent; a throw answers 500.
-	 * Nothing is recorded: the picks live in the canvas and the new artboard arrives through the manifest.
-	 */
-	onMix?: (request: DesignMixRequest) => DesignHandoffDelivery | Promise<DesignHandoffDelivery>;
-	/**
 	 * "Implement only this": one element of an artboard of the manifest, already validated and recorded in
 	 * parts.json (never handoffs.json, so no direction is chosen). It answers whether the message was queued
 	 * behind a busy agent; a throw takes the part back and answers 500.
@@ -152,19 +144,8 @@ export type DesignVariantRequest = { slug: string; file: string; instruction: st
 /** The most characters one "another direction" instruction may have. */
 export const DESIGN_VARIANT_INSTRUCTION_MAX = 2000;
 
-/**
- * One picked element of a mix: an artboard of the manifest, the element's selector and excerpt (collapsed,
- * bounded like a comment's) and the user's optional note (trimmed, LF line ends, empty when none).
- */
-export type DesignMixPick = { file: string; selector: string; excerpt: string; note: string };
-/** `base` is the artboard of the manifest that gives the new direction its structure. */
-export type DesignMixRequest = { slug: string; base: string; picks: DesignMixPick[] };
-
 /** One element of an artboard handed to the session on its own, as recorded in design/<slug>/parts.json. */
 export type DesignImplementPartRequest = { slug: string; part: DesignPart };
-
-/** The most picks one mix may carry. */
-export const DESIGN_MIX_PICKS_MAX = 20;
 
 export { DESIGN_FEATURE_PATH };
 
@@ -616,7 +597,7 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 	function canvasPage(res: ServerResponse, slug: string | null): void {
 		const html = template
 			.replaceAll("{{BASE}}", escapeHtml(base))
-			.replace("{{CONFIG}}", () => scriptJson({ base, slug, delivery: { comment: true, batch: Boolean(options.onComments), implement: Boolean(options.onImplement), variant: Boolean(options.onVariant), mix: Boolean(options.onMix), part: Boolean(options.onImplementPart) } }));
+			.replace("{{CONFIG}}", () => scriptJson({ base, slug, delivery: { comment: true, batch: Boolean(options.onComments), implement: Boolean(options.onImplement), variant: Boolean(options.onVariant), part: Boolean(options.onImplementPart) } }));
 		reply(res, 200, html, { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": CANVAS_CSP });
 	}
 
@@ -831,49 +812,9 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		reply(res, 202, { ok: true, slug, file, queued: typeof delivery === "object" && delivery !== null && delivery.queued === true });
 	}
 
-	async function mix(req: IncomingMessage, res: ServerResponse, slug: string): Promise<void> {
-		const body = await readJsonObject(req, false, LIMITS.mixBodyBytes);
-		const onMix = options.onMix;
-		if (!onMix) throw new HttpError(501, "mix-unavailable");
-		const manifest = await readManifest(slug);
-		const listed = new Set(manifest.artboards.map((artboard) => artboard.file));
-		const baseSegments = relativeSegments(body.base);
-		const base = baseSegments ? baseSegments.join("/") : "";
-		if (!listed.has(base)) throw new HttpError(400, "invalid-base", { error: "invalid-base", reason: `base must be an artboard of design/${slug}` });
-		if (!Array.isArray(body.picks) || body.picks.length < 1 || body.picks.length > DESIGN_MIX_PICKS_MAX) {
-			throw new HttpError(400, "invalid-picks", { error: "invalid-picks", reason: `picks must be a list of 1 to ${DESIGN_MIX_PICKS_MAX} elements` });
-		}
-		// Each pick is bounded like a comment: the selector is required, the excerpt is cut, the note is optional.
-		const picks = body.picks.map((value: unknown, index): DesignMixPick => {
-			const refuse = (error: string, reason: string) => new HttpError(400, error, { error, reason: `pick ${index + 1}: ${reason}` });
-			if (!value || typeof value !== "object" || Array.isArray(value)) throw refuse("invalid-pick", "a pick must be an object with file and selector");
-			const pick = value as Record<string, unknown>;
-			const segments = relativeSegments(pick.file);
-			if (!segments) throw refuse("invalid-file", "file must be an artboard file name");
-			const file = segments.join("/");
-			if (!listed.has(file)) throw refuse("invalid-file", `${file} is not an artboard of design/${slug}`);
-			const selector = typeof pick.selector === "string" ? collapse(pick.selector) : "";
-			if (selector.length < 1 || selector.length > LIMITS.selector) throw refuse("invalid-selector", `selector must have 1 to ${LIMITS.selector} characters`);
-			if (pick.excerpt !== undefined && typeof pick.excerpt !== "string") throw refuse("invalid-excerpt", "excerpt must be text");
-			const excerpt = truncateUtf16(collapse(typeof pick.excerpt === "string" ? pick.excerpt : ""), LIMITS.excerpt).trim();
-			if (pick.note !== undefined && typeof pick.note !== "string") throw refuse("invalid-note", "note must be text");
-			const note = typeof pick.note === "string" ? pick.note.replace(/\r\n?/g, "\n").trim() : "";
-			if (note.length > LIMITS.comment) throw refuse("invalid-note", `note must have at most ${LIMITS.comment} characters`);
-			return { file, selector, excerpt, note };
-		});
-		let delivery: DesignHandoffDelivery;
-		try {
-			delivery = await onMix({ slug, base, picks });
-		} catch (error) {
-			const reason = error instanceof Error ? error.message : String(error);
-			throw new HttpError(500, "delivery-failed", { error: "delivery-failed", slug, reason });
-		}
-		reply(res, 202, { ok: true, slug, queued: typeof delivery === "object" && delivery !== null && delivery.queued === true });
-	}
-
 	/**
-	 * "Implement only this" (canvas-implement-part S4): one element of an artboard of the manifest, bounded like a mix
-	 * pick, recorded in parts.json before delivery and taken back when the delivery fails.
+	 * "Implement only this" (canvas-implement-part S4): one element of an artboard of the manifest (a selector of
+	 * 1 to 500 characters, the excerpt cut to 300, a note of at most 2000), recorded in parts.json before delivery and taken back when the delivery fails.
 	 */
 	async function implementPart(req: IncomingMessage, res: ServerResponse, slug: string): Promise<void> {
 		const body = await readJsonObject(req);
@@ -1016,10 +957,6 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		if (rest.length === 4 && rest[0] === "api" && rest[1] === "designs" && rest[3] === "variant") {
 			const slug = safeSegment(rest[2]);
 			return slug && SLUG.test(slug) ? (req, res) => variant(req, res, slug) : undefined;
-		}
-		if (rest.length === 4 && rest[0] === "api" && rest[1] === "designs" && rest[3] === "mix") {
-			const slug = safeSegment(rest[2]);
-			return slug && SLUG.test(slug) ? (req, res) => mix(req, res, slug) : undefined;
 		}
 		if (rest.length === 4 && rest[0] === "api" && rest[1] === "designs" && rest[3] === "implement-part") {
 			const slug = safeSegment(rest[2]);

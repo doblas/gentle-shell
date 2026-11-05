@@ -862,9 +862,6 @@ select {
 
 .gd-pin[data-status="resolved"] { background: var(--text-muted); opacity: 0.75; }
 .gd-pin.gd-pin-active { background: var(--warning); opacity: 1; }
-/* A pick of the mix: the same pin in the info color, dimmed once it was sent. */
-.gd-pin.gd-pin-mix { background: var(--info); }
-.gd-pin.gd-pin-mix[data-used="true"] { opacity: 0.6; }
 
 /* The ring Show draws around a check's element, by the canvas and never by the artboard's page. Like the pins it lives in the
    transformed world, centered on the element's rect (--gd-mark-w/-h, artboard px); the inverse zoom keeps its stroke, its
@@ -1263,7 +1260,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .gd-panel[hidden] { display: none; }
 
-/* The tabs (Comments, Quality, Mix) can be wider than the panel: the row stays one line and scrolls rather than
+/* The tabs (Comments, Quality) can be wider than the panel: the row stays one line and scrolls rather than
    squeezing labels and counts into each other; an arrow on each edge with tabs behind it scrolls toward that side.
    The bottom line is an inset shadow on the bar because a scrolling row clips anything drawn below it. */
 .gd-tabs-bar {
@@ -1369,60 +1366,6 @@ button:disabled { opacity: 0.5; cursor: default; }
 /* The Comments tab's Open / Resolved filter: the segmented control of the size bar. */
 .gd-comment-filter { align-self: flex-start; }
 .gd-comment-filter[hidden] { display: none; }
-
-/* Mix: the picks by artboard, then Structure from and Create combined direction. */
-.gd-mix { display: flex; flex-direction: column; gap: 12px; }
-.gd-mix-groups { display: flex; flex-direction: column; gap: 12px; }
-.gd-mix-group-title { margin: 0 0 6px; font-size: 13px; color: var(--text-muted); }
-.gd-mix-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-
-.gd-mix-item {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-	gap: 4px;
-	padding: 10px 12px;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-md);
-	background: var(--surface-1);
-}
-
-.gd-mix-meta { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; color: var(--text-muted); font-size: 12px; }
-
-/* The pick's badge: the shape and color of its pin. */
-.gd-mix-number {
-	flex: none;
-	display: grid;
-	place-items: center;
-	min-width: 22px;
-	height: 22px;
-	padding: 0 4px;
-	border-radius: 11px 11px 11px 2px;
-	background: var(--info);
-	color: var(--bg);
-	font-size: 11px;
-	font-weight: 700;
-}
-
-.gd-mix-selector { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
-.gd-mix-excerpt { color: var(--text); overflow-wrap: anywhere; }
-.gd-mix-note { color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
-.gd-mix-used { border-color: var(--info-line); background: var(--surface); }
-.gd-mix-used .gd-mix-number { background: var(--text-muted); }
-.gd-badge-used { color: var(--info); }
-
-.gd-mix-foot {
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-	padding-top: 12px;
-	border-top: 1px solid var(--border);
-}
-
-.gd-mix-base { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
-.gd-mix-base select { flex: 1; min-width: 0; color: var(--text); }
-.gd-mix-foot .gd-primary { width: 100%; min-height: 40px; }
-.gd-mix-clear { align-self: flex-start; }
 
 /* Handoff timeline */
 .gd-handoff-panel {
@@ -1750,7 +1693,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .gd-popover-actions > button { flex: none; white-space: nowrap; }
 
-/* The message and Show mix take their own row above the buttons, so neither squeezes them. */
+/* The message takes its own row above the buttons, so it never squeezes them. */
 .gd-popover-feedback {
 	display: flex;
 	flex: 1 1 100%;
@@ -1759,35 +1702,13 @@ button:disabled { opacity: 0.5; cursor: default; }
 	gap: 4px;
 }
 
-.gd-popover-feedback:has(> .gd-popover-message:empty):has(> .gd-popover-show-mix[hidden]) { display: none; }
+.gd-popover-feedback:has(> .gd-popover-message:empty) { display: none; }
 
 .gd-popover-message {
 	color: var(--text-muted);
 }
 
 .gd-popover-message.gd-error, .gd-status.gd-error { color: var(--error); }
-
-/* "Added to the mix (N) · Show mix": a link-like button that follows the message. */
-.gd-popover-show-mix {
-	padding: 0;
-	border: 0;
-	background: none;
-	color: var(--accent);
-	text-decoration: underline;
-	text-underline-offset: 2px;
-}
-
-.gd-popover-show-mix::before {
-	content: "· ";
-	content: "· " / "";
-	color: var(--text-muted);
-	display: inline-block;
-	margin-right: 4px;
-	text-decoration: none;
-}
-
-.gd-popover-show-mix:hover { color: var(--accent-strong); }
-.gd-popover-show-mix:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Compare (S15): the artboard and the running app side by side, over the canvas and the panel. */
 .gd-compare {

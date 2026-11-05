@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import gentleDesign, { DESIGN_COMMAND_NAME } from "../extensions/gentle-design.ts";
 import { formatDesignComment, formatDesignCommentBatch, startDesignCanvasServer, type DesignCanvasServer, type DesignCanvasServerOptions, type DesignComment } from "../lib/design-canvas-server.ts";
-import { designImplementMessage, designImplementPartMessage, designMixMessage, designVariantMessage } from "../lib/gentle-design.ts";
+import { designImplementMessage, designImplementPartMessage, designVariantMessage } from "../lib/gentle-design.ts";
 import type { OpenInBrowserResult } from "../lib/design-open-browser.ts";
 import { __testing } from "../extensions/skill-registry.ts";
 
@@ -1470,7 +1470,7 @@ async function variantSession(t: { after(fn: () => unknown): void }, idle: boole
 test("integration: the canvas variant route sends the session one message and the page config advertises it", async (t) => {
 	const { cwd, sent, post, page } = await variantSession(t, true);
 	const config = JSON.parse(/<script id="gd-config" type="application\/json">([^<]*)<\/script>/.exec(page)![1]);
-	assert.deepEqual(config.delivery, { comment: true, batch: true, implement: true, variant: true, mix: true, part: true });
+	assert.deepEqual(config.delivery, { comment: true, batch: true, implement: true, variant: true, part: true });
 	const reply = await post({ file: "01-split.html", instruction: "  More compact for phones\r\nand a calmer palette " });
 	assert.equal(reply.status, 202);
 	assert.deepEqual(JSON.parse(reply.body), { ok: true, slug: "login", file: "01-split.html", queued: false });
@@ -1508,116 +1508,6 @@ test("integration: without design/system.md the canvas variant message has no to
 	const { sent, post } = await variantSession(t, true, false);
 	assert.equal((await post({ file: "01-split.html", instruction: "More compact for phones\nand a calmer palette" })).status, 202);
 	assert.ok(!String(sent[0].content).includes("design/system.md"));
-});
-
-// S4/S5 (canvas-mix): "Create combined direction" asks the session for one artboard built from the picks.
-
-const MIX_TEXT = [
-	"Combine artboards of the design design/login/ into a new direction, with the structure of design/login/01-split.html",
-	"",
-	"Base artboard: design/login/01-split.html",
-	"Title: Split layout",
-	"",
-	"Picked elements (2); bring each one into the new artboard:",
-	"1. Artboard: design/login/02-card.html (Centered card)",
-	"   Element: body > main > form",
-	'   Excerpt: "Sign in"',
-	"   Note:",
-	"   me gusta el formulario",
-	"   solo los colores",
-	"2. Artboard: design/login/01-split.html (Split layout)",
-	"   Element: body > header",
-	"   Excerpt: (none)",
-	"   Note: (none)",
-	"",
-	'Follow the gentle-design skill ("Combine artboards of the design …"): write the next artboard (the next NN after the existing ones, NN-mix-<name>.html) in design/login/, starting from the structure of the base artboard and bringing in each picked element, and append it to design/login/design.json with its title, width, height and a tradeoff that names the artboards it combines. Keep every existing artboard and its file as they are.',
-	"Take colors, typography, spacing, radius and shadows from design/system.md, the project's token source.",
-	'When it is written, refresh the canvas with the gentle_design tool (action "open", slug "login").',
-].join("\n");
-
-const mixInput = {
-	slug: "login",
-	base: { file: "01-split.html", title: "Split layout" },
-	picks: [
-		{ artboard: { file: "02-card.html", title: "Centered card" }, selector: "body > main > form", excerpt: "Sign in", note: "me gusta el formulario\nsolo los colores" },
-		{ artboard: { file: "01-split.html", title: "Split layout" }, selector: "body > header", excerpt: "", note: "" },
-	],
-	systemTokens: true,
-};
-
-test("S4: the mix message names the base, every pick with its artboard, selector, excerpt and note, the skill gate and keeping the others", () => {
-	assert.equal(designMixMessage(mixInput), MIX_TEXT);
-	const bare = designMixMessage({ ...mixInput, systemTokens: false });
-	assert.equal(bare, MIX_TEXT.split("\n").filter((line) => !line.startsWith("Take colors")).join("\n"), "no token line without design/system.md");
-});
-
-test("S5: the skill's Decision Gates row matches the mix message's first line", () => {
-	const source = readFileSync(SKILL_PATH, "utf8");
-	const row = source.split("\n").find((line) => line.startsWith("|") && line.includes('canvas message "Combine artboards of the design …"'));
-	assert.ok(row, "SKILL.md has the Combine artboards row");
-	for (const part of ["NN-mix-<name>.html", "base artboard", "tradeoff", "untouched"]) assert.ok(row.includes(part), `the row mentions ${part}`);
-	assert.ok(MIX_TEXT.startsWith("Combine artboards of the design "));
-});
-
-async function mixSession(t: { after(fn: () => unknown): void }, idle: boolean) {
-	const cwd = scratchCwd();
-	writeLinkedDesign(cwd, "login");
-	writeFileSync(join(cwd, "design", "system.md"), "# Tokens");
-	const { pi, sent, emit, command } = fakePi();
-	const opens: string[] = [];
-	gentleDesign(pi, { openBrowser: async (url) => { opens.push(url); return { opened: true }; } });
-	t.after(() => emit("session_shutdown", { type: "session_shutdown", reason: "quit" }));
-	const session = fakeContext(cwd, idle);
-	await command().handler("open login", session.ctx);
-	const url = new URL(opens[0]);
-	const token = url.pathname.split("/")[1];
-	const post = (body: unknown, headers: Record<string, string> = { Origin: url.origin }) => new Promise<{ status: number; body: string }>((resolve, reject) => {
-		const req = httpRequest({ host: "127.0.0.1", port: url.port, path: `/${token}/api/designs/login/mix`, method: "POST", headers: { "Content-Type": "application/json", ...headers } }, (res) => {
-			let text = "";
-			res.setEncoding("utf8");
-			res.on("data", (chunk: string) => { text += chunk; });
-			res.on("end", () => resolve({ status: res.statusCode ?? 0, body: text }));
-		});
-		req.on("error", reject);
-		req.end(JSON.stringify(body));
-	});
-	return { cwd, sent, session, post };
-}
-
-const MIX_BODY = {
-	base: "01-split.html",
-	picks: [
-		{ file: "02-card.html", selector: "body > main > form", excerpt: "Sign in", note: "me gusta el formulario\r\nsolo los colores " },
-		{ file: "01-split.html", selector: "body > header" },
-	],
-};
-
-test("integration: the canvas mix route sends the session exactly the mix message, and nothing is recorded", async (t) => {
-	const { cwd, sent, post } = await mixSession(t, true);
-	const reply = await post(MIX_BODY);
-	assert.equal(reply.status, 202);
-	assert.deepEqual(JSON.parse(reply.body), { ok: true, slug: "login", queued: false });
-	assert.equal(sent.length, 1, "exactly one message");
-	assert.equal(sent[0].content, MIX_TEXT);
-	assert.equal(sent[0].options, undefined, "an idle agent runs it now");
-	assert.equal(existsSync(join(cwd, "design", "login", "handoffs.json")), false, "a mix is not a handoff");
-});
-
-test("integration: the canvas mix route is queued as a follow-up while the agent is busy", async (t) => {
-	const { sent, post } = await mixSession(t, false);
-	const busy = await post(MIX_BODY);
-	assert.equal(busy.status, 202);
-	assert.equal(JSON.parse(busy.body).queued, true);
-	assert.deepEqual(sent[0].options, { deliverAs: "followUp" });
-});
-
-test("integration: a refused canvas mix request sends the session nothing", async (t) => {
-	const { sent, post } = await mixSession(t, true);
-	assert.equal((await post({ ...MIX_BODY, base: "nope.html" })).status, 400);
-	assert.equal((await post({ ...MIX_BODY, picks: [] })).status, 400);
-	assert.equal((await post({ ...MIX_BODY, picks: [{ file: "nope.html", selector: "h1" }] })).status, 400);
-	assert.equal((await post(MIX_BODY, { Origin: "http://evil.example" })).status, 403);
-	assert.equal(sent.length, 0);
 });
 
 test("the gentle_design tool schema and description name the handoff action", () => {
