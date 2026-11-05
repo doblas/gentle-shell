@@ -20,7 +20,6 @@ const designCanvas = [
 	"lib/design-open-browser.ts",
 	"lib/design-comments.ts",
 	"lib/design-handoffs.ts",
-	"lib/design-history.ts",
 	"lib/design-system-tokens.ts",
 	"assets/design-canvas/index.html",
 	"assets/design-canvas/canvas.js",

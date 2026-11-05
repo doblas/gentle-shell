@@ -194,13 +194,10 @@ async function loadCanvas(firstHeight = 300, extraReplies: Record<string, unknow
 	if (options.hydrate) hydrateStatic(document);
 	document.getElementById("gd-config").textContent = JSON.stringify({ base: "/t/", slug: "alpha", ...config });
 	// Hidden in index.html until a delivery problem is shown.
-	for (const id of ["gd-send-note", "gd-send-alert", "gd-inspector", "gd-history", "gd-versions"]) document.getElementById(id).hidden = true;
+	for (const id of ["gd-send-note", "gd-send-alert", "gd-inspector"]) document.getElementById(id).hidden = true;
 	// index.html nests the inspector panel's parts; the fake DOM does not parse it, so nest them here.
 	const inspectorPanel = document.getElementById("gd-inspector");
 	for (const id of ["gd-inspector-title", "gd-inspector-selector", "gd-inspector-list", "gd-inspector-note", "gd-inspector-fix", "gd-inspector-copy"]) inspectorPanel.append(document.getElementById(id));
-	// The version comparison overlay nests its bar and stage the same way.
-	const versionsPanel = document.getElementById("gd-versions");
-	for (const id of ["gd-versions-title", "gd-versions-mode-slider", "gd-versions-mode-side", "gd-versions-close", "gd-versions-stage"]) versionsPanel.append(document.getElementById(id));
 	const viewport = document.getElementById("gd-viewport");
 	const world = document.getElementById("gd-world");
 	viewport.append(world);
@@ -1074,59 +1071,41 @@ test("Compare with app shows only for the chosen artboard when implemented with 
 	assert.equal(button(canvas).disabled, false);
 });
 
-test("the review side has Comments (with its Open / Resolved / All filter), Quality and Mix tabs, and More opens Original request (canvas-progressive S5)", async () => {
+test("the review side has Comments (with its Open / Resolved / All filter), Quality and Mix tabs, and the feature document stays in the top bar (canvas-trim S5, S6)", async () => {
 	const canvas = await loadRail(300, { ...commentsDoc(comment("a1", "01-a.html"), comment("a2", "02-b.html", "resolved", { sentAt: "2026-10-26T10:00:00.000Z" })), "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "Make a checkout.", feature: "odd/tasks/checkout.md", artboards: [{ file: "01-a.html", title: "First", tradeoff: "", width: 400, height: 300 }, { file: "02-b.html", title: "Second", tradeoff: "", width: 400, height: 300 }] } });
 	const doc = canvas.document;
 	// canvas-ux-quick-wins S4: one Comments tab; open and resolved are a filter inside it.
-	// canvas-progressive S5: three tabs; History and Original request open from the panel's More.
+	// canvas-progressive S5: three tabs. canvas-trim S5: no Original request view.
 	const tabs = ["gd-tab-comments", "gd-tab-checks", "gd-tab-mix"];
 	const selected = () => tabs.map((id) => doc.getElementById(id).getAttribute("aria-selected"));
 	const list = doc.getElementById("gd-comment-list");
-	const brief = doc.getElementById("gd-brief");
 	assert.deepEqual(selected(), ["true", "false", "false"]);
 	assert.equal(doc.getElementById("gd-count-open").textContent, "1");
 	assert.equal(doc.getElementById("gd-filter-resolved").textContent, "Resolved · 1");
-	assert.equal(brief.hidden, true);
 	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a1"]);
+	assert.equal(doc.getElementById("gd-feature").textContent, "odd/tasks/checkout.md");
+	assert.equal(doc.getElementById("gd-feature").hidden, false);
 
 	doc.getElementById("gd-filter-resolved").dispatch("click");
 	assert.deepEqual(selected(), ["true", "false", "false"]);
 	assert.deepEqual(texts(list, "gd-comment-text"), ["Text of a2"]);
 
-	openPanelView(canvas, "Original request");
-	assert.deepEqual(selected(), ["false", "false", "false"]);
-	assert.equal(brief.hidden, false);
-	assert.equal(list.hidden, true);
-	assert.equal(doc.getElementById("gd-panel-empty").hidden, true);
-	assert.equal(doc.getElementById("gd-brief-title").textContent, "Alpha");
-	assert.equal(doc.getElementById("gd-brief-text").textContent, "Make a checkout.");
-	assert.equal(doc.getElementById("gd-brief-feature").textContent, "odd/tasks/checkout.md");
-	assert.equal(doc.getElementById("gd-brief-feature").hidden, false);
-	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-label"), "Original request");
-
 	// Arrow keys move between tabs (roving tabindex), wrapping around.
 	const tablist = doc.getElementById("gd-tabs");
+	tablist.dispatch("keydown", { key: "ArrowLeft" });
+	assert.deepEqual(selected(), ["false", "false", "true"], "ArrowLeft on the first tab wraps to the last");
+	assert.equal(doc.activeElement, doc.getElementById("gd-tab-mix"));
+	assert.equal(doc.getElementById("gd-tab-mix").getAttribute("tabindex"), "0");
+	assert.equal(doc.getElementById("gd-tab-comments").getAttribute("tabindex"), "-1");
+	assert.equal(doc.getElementById("gd-mix").hidden, false);
+	assert.equal(list.hidden, true);
 	tablist.dispatch("keydown", { key: "ArrowRight" });
 	assert.deepEqual(selected(), ["true", "false", "false"]);
 	assert.equal(doc.activeElement, doc.getElementById("gd-tab-comments"));
-	assert.equal(doc.getElementById("gd-tab-comments").getAttribute("tabindex"), "0");
-	assert.equal(doc.getElementById("gd-tab-mix").getAttribute("tabindex"), "-1");
 	tablist.dispatch("keydown", { key: "End" });
-	assert.deepEqual(selected(), ["false", "false", "true"]);
-	assert.equal(doc.getElementById("gd-mix").hidden, false);
 	tablist.dispatch("keydown", { key: "ArrowLeft" });
 	assert.deepEqual(selected(), ["false", "true", "false"], "Quality sits between Comments and Mix");
-	assert.equal(brief.hidden, true);
 	assert.equal(doc.getElementById("gd-checks").hidden, false);
-});
-
-test("the Brief tab says so when the design has no brief, and keeps the Send footer", async () => {
-	const canvas = await loadRail();
-	openPanelView(canvas, "Original request");
-	assert.equal(canvas.document.getElementById("gd-brief-title").textContent, "Alpha");
-	assert.equal(canvas.document.getElementById("gd-brief-text").textContent, "No original request written.");
-	assert.equal(canvas.document.getElementById("gd-brief-feature").hidden, true);
-	assert.equal(canvas.document.getElementById("gd-send-all").disabled, true, "the footer stays under every tab");
 });
 
 test("a comment card shows its number, selector chip, waiting or sent state, text and actions", async () => {
@@ -2979,7 +2958,7 @@ const checksPanel = (canvas: Canvas) => canvas.document.getElementById("gd-check
 const checkCards = (canvas: Canvas) => withClass(checksPanel(canvas), "gd-check");
 const openChecks = (canvas: Canvas) => canvas.document.getElementById("gd-tab-checks").dispatch("click");
 
-test("S4: the Checks tab sits before Brief with a count, and says when nothing has been checked yet", async () => {
+test("S4: the Checks tab has a count, and says when nothing has been checked yet", async () => {
 	const canvas = await loadRail();
 	const tab = canvas.document.getElementById("gd-tab-checks");
 	assert.equal(tab.getAttribute("aria-selected"), "false");
@@ -2988,7 +2967,6 @@ test("S4: the Checks tab sits before Brief with a count, and says when nothing h
 	assert.equal(tab.getAttribute("aria-selected"), "true");
 	assert.equal(checksPanel(canvas).hidden, false);
 	assert.equal(canvas.document.getElementById("gd-comment-list").hidden, true);
-	assert.equal(canvas.document.getElementById("gd-brief").hidden, true);
 	assert.equal(canvas.document.getElementById("gd-panel-empty").hidden, true, "the empty comment notice is not shown here");
 	assert.equal(canvas.document.getElementById("gd-tabpanel").getAttribute("aria-labelledby"), "gd-tab-checks");
 	assert.match(allText(checksPanel(canvas)), /Checks run when an artboard loads\./);
@@ -3179,588 +3157,8 @@ test("S4: index.html and canvas.css carry the Checks tab and the issue cards wit
 	assert.match(css, /\.gd-check-passed[^{]*{[^}]*border-style:\s*dashed/);
 });
 
-// Version history (T2): the History tab, comparing a version with the current artboard, restoring.
-
-const HISTORY_URL = "/t/api/designs/alpha/history";
-const RESTORE_URL = "/t/api/designs/alpha/history/restore";
+// A fixed moment for the handoff timeline's dates.
 const stamp = (hour: number, minute: number) => new Date(2020, 2, 4, hour, minute).toISOString();
-const shownTime = (hour: number, minute: number) => `Mar 4 2020, ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-const SHA = "0".repeat(64);
-const version = (n: number, source: string, hour: number, minute: number, extra: Record<string, unknown> = {}) => ({ n, createdAt: stamp(hour, minute), source, sha256: SHA, ...extra });
-const historyDoc = (artboards: Record<string, unknown[]>, warnings: string[] = []) => ({ version: 1, artboards: Object.fromEntries(Object.entries(artboards).map(([file, versions]) => [file, { versions }])), warnings });
-const FIRST_VERSIONS = [version(1, "hand", 9, 1, { note: "Edited by hand" }), version(2, "agent", 9, 2, { comment: "a1", note: "Shortened the headline" }), version(3, "restore", 9, 3), version(4, "hand", 9, 4)];
-const HISTORY = historyDoc({ "01-a.html": FIRST_VERSIONS, "02-b.html": [version(1, "hand", 9, 10), version(2, "hand", 9, 11)] });
-
-async function withHistory(doc: unknown = HISTORY, extra: Record<string, unknown> = {}, extraContext: Record<string, unknown> = {}) {
-	const canvas = await loadRail(300, { [HISTORY_URL]: doc, ...commentsDoc(comment("a1", "01-a.html", "resolved")), ...extra }, {}, extraContext);
-	tallViewport(canvas);
-	return canvas;
-}
-const historyPanel = (canvas: Canvas) => canvas.document.getElementById("gd-history");
-// canvas-progressive S5: History is a view the review panel's More menu opens (it was a tab), and its count is in that menu item.
-const openHistory = (canvas: Canvas) => {
-	canvas.document.getElementById("gd-panel-more").dispatch("click");
-	findAll(canvas.document.getElementById("gd-menu"), (element) => element.getAttribute("role") === "menuitem")[0].dispatch("click");
-};
-const historyCount = (canvas: Canvas) => {
-	const before = canvas.document.activeElement;
-	const more = canvas.document.getElementById("gd-panel-more");
-	more.dispatch("click");
-	const item = findAll(canvas.document.getElementById("gd-menu"), (element) => element.getAttribute("role") === "menuitem")[0];
-	const count = texts(item, "gd-count")[0];
-	more.dispatch("click");
-	before?.focus();
-	return count;
-};
-const versionCards = (canvas: Canvas) => withClass(historyPanel(canvas), "gd-version");
-const cardOf = (canvas: Canvas, n: number) => versionCards(canvas).find((card) => card.dataset.n === String(n))!;
-const cardButton = (canvas: Canvas, className: string, n: number) => withClass(cardOf(canvas, n), className)[0];
-const historyAlert = (canvas: Canvas) => withClass(historyPanel(canvas), "gd-alert")[0];
-const fetchCount = (canvas: Canvas, url: string) => canvas.fetched.filter((entry) => entry === url).length;
-
-test("S2: History opens from the review panel's More (canvas-progressive S5: no longer a tab) with its own count, and the arrow keys leave it", async () => {
-	const canvas = await withHistory();
-	assert.equal(historyPanel(canvas).hidden, true);
-	assert.equal(historyCount(canvas), "4", "the first artboard's four versions");
-	openHistory(canvas);
-	assert.equal(historyPanel(canvas).hidden, false);
-	assert.equal(canvas.document.getElementById("gd-comment-list").hidden, true);
-	assert.equal(canvas.document.getElementById("gd-checks").hidden, true);
-	assert.equal(canvas.document.getElementById("gd-brief").hidden, true);
-	assert.equal(canvas.document.getElementById("gd-panel-empty").hidden, true);
-	assert.equal(canvas.document.getElementById("gd-tabpanel").getAttribute("aria-label"), "History");
-	const tablist = canvas.document.getElementById("gd-tabs");
-	tablist.dispatch("keydown", { key: "ArrowLeft" });
-	assert.equal(canvas.document.getElementById("gd-tab-mix").getAttribute("aria-selected"), "true", "ArrowLeft from a More view goes to the last tab");
-	assert.equal(canvas.document.activeElement, canvas.document.getElementById("gd-tab-mix"));
-	assert.equal(historyPanel(canvas).hidden, true, "leaving the view hides it");
-});
-
-test("S2: the History tab shows the focused artboard's versions, else the chosen one's, else the first's", async () => {
-	const canvas = await withHistory();
-	openHistory(canvas);
-	assert.equal(texts(historyPanel(canvas), "gd-history-title")[0], "01 First");
-	assert.equal(historyCount(canvas), "4");
-	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": {} }));
-	assert.equal(texts(historyPanel(canvas), "gd-history-title")[0], "02 Second", "the chosen artboard when none is focused");
-	assert.equal(historyCount(canvas), "2");
-	assert.deepEqual(versionCards(canvas).map((card) => card.dataset.n), ["2", "1"]);
-	openDirection(canvas, 0);
-	assert.equal(texts(historyPanel(canvas), "gd-history-title")[0], "01 First", "the focused artboard beats the chosen one");
-	assert.equal(historyCount(canvas), "4");
-	canvas.document.getElementById("gd-back").dispatch("click");
-	assert.equal(texts(historyPanel(canvas), "gd-history-title")[0], "02 Second", "and the choice returns when focus ends");
-});
-
-test("S2: focus on the design system board does not change the History artboard", async () => {
-	const canvas = await withHistory(HISTORY, { "/t/api/system": { exists: true, file: "system.html", width: 1440, height: 1200 } });
-	openHistory(canvas);
-	moreSystemItem(canvas).dispatch("click");
-	assert.match(canvas.navMode.textContent, /^Using: Design system/, "the design system board is in focus");
-	assert.equal(texts(historyPanel(canvas), "gd-history-title")[0], "01 First");
-	assert.equal(historyCount(canvas), "4");
-});
-
-test("S2: versions are listed newest first with Current, who, time, the applied comment and the note", async () => {
-	const canvas = await withHistory();
-	openHistory(canvas);
-	assert.deepEqual(versionCards(canvas).map((card) => card.dataset.n), ["4", "3", "2", "1"]);
-	assert.deepEqual(versionCards(canvas).map((card) => texts(card, "gd-version-number")[0]), ["v4", "v3", "v2", "v1"]);
-	assert.deepEqual(versionCards(canvas).map((card) => texts(card, "gd-version-tag")), [["Current"], [], [], ["Original"]]);
-	assert.deepEqual(versionCards(canvas).map((card) => texts(card, "gd-version-meta")[0]), [`You · ${shownTime(9, 4)}`, `Restore · ${shownTime(9, 3)}`, `Agent · ${shownTime(9, 2)}`, `You · ${shownTime(9, 1)}`], "hand shows as You");
-	assert.ok(cardOf(canvas, 4).classes.has("gd-version-current"));
-	assert.ok(!cardOf(canvas, 3).classes.has("gd-version-current"));
-	// The comment this version applied, by its number in the Comments list.
-	assert.deepEqual(versionCards(canvas).map((card) => texts(card, "gd-version-applied")), [[], [], ["Applied #1"], []]);
-	// An agent's note is its reply; a hand edit's note is plain text.
-	assert.equal(withClass(cardOf(canvas, 2), "gd-version-reply").length, 1);
-	assert.equal(texts(cardOf(canvas, 2), "gd-version-reply-label")[0], "Agent:");
-	assert.equal(texts(cardOf(canvas, 2), "gd-version-reply-text")[0], "Shortened the headline");
-	assert.equal(withClass(cardOf(canvas, 1), "gd-version-reply").length, 0);
-	assert.equal(texts(cardOf(canvas, 1), "gd-version-note")[0], "Edited by hand");
-	assert.equal(withClass(cardOf(canvas, 3), "gd-version-note").length + withClass(cardOf(canvas, 3), "gd-version-reply").length, 0);
-	assert.match(texts(historyPanel(canvas), "gd-history-note")[0], /design\/alpha\/\.history\/.*Restore saves the current one first, so nothing is lost\./);
-	assert.equal(historyAlert(canvas).hidden, true);
-});
-
-test("S2: older versions offer Compare with current and Restore; the current one offers View", async () => {
-	const canvas = await withHistory();
-	openHistory(canvas);
-	const actions = (n: number) => withClass(cardOf(canvas, n), "gd-version-actions")[0].children.map((button) => button.className.split(" ").find((name) => /^gd-version-(compare|restore|view)$/.test(name)));
-	assert.deepEqual(actions(4), ["gd-version-view"]);
-	for (const n of [3, 2, 1]) assert.deepEqual(actions(n), ["gd-version-compare", "gd-version-restore"], `v${n}`);
-	assert.equal(allText(cardButton(canvas, "gd-version-compare", 3)).includes("Compare with current"), true);
-	assert.equal(cardButton(canvas, "gd-version-compare", 3).getAttribute("aria-label"), "Compare v3 with the current version");
-	assert.equal(cardButton(canvas, "gd-version-restore", 3).getAttribute("aria-label"), "Restore v3");
-	assert.equal(cardButton(canvas, "gd-version-view", 4).getAttribute("aria-label"), "View the current version, v4");
-	assert.ok(withClass(historyPanel(canvas), "gd-version").every((card) => card.localName === "article"));
-});
-
-test("S2: warnings of the history reply show as muted lines, and an artboard with no versions says so", async () => {
-	const canvas = await withHistory(historyDoc({ "02-b.html": [version(1, "hand", 9, 10)] }, ["evil.html is a link or inside a linked folder, so its versions are not stored.", "big.html is larger than 8388608 bytes, so its versions are not stored."]));
-	openHistory(canvas);
-	assert.deepEqual(texts(historyPanel(canvas), "gd-history-warning"), ["evil.html is a link or inside a linked folder, so its versions are not stored.", "big.html is larger than 8388608 bytes, so its versions are not stored."]);
-	assert.equal(texts(historyPanel(canvas), "gd-history-empty")[0], "No versions of this artboard yet. The canvas keeps one when it first sees an artboard and whenever its file changes.");
-	assert.equal(versionCards(canvas).length, 0);
-	assert.equal(historyCount(canvas), "0");
-});
-
-test("S2: a malformed history reply never breaks the canvas and shows no versions", async () => {
-	for (const doc of [{ version: 1, artboards: "no" }, { version: 1, artboards: { "01-a.html": { versions: [{ n: "x" }, null, { n: 0, createdAt: "x", source: "hand" }, { n: 1, createdAt: "x", source: "robot" }] } } }, null]) {
-		const canvas = await withHistory(doc);
-		assert.equal(historyCount(canvas), "0", JSON.stringify(doc));
-		openHistory(canvas);
-		assert.equal(versionCards(canvas).length, 0);
-		assert.equal(canvas.document.getElementById("gd-status").textContent, "");
-	}
-});
-
-test("S2: an event: history refreshes the list; events for another design or malformed ones do not", async () => {
-	const canvas = await withHistory();
-	openHistory(canvas);
-	const before = fetchCount(canvas, HISTORY_URL);
-	assert.ok(before >= 1, "loaded when the design was");
-	canvas.replies[HISTORY_URL] = historyDoc({ "01-a.html": [...FIRST_VERSIONS, version(5, "agent", 9, 5)], "02-b.html": [version(1, "hand", 9, 10)] });
-	await canvas.serverEvent("history", { slug: "beta", file: "01-a.html", n: 5 });
-	for (const data of [null, "x", { slug: 3 }, {}, { slug: "../x" }]) await canvas.serverEvent("history", data);
-	assert.equal(fetchCount(canvas, HISTORY_URL), before, "no refresh for them");
-	await canvas.serverEvent("history", { slug: "alpha", file: "01-a.html", n: 5 });
-	assert.equal(fetchCount(canvas, HISTORY_URL), before + 1);
-	assert.equal(historyCount(canvas), "5");
-	assert.deepEqual(versionCards(canvas).map((card) => card.dataset.n), ["5", "4", "3", "2", "1"]);
-	assert.deepEqual(texts(cardOf(canvas, 5), "gd-version-tag"), ["Current"]);
-	assert.deepEqual(texts(cardOf(canvas, 4), "gd-version-tag"), [], "the old current one is no longer current");
-	assert.equal(withClass(cardOf(canvas, 4), "gd-version-view").length, 0);
-	assert.equal(withClass(cardOf(canvas, 4), "gd-version-compare").length, 1);
-});
-
-test("S2: the count follows the design: another design starts empty, then loads its own history", async () => {
-	const canvas = await withHistory(HISTORY, { "/t/api/designs/beta/history": historyDoc({ "01-only.html": [version(1, "hand", 9, 1)] }) });
-	await canvas.serverEvent("show", { slug: "beta" });
-	assert.equal(historyCount(canvas), "1");
-	assert.ok(canvas.fetched.includes("/t/api/designs/beta/history"));
-});
-
-test("S2/S4: a failing history load shows the S12-style alert in the tab, and a good reload clears it", async () => {
-	const canvas = await withHistory({ __http: 422, error: "invalid-history", reason: "history index.json is not valid JSON" });
-	assert.equal(canvas.document.getElementById("gd-status").textContent, "", "the status line is not used");
-	openHistory(canvas);
-	assert.equal(historyAlert(canvas).hidden, false);
-	assert.match(texts(historyAlert(canvas), "gd-alert-text")[0], /version history of this design cannot be used/);
-	assert.doesNotMatch(texts(historyAlert(canvas), "gd-alert-text")[0], /Something went wrong/);
-	assert.equal(texts(historyAlert(canvas), "gd-alert-detail")[0], "invalid-history: history index.json is not valid JSON");
-	assert.equal(historyAlert(canvas).getAttribute("role"), "alert");
-	assert.equal(versionCards(canvas).length, 0);
-	canvas.replies[HISTORY_URL] = HISTORY;
-	await canvas.serverEvent("history", { slug: "alpha", file: "01-a.html", n: 1 });
-	assert.equal(historyAlert(canvas).hidden, true);
-	assert.equal(versionCards(canvas).length, 4);
-	// The index being full is explained too, and the old list stays while it fails.
-	canvas.replies[HISTORY_URL] = { __http: 409, error: "history-limit", reason: "index too big" };
-	await canvas.serverEvent("history", { slug: "alpha", file: "01-a.html", n: 2 });
-	assert.match(texts(historyAlert(canvas), "gd-alert-text")[0], /history index is full[^]*Delete old versions/);
-	assert.equal(versionCards(canvas).length, 4, "the last good list stays");
-});
-
-test("S2: the alert can be dismissed", async () => {
-	const canvas = await withHistory({ __http: 409, error: "history-limit" });
-	openHistory(canvas);
-	assert.equal(historyAlert(canvas).hidden, false);
-	withClass(historyAlert(canvas), "gd-alert-dismiss")[0].dispatch("click");
-	assert.equal(historyAlert(canvas).hidden, true);
-});
-
-// ---- Compare
-
-const versionsPanel = (canvas: Canvas) => canvas.document.getElementById("gd-versions");
-const compareFrames = (canvas: Canvas) => findAll(versionsPanel(canvas), (element) => element.localName === "iframe");
-const compareLabels = (canvas: Canvas) => texts(versionsPanel(canvas), "gd-versions-label");
-const sliderHandle = (canvas: Canvas) => withClass(versionsPanel(canvas), "gd-versions-handle")[0];
-const compareBox = (canvas: Canvas) => withClass(versionsPanel(canvas), "gd-versions-compare")[0];
-const compareShield = (canvas: Canvas) => withClass(versionsPanel(canvas), "gd-versions-shield")[0];
-const modeButton = (canvas: Canvas, mode: "slider" | "side") => canvas.document.getElementById(`gd-versions-mode-${mode}`);
-async function comparing(n = 3, doc: unknown = HISTORY) {
-	const canvas = await withHistory(doc);
-	openHistory(canvas);
-	cardButton(canvas, "gd-version-compare", n).dispatch("click");
-	return canvas;
-}
-
-test("S3: Compare with current enters focus mode and puts the old version and the current artboard in two sandboxed frames", async () => {
-	const canvas = await comparing(3);
-	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit", "focus mode is entered when needed");
-	assert.equal(versionsPanel(canvas).hidden, false);
-	assert.equal(canvas.world.inert, true, "the artboards under the comparison are out of reach");
-	const [older, current] = compareFrames(canvas);
-	assert.equal(compareFrames(canvas).length, 2);
-	assert.equal(older.src, "/t/history/alpha/3/01-a.html");
-	assert.equal(current.src, "/t/files/alpha/01-a.html");
-	for (const frame of [older, current]) {
-		assert.equal(frame.getAttribute("sandbox"), "allow-scripts");
-		assert.equal(frame.getAttribute("referrerpolicy"), "no-referrer");
-		assert.equal(frame.getAttribute("tabindex"), "-1");
-		assert.equal([frame.style.width, frame.style.height].join(" "), "400px 300px", "at the artboard's size");
-	}
-	assert.equal(older.title, "First artboard, v3");
-	assert.equal(current.title, "First artboard, current version");
-	assert.deepEqual(compareLabels(canvas), [`v3 · ${shownTime(9, 3)}`, "v4 · Current"]);
-	assert.equal(texts(versionsPanel(canvas), "gd-versions-title")[0] ?? canvas.document.getElementById("gd-versions-title").textContent, "Compare versions · First");
-	assert.equal(modeButton(canvas, "slider").getAttribute("aria-pressed"), "true");
-	assert.equal(modeButton(canvas, "side").getAttribute("aria-pressed"), "false");
-	assert.ok(cardOf(canvas, 3).classes.has("gd-version-comparing"));
-	assert.deepEqual(texts(cardOf(canvas, 3), "gd-version-comparing-chip"), ["Comparing"]);
-	assert.equal(canvas.document.activeElement, sliderHandle(canvas), "the slider takes the keyboard");
-});
-
-test("S3: a version of an artboard in a folder gets an encoded path; the compared board's file is the one compared", async () => {
-	const canvas = await loadRail(300, {
-		"/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "", artboards: [{ file: "sub dir/01 a.html", title: "Inner", tradeoff: "", width: 400, height: 300 }] },
-		[HISTORY_URL]: historyDoc({ "sub dir/01 a.html": [version(1, "hand", 9, 1), version(2, "hand", 9, 2)] }),
-	});
-	openHistory(canvas);
-	cardButton(canvas, "gd-version-compare", 1).dispatch("click");
-	assert.deepEqual(compareFrames(canvas).map((frame) => frame.src), ["/t/history/alpha/1/sub%20dir/01%20a.html", "/t/files/alpha/sub%20dir/01%20a.html"]);
-});
-
-test("S3: the slider starts in the middle, is a named slider with a value, and follows the pointer", async () => {
-	const canvas = await comparing(3);
-	const handle = sliderHandle(canvas);
-	assert.equal(handle.getAttribute("role"), "slider");
-	assert.equal(handle.getAttribute("tabindex"), "0");
-	assert.equal(handle.getAttribute("aria-label"), "Comparison position");
-	assert.equal(handle.getAttribute("aria-orientation"), "horizontal");
-	assert.deepEqual([handle.getAttribute("aria-valuemin"), handle.getAttribute("aria-valuemax"), handle.getAttribute("aria-valuenow")], ["0", "100", "50"]);
-	assert.match(handle.getAttribute("aria-valuetext")!, /^50%: v3 on the left, v4 \(current\) on the right$/);
-	const newer = withClass(versionsPanel(canvas), "gd-versions-box")[1];
-	assert.equal(newer.style.clipPath, "inset(0 0 0 50%)");
-	assert.equal(handle.style.left, "50%");
-	compareBox(canvas).rect = { left: 100, top: 150, width: 400, height: 300 };
-	const shield = compareShield(canvas);
-	shield.dispatch("pointerdown", { button: 0, pointerId: 1, clientX: 200 });
-	assert.equal(handle.getAttribute("aria-valuenow"), "25");
-	assert.equal(newer.style.clipPath, "inset(0 0 0 25%)");
-	assert.equal(handle.style.left, "25%");
-	shield.dispatch("pointermove", { pointerId: 1, clientX: 450 });
-	assert.equal(handle.getAttribute("aria-valuenow"), "87.5");
-	shield.dispatch("pointermove", { pointerId: 2, clientX: 120 });
-	assert.equal(handle.getAttribute("aria-valuenow"), "87.5", "another pointer is not this drag");
-	shield.dispatch("pointerup", { button: 0, pointerId: 1, clientX: 450 });
-	shield.dispatch("pointermove", { pointerId: 1, clientX: 120 });
-	assert.equal(handle.getAttribute("aria-valuenow"), "87.5", "moves after the drag are ignored");
-	shield.dispatch("pointerdown", { button: 0, pointerId: 3, clientX: 900 });
-	assert.equal(handle.getAttribute("aria-valuenow"), "100", "clamped to the frame");
-	shield.dispatch("pointermove", { pointerId: 3, clientX: -50 });
-	assert.equal(handle.getAttribute("aria-valuenow"), "0");
-	shield.dispatch("pointerdown", { button: 2, pointerId: 4, clientX: 300 });
-	assert.equal(handle.getAttribute("aria-valuenow"), "0", "only the main button drags");
-	assert.equal(canvas.document.activeElement, handle, "dragging puts the keyboard on the slider");
-});
-
-test("S3: arrow keys move the slider 2%, Shift+arrows 10%, Home and End jump, and it stops at the ends", async () => {
-	const canvas = await comparing(3);
-	const handle = sliderHandle(canvas);
-	const value = () => handle.getAttribute("aria-valuenow");
-	const key = (name: string, shiftKey = false) => handle.dispatch("keydown", { key: name, shiftKey });
-	key("ArrowRight");
-	assert.equal(value(), "52");
-	key("ArrowRight", true);
-	assert.equal(value(), "62");
-	key("ArrowLeft");
-	assert.equal(value(), "60");
-	key("ArrowLeft", true);
-	assert.equal(value(), "50");
-	key("End");
-	assert.equal(value(), "100");
-	key("ArrowRight", true);
-	assert.equal(value(), "100");
-	key("Home");
-	assert.equal(value(), "0");
-	key("ArrowLeft");
-	assert.equal(value(), "0");
-	key("ArrowRight");
-	assert.match(handle.getAttribute("aria-valuetext")!, /^2%: v3 on the left/);
-	const other = handle.dispatch("keydown", { key: "a" });
-	assert.equal(other.defaultPrevented, false, "other keys are left alone");
-	key("ArrowRight");
-	assert.equal(value(), "4");
-});
-
-test("S3: Side by side shows both frames next to each other without reloading them, and Slider returns", async () => {
-	const canvas = await comparing(3);
-	const frames = compareFrames(canvas);
-	const srcs = frames.map((frame) => frame.src);
-	sliderHandle(canvas).dispatch("keydown", { key: "ArrowRight", shiftKey: true });
-	modeButton(canvas, "side").dispatch("click");
-	assert.equal(modeButton(canvas, "side").getAttribute("aria-pressed"), "true");
-	assert.equal(modeButton(canvas, "slider").getAttribute("aria-pressed"), "false");
-	assert.equal(canvas.document.getElementById("gd-versions-stage").dataset.mode, "side");
-	assert.equal(sliderHandle(canvas).hidden, true, "no handle in side by side");
-	assert.equal(compareShield(canvas).hidden, true);
-	assert.deepEqual(compareFrames(canvas), frames, "the same frames: nothing reloads");
-	assert.deepEqual(frames.map((frame) => frame.src), srcs);
-	assert.deepEqual(compareLabels(canvas), [`v3 · ${shownTime(9, 3)}`, "v4 · Current"], "both labels stay");
-	const newer = withClass(versionsPanel(canvas), "gd-versions-box")[1];
-	assert.equal(newer.style.clipPath, "", "the newer one is not clipped any more");
-	modeButton(canvas, "slider").dispatch("click");
-	assert.equal(canvas.document.getElementById("gd-versions-stage").dataset.mode, "slider");
-	assert.equal(sliderHandle(canvas).hidden, false);
-	assert.equal(sliderHandle(canvas).getAttribute("aria-valuenow"), "60", "the slider position was kept");
-	assert.equal(newer.style.clipPath, "inset(0 0 0 60%)");
-	assert.deepEqual(compareFrames(canvas), frames);
-});
-
-test("S3: frames are scaled to fit under the bar and above Back to canvas; side by side fits both", async () => {
-	const canvas = await loadRail(300, { [HISTORY_URL]: HISTORY, "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "", artboards: [{ file: "01-a.html", title: "First", tradeoff: "", width: 1200, height: 800 }, { file: "02-b.html", title: "Second", tradeoff: "", width: 400, height: 300 }] } });
-	canvas.viewport.rect = { left: 0, top: 50, width: 1000, height: 700 };
-	openHistory(canvas);
-	cardButton(canvas, "gd-version-compare", 3).dispatch("click");
-	const scaleOf = () => Number(/^scale\(([\d.]+)\)$/.exec(withClass(versionsPanel(canvas), "gd-versions-scale")[0].style.transform)![1]);
-	// 968 px wide, 700 - 72 (bar) - 64 (Back to canvas) = 564 px high.
-	assert.equal(scaleOf(), 564 / 800);
-	const box = withClass(versionsPanel(canvas), "gd-versions-box")[0];
-	assert.deepEqual([box.style.width, box.style.height], [`${Math.round(1200 * (564 / 800))}px`, "564px"]);
-	assert.deepEqual([compareBox(canvas).style.width, compareBox(canvas).style.height], [box.style.width, box.style.height], "the slider box is the size of one frame");
-	modeButton(canvas, "side").dispatch("click");
-	assert.equal(scaleOf(), (968 - 20) / 2400, "two frames and a gap across 968 px");
-	assert.equal(compareBox(canvas).style.width, "", "side by side lets the frames set the width");
-	canvas.viewport.rect = { left: 0, top: 50, width: 700, height: 700 };
-	canvas.windowEvent("resize");
-	assert.ok(scaleOf() < (968 - 20) / 2400, "a narrower viewport scales it down");
-	modeButton(canvas, "slider").dispatch("click");
-	assert.equal(scaleOf(), 668 / 1200);
-	const small = await comparing(3);
-	assert.match(withClass(versionsPanel(small), "gd-versions-scale")[0].style.transform, /^scale\(1\)$/, "an artboard that fits stays at 100%");
-});
-
-test("S3: Close comparison, Esc and Shift+Esc close it; entering focus mode for it is undone, an earlier focus stays", async () => {
-	for (const how of ["button", "escape", "shift-escape"] as const) {
-		const canvas = await comparing(3);
-		const [older, current] = compareFrames(canvas);
-		if (how === "button") canvas.document.getElementById("gd-versions-close").dispatch("click");
-		else press(canvas, "Escape", { shiftKey: how === "shift-escape" }, sliderHandle(canvas));
-		assert.equal(versionsPanel(canvas).hidden, true, how);
-		assert.equal(canvas.world.inert, false, how);
-		assert.equal(canvas.navMode.textContent, NAV_CHIP, `${how}: focus mode entered for the comparison ends with it`);
-		assert.deepEqual(compareFrames(canvas), [], how);
-		assert.ok(older && current);
-		assert.equal(cardOf(canvas, 3).classes.has("gd-version-comparing"), false);
-		assert.equal(canvas.document.activeElement, cardButton(canvas, "gd-version-compare", 3), `${how}: focus returns to the button that opened it`);
-	}
-	const canvas = await withHistory();
-	openDirection(canvas, 0);
-	openHistory(canvas);
-	cardButton(canvas, "gd-version-compare", 2).dispatch("click");
-	canvas.document.getElementById("gd-versions-close").dispatch("click");
-	assert.match(canvas.navMode.textContent, /^Using: First/, "the artboard was already in focus mode: it stays");
-	assert.equal(versionsPanel(canvas).hidden, true);
-	// Plain Esc in Comment mode closes the comparison first and leaves Comment mode on.
-	const commenting = await comparing(3);
-	commenting.document.getElementById("gd-comment").dispatch("click");
-	press(commenting, "Escape", {}, sliderHandle(commenting));
-	assert.equal(versionsPanel(commenting).hidden, true);
-	assert.equal(pressed(commenting, "gd-comment"), "true");
-});
-
-test("S3: Back to canvas, another artboard and a new design end the comparison", async () => {
-	const back = await comparing(3);
-	back.document.getElementById("gd-back").dispatch("click");
-	assert.equal(versionsPanel(back).hidden, true);
-	assert.equal(back.world.inert, false);
-	const other = await comparing(3);
-	openDirection(other, 1);
-	assert.equal(versionsPanel(other).hidden, true);
-	assert.match(other.navMode.textContent, /^Using: Second/);
-	const design = await comparing(3);
-	await design.serverEvent("show", { slug: "beta" });
-	assert.equal(versionsPanel(design).hidden, true);
-	assert.deepEqual(compareFrames(design), []);
-});
-
-test("S3: the comparison follows the history and the artboard: new current version, reload on change, version dropped closes it", async () => {
-	const canvas = await comparing(3);
-	canvas.replies[HISTORY_URL] = historyDoc({ "01-a.html": [...FIRST_VERSIONS, version(5, "agent", 9, 5)], "02-b.html": [version(1, "hand", 9, 10)] });
-	await canvas.serverEvent("history", { slug: "alpha", file: "01-a.html", n: 5 });
-	assert.deepEqual(compareLabels(canvas), [`v3 · ${shownTime(9, 3)}`, "v5 · Current"]);
-	assert.match(sliderHandle(canvas).getAttribute("aria-valuetext")!, /v5 \(current\)/);
-	const [older, current] = compareFrames(canvas);
-	await canvas.serverEvent("change", { slug: "alpha", file: "01-a.html" });
-	assert.match(current.src, /^\/t\/files\/alpha\/01-a\.html\?v=\d+$/, "the current artboard reloads");
-	assert.equal(older.src, "/t/history/alpha/3/01-a.html", "a stored version never changes");
-	assert.equal(versionsPanel(canvas).hidden, false);
-	canvas.replies[HISTORY_URL] = historyDoc({ "01-a.html": [version(4, "hand", 9, 4), version(5, "agent", 9, 5)], "02-b.html": [version(1, "hand", 9, 10)] });
-	await canvas.serverEvent("history", { slug: "alpha", file: "01-a.html", n: 6 });
-	assert.equal(versionsPanel(canvas).hidden, true, "v3 is no longer kept");
-	assert.equal(canvas.document.getElementById("gd-toast").textContent, "v3 is no longer kept, so the comparison was closed.");
-});
-
-test("S3: frames of a comparison are never trusted: they cannot pick, end focus mode, report checks or pins, and get no messages", async () => {
-	const canvas = await comparing(3);
-	const frames = compareFrames(canvas);
-	canvas.document.getElementById("gd-comment").dispatch("click");
-	const popover = canvas.document.getElementById("gd-popover");
-	for (const frame of frames) {
-		canvas.message(frame.contentWindow, { type: "gd:pick", selector: "#cta", excerpt: "", rect: { x: 0, y: 0, width: 1, height: 1 } });
-		canvas.message(frame.contentWindow, { type: "gd:exit-focus" });
-		canvas.message(frame.contentWindow, checksReport([finding()]));
-		canvas.message(frame.contentWindow, { type: "gd:pin-rects", rects: [{ id: "a1", rect: { x: 1, y: 1, width: 1, height: 1 } }] });
-		canvas.message(frame.contentWindow, { type: "gd:inspect", element: MEASURE });
-		canvas.message(frame.contentWindow, { type: "gd:wheel", deltaX: 0, deltaY: 40, deltaMode: 0, zoom: false, shift: false, x: 1, y: 1 });
-	}
-	assert.equal(popover.hidden, true);
-	assert.match(canvas.navMode.textContent, /^Using:/, "focus mode stays");
-	assert.equal(canvas.document.getElementById("gd-count-checks").textContent, "0");
-	assert.equal(canvas.document.getElementById("gd-inspector").hidden, true);
-	assert.equal(withClass(canvas.boards[0].wrapper, "gd-pin").length, 0);
-	await setComments(canvas, comment("a1", "01-a.html"));
-	canvas.document.getElementById("gd-tool-navigate").dispatch("click");
-	for (const frame of frames) assert.deepEqual(frame.contentWindow!.posted, [], "no mode, focus or pins are sent to them");
-	assert.ok(read("canvas.js").includes("history/"), "the version URL is built by the canvas");
-});
-
-test("S3: View on the current version brings the artboard into focus and closes a comparison", async () => {
-	const canvas = await withHistory();
-	openHistory(canvas);
-	cardButton(canvas, "gd-version-view", 4).dispatch("click");
-	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit");
-	cardButton(canvas, "gd-version-compare", 3).dispatch("click");
-	assert.equal(versionsPanel(canvas).hidden, false);
-	cardButton(canvas, "gd-version-view", 4).dispatch("click");
-	assert.equal(versionsPanel(canvas).hidden, true);
-	assert.match(canvas.navMode.textContent, /^Using: First/);
-});
-
-// ---- Restore
-
-async function restoring(restoreReply: Record<string, unknown> = { ok: true, slug: "alpha", file: "01-a.html", restoredFrom: 2, saved: 5, version: 6 }) {
-	const canvas = await withHistory(HISTORY, { [RESTORE_URL]: restoreReply });
-	openHistory(canvas);
-	return canvas;
-}
-const confirmOf = (canvas: Canvas, n: number) => withClass(cardOf(canvas, n), "gd-version-confirm")[0];
-
-test("S4: Restore asks first: the question, Restore and Cancel; nothing is sent until it is confirmed", async () => {
-	const canvas = await restoring();
-	assert.equal(confirmOf(canvas, 2), undefined);
-	cardButton(canvas, "gd-version-restore", 2).dispatch("click");
-	const confirm = confirmOf(canvas, 2);
-	assert.equal(confirm.getAttribute("role"), "group");
-	assert.equal(confirm.getAttribute("aria-label"), "Confirm restoring v2");
-	assert.equal(texts(confirm, "gd-version-confirm-text")[0], "Restore v2? The current version is saved first, so nothing is lost.");
-	assert.equal(withClass(cardOf(canvas, 2), "gd-version-actions")[0].hidden, true, "the buttons make room for the question");
-	assert.equal(canvas.document.activeElement, withClass(confirm, "gd-version-confirm-restore")[0], "the keyboard moves to the question");
-	assert.equal(allText(withClass(confirm, "gd-version-confirm-restore")[0]), "Restore");
-	assert.equal(allText(withClass(confirm, "gd-version-confirm-cancel")[0]), "Cancel");
-	assert.deepEqual(canvas.posts, []);
-	// Cancel, and Esc, close it and return to the Restore button.
-	withClass(confirm, "gd-version-confirm-cancel")[0].dispatch("click");
-	assert.equal(confirmOf(canvas, 2), undefined);
-	assert.equal(canvas.document.activeElement, cardButton(canvas, "gd-version-restore", 2));
-	cardButton(canvas, "gd-version-restore", 2).dispatch("click");
-	const escape = confirmOf(canvas, 2).dispatch("keydown", { key: "Escape" });
-	assert.equal(escape.defaultPrevented, true);
-	assert.equal(confirmOf(canvas, 2), undefined);
-	assert.deepEqual(canvas.posts, [], "cancelled: nothing was sent");
-	// Asking about another version moves the question.
-	cardButton(canvas, "gd-version-restore", 2).dispatch("click");
-	cardButton(canvas, "gd-version-restore", 3).dispatch("click");
-	assert.equal(confirmOf(canvas, 2), undefined);
-	assert.equal(texts(confirmOf(canvas, 3), "gd-version-confirm-text")[0], "Restore v3? The current version is saved first, so nothing is lost.");
-});
-
-test("S4: confirming posts the file and version, toasts the new version, reloads the artboard and refreshes the list", async () => {
-	const canvas = await restoring();
-	const [first] = canvas.boards;
-	const before = first.frame.src;
-	canvas.replies[HISTORY_URL] = historyDoc({ "01-a.html": [...FIRST_VERSIONS, version(5, "hand", 9, 5), version(6, "restore", 9, 6)], "02-b.html": [version(1, "hand", 9, 10)] });
-	cardButton(canvas, "gd-version-restore", 2).dispatch("click");
-	withClass(confirmOf(canvas, 2), "gd-version-confirm-restore")[0].dispatch("click");
-	await flush();
-	await flush();
-	assert.deepEqual(canvas.posts.filter((post) => post.url === RESTORE_URL).map((post) => post.body), [{ file: "01-a.html", n: 2 }]);
-	assert.equal(canvas.document.getElementById("gd-toast").textContent, "Restored v2 as v6");
-	assert.equal(canvas.document.getElementById("gd-toast").classes.has("gd-error"), false);
-	assert.notEqual(first.frame.src, before, "the artboard reloads");
-	assert.match(first.frame.src, /^\/t\/files\/alpha\/01-a\.html\?v=\d+$/);
-	assert.equal(historyCount(canvas), "6", "the list is refreshed");
-	assert.deepEqual(versionCards(canvas).map((card) => card.dataset.n), ["6", "5", "4", "3", "2", "1"]);
-	assert.equal(confirmOf(canvas, 2), undefined);
-	assert.equal(historyAlert(canvas).hidden, true);
-});
-
-test("S4: restoring what the artboard already holds says so", async () => {
-	const canvas = await restoring({ ok: true, slug: "alpha", file: "01-a.html", restoredFrom: 3 });
-	cardButton(canvas, "gd-version-restore", 3).dispatch("click");
-	withClass(confirmOf(canvas, 3), "gd-version-confirm-restore")[0].dispatch("click");
-	await flush();
-	assert.equal(canvas.document.getElementById("gd-toast").textContent, "v3 already has the current content, so nothing changed.");
-});
-
-test("S4: a refused restore is an alert inside the tab with the S12 sentence and the raw code, not a toast", async () => {
-	const cases: Array<[Record<string, unknown>, RegExp, string]> = [
-		[{ __http: 422, error: "invalid-history", reason: "01-a.html is a link or inside a linked folder, so its versions are not stored and it cannot be restored." }, /version history of this design cannot be used[^]*nothing was changed/, "invalid-history: 01-a.html is a link or inside a linked folder, so its versions are not stored and it cannot be restored."],
-		[{ __http: 409, error: "history-limit", reason: "index too big" }, /history index is full[^]*Delete old versions from \.history/, "history-limit: index too big"],
-		[{ __http: 413, error: "file-too-large", reason: "01-a.html is larger than 8388608 bytes" }, /too large to save a copy before restoring[^]*8 MB/, "file-too-large: 01-a.html is larger than 8388608 bytes"],
-		[{ __http: 404, error: "not-found" }, /version is no longer kept/, "not-found"],
-		[{ __throw: "down" }, /could not reach its server/, "network: down"],
-	];
-	for (const [reply, sentence, detail] of cases) {
-		const canvas = await restoring(reply);
-		const index = canvas.document.getElementById("gd-toast").textContent;
-		cardButton(canvas, "gd-version-restore", 2).dispatch("click");
-		withClass(confirmOf(canvas, 2), "gd-version-confirm-restore")[0].dispatch("click");
-		await flush();
-		await flush();
-		assert.equal(historyAlert(canvas).hidden, false, detail);
-		assert.match(texts(historyAlert(canvas), "gd-alert-text")[0], sentence, detail);
-		assert.doesNotMatch(texts(historyAlert(canvas), "gd-alert-text")[0], /Something went wrong/);
-		assert.equal(texts(historyAlert(canvas), "gd-alert-detail")[0], detail);
-		assert.equal(canvas.document.getElementById("gd-toast").textContent, index, "no toast");
-		assert.equal(confirmOf(canvas, 2), undefined, "the question closes");
-		assert.equal(canvas.document.activeElement, cardButton(canvas, "gd-version-restore", 2), "focus returns to Restore");
-		assert.equal(canvas.boards[0].frame.src, "/t/files/alpha/01-a.html", "the artboard is not reloaded");
-		assert.equal(historyCount(canvas), "4");
-		// The alert is dismissible and the next attempt clears it.
-		withClass(historyAlert(canvas), "gd-alert-dismiss")[0].dispatch("click");
-		assert.equal(historyAlert(canvas).hidden, true);
-	}
-	const again = await restoring({ __http: 422, error: "invalid-history" });
-	cardButton(again, "gd-version-restore", 2).dispatch("click");
-	withClass(confirmOf(again, 2), "gd-version-confirm-restore")[0].dispatch("click");
-	await flush();
-	assert.equal(historyAlert(again).hidden, false);
-	again.replies[RESTORE_URL] = { ok: true, version: 5 };
-	cardButton(again, "gd-version-restore", 2).dispatch("click");
-	assert.equal(historyAlert(again).hidden, true, "asking again clears the old alert");
-});
-
-test("S4: the restore question survives a refresh of the list while it is open", async () => {
-	const canvas = await restoring();
-	cardButton(canvas, "gd-version-restore", 2).dispatch("click");
-	await canvas.serverEvent("history", { slug: "alpha", file: "01-a.html", n: 4 });
-	assert.notEqual(confirmOf(canvas, 2), undefined);
-	assert.equal(canvas.document.activeElement, withClass(confirmOf(canvas, 2), "gd-version-confirm-restore")[0], "and so does the keyboard focus");
-});
-
-test("S2-S4: the History tab and the comparison are in index.html and canvas.css with tokens only, focus rings and no inline script or style", () => {
-	const html = read("index.html");
-	// canvas-progressive S5: History is a view of the panel's More menu, not a tab.
-	assert.match(html, /<button type="button" id="gd-panel-more" class="gd-tab gd-tab-more" aria-haspopup="menu"/);
-	assert.match(html, /<div id="gd-history" class="gd-history" hidden><\/div>/);
-	assert.match(html, /<section id="gd-versions" class="gd-versions" aria-labelledby="gd-versions-title" hidden>/);
-	assert.match(html, /<div class="gd-devices gd-versions-mode" role="group" aria-label="Comparison mode" data-i18n-aria-label="versions.group">/);
-	assert.match(html, /id="gd-versions-mode-slider"[^>]*aria-pressed="true"[^>]*>Slider</);
-	assert.match(html, /id="gd-versions-mode-side"[^>]*aria-pressed="false"[^>]*>Side by side</);
-	assert.match(html, /id="gd-versions-close"[^>]*>[^]*?Close comparison</);
-	assert.ok(html.indexOf('id="gd-versions"') < html.indexOf('id="gd-back"'), "the Back to canvas button stays above the comparison");
-	for (const id of ["i-eye", "i-restore"]) assert.match(html, new RegExp(`<symbol id="${id}"`));
-	const css = read("canvas.css");
-	for (const selector of [".gd-version", ".gd-version-current", ".gd-version-comparing", ".gd-version-reply", ".gd-history-warning", ".gd-versions", ".gd-versions-bar", ".gd-versions-compare", ".gd-versions-pane", ".gd-versions-box", ".gd-versions-handle", ".gd-versions-knob", ".gd-versions-shield", ".gd-versions-label"]) assert.ok(css.includes(`${selector} {`) || css.includes(`${selector},`) || css.includes(`${selector}[`), `${selector} is styled`);
-	assert.match(css, /\.gd-versions\s*{[^}]*position:\s*absolute[^}]*inset:\s*0[^}]*z-index:\s*4/);
-	assert.match(css, /\.gd-versions-handle:focus-visible/);
-	assert.match(css, /\.gd-version-current::before\s*{[^}]*var\(--accent\)/);
-	assert.match(css, /\.gd-version-reply\s*{[^}]*background:\s*var\(--wash\)/);
-	assert.ok(!/\.gd-version-reply\s*{[^}]*border-left/.test(css), "no side stripe, like the comment reply");
-});
 
 test("S2: five tabs never squeeze their labels into each other and stay on one row: the tab row scrolls", () => {
 	const css = read("canvas.css");
@@ -3872,8 +3270,8 @@ const cmpEl = (canvas: Canvas, id: string) => canvas.document.getElementById(`gd
 const cmpPanes = (canvas: Canvas) => cmpEl(canvas, "panes");
 const cmpFrames = (canvas: Canvas) => findAll(cmpPanes(canvas), (element) => element.localName === "iframe");
 const cmpFigures = (canvas: Canvas) => withClass(cmpPanes(canvas), "gd-compare-pane");
-const cmpHandle = (canvas: Canvas) => withClass(cmpPanes(canvas), "gd-versions-handle")[0];
-const cmpShield = (canvas: Canvas) => withClass(cmpPanes(canvas), "gd-versions-shield")[0];
+const cmpHandle = (canvas: Canvas) => withClass(cmpPanes(canvas), "gd-split-handle")[0];
+const cmpShield = (canvas: Canvas) => withClass(cmpPanes(canvas), "gd-split-shield")[0];
 const cmpMode = (canvas: Canvas, mode: "side" | "overlay" | "slider") => cmpEl(canvas, `mode-${mode}`);
 const cmpPressed = (canvas: Canvas) => (["side", "overlay", "slider"] as const).filter((mode) => cmpMode(canvas, mode).getAttribute("aria-pressed") === "true");
 const openCompareView = (canvas: Canvas) => withClass(boardsOf(canvas)[0], "gd-compare-start")[0].dispatch("click");
@@ -4431,21 +3829,6 @@ test("T1/S1: the minimap is hidden while Compare is open and returns when it clo
 	assert.equal(canvas.document.getElementById("gd-compare").hidden, false);
 	assert.equal(miniPanel(canvas).hidden, true);
 	canvas.document.getElementById("gd-compare-back").dispatch("click");
-	assert.equal(miniPanel(canvas).hidden, false);
-});
-
-test("T1/S1: the minimap is hidden while a version comparison is open and returns when it closes", async () => {
-	const canvas = await withHistory(HISTORY, SYSTEM_REPLY);
-	layoutWorld(canvas, MINI_RECTS);
-	canvas.windowEvent("resize");
-	assert.equal(miniPanel(canvas).hidden, false);
-	openHistory(canvas);
-	cardButton(canvas, "gd-version-compare", 3).dispatch("click");
-	assert.equal(versionsPanel(canvas).hidden, false);
-	assert.equal(miniPanel(canvas).hidden, true);
-	canvas.document.getElementById("gd-versions-close").dispatch("click");
-	assert.equal(versionsPanel(canvas).hidden, true);
-	// The comparison put the artboard in focus mode and closing it leaves it again.
 	assert.equal(miniPanel(canvas).hidden, false);
 });
 
@@ -5528,31 +4911,12 @@ test("S2: dates use Today/Hoy and the month names of the language, with the year
 	const sentAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 5).toISOString();
 	const replies = {
 		"/t/api/designs/alpha/handoffs": handoffDoc("01-a.html", { "01-a.html": { status: "in_progress", sentAt, startedAt: stamp(9, 6) } }),
-		[HISTORY_URL]: HISTORY,
 	};
 	const spanish = await loadLang({ browser: "es", replies });
 	const details = () => texts(spanish.document.getElementById("gd-timeline"), "gd-step-detail");
 	assert.deepEqual(details().slice(0, 2), ["Hoy 09:05", "4 mar 2020, 09:06"]);
 	chooseLang(spanish, "en");
 	assert.deepEqual(details().slice(0, 2), ["Today 09:05", "Mar 4 2020, 09:06"]);
-	chooseLang(spanish, "es");
-	openHistory(spanish as unknown as Canvas);
-	const meta = texts(spanish.document.getElementById("gd-history"), "gd-version-meta");
-	assert.deepEqual(meta, ["Tú · 4 mar 2020, 09:04", "Restauración · 4 mar 2020, 09:03", "Agente · 4 mar 2020, 09:02", "Tú · 4 mar 2020, 09:01"]);
-});
-
-test("S2: history cards, tags and buttons are Spanish, and restoring asks in Spanish", async () => {
-	const canvas = await loadLang({ browser: "es", replies: { [HISTORY_URL]: HISTORY, ...commentsDoc(comment("a1", "01-a.html", "resolved")) } });
-	openHistory(canvas as unknown as Canvas);
-	const panel = canvas.document.getElementById("gd-history");
-	assert.deepEqual(texts(panel, "gd-version-tag"), ["Actual", "Original"]);
-	assert.deepEqual(texts(panel, "gd-version-applied"), ["Aplicado #1"]);
-	assert.deepEqual(texts(panel, "gd-version-reply-label"), ["Agente:"]);
-	const labels = withClass(panel, "gd-version-actions")[1].children.map((button) => [allText(button), button.getAttribute("aria-label")]);
-	assert.deepEqual(labels, [["Comparar con la actual", "Comparar v3 con la versión actual"], ["Restaurar", "Restaurar v3"]]);
-	assert.match(allText(panel), /Las versiones se guardan en design\/alpha\/\.history\/; Restaurar guarda antes la actual, así que no se pierde nada\./);
-	withClass(panel, "gd-version-restore")[0].dispatch("click");
-	assert.match(texts(panel, "gd-version-confirm-text")[0], /^¿Restaurar v3\? La versión actual se guarda antes, así que no se pierde nada\.$/);
 });
 
 test("S2: failures speak Spanish with their cause and way out, keep the raw code, and follow the language while shown", async () => {
@@ -5597,9 +4961,6 @@ test("S2: empty states and status lines are Spanish, and the status follows a sw
 	chooseLang(broken, "en");
 	assert.equal(broken.document.getElementById("gd-status").textContent, "design.json for alpha is invalid");
 	assert.equal(broken.document.getElementById("gd-empty").textContent, 'Design "alpha" cannot be shown: boom');
-
-	const brief = await loadLang({ browser: "es", replies: { "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "", artboards: [] } } });
-	assert.equal(brief.document.getElementById("gd-brief-text").textContent, "Aún no se ha escrito la petición original.");
 });
 
 test("S2: the focused artboard's size control, the artboard header and the mode chip are Spanish", async () => {
@@ -5919,7 +5280,7 @@ test("S2: the Spanish is neutral and professional: tú forms, no voseo", () => {
 	const voseo = /\b(vos|tenés|podés|querés|sabés|hacé|hacés|mirá|elegí|enviá|tocá|aprobá|fijate|andá|vení|decí|escribí|usá|abrí|cerrá|guardá|volvé|probá|revisá)\b/i;
 	for (const [key, text] of Object.entries(es)) assert.ok(!voseo.test(text), `${key}: voseo in "${text}"`);
 	const all = Object.values(es).join("\n");
-	for (const term of ["Comentar", "Ver todo", "Elegido", "Descartada", "En curso", "Implementado", "Enviar todo", "Guardar para enviar luego", "Petición original"]) assert.ok(all.includes(term), `the Spanish uses ${term}`);
+	for (const term of ["Comentar", "Ver todo", "Elegido", "Descartada", "En curso", "Implementado", "Enviar todo", "Guardar para enviar luego"]) assert.ok(all.includes(term), `the Spanish uses ${term}`);
 	assert.ok(/\bHaz clic\b/.test(all) && /\bEscribe\b/.test(all), "imperatives are tú forms");
 });
 
@@ -6116,7 +5477,6 @@ test("S2: after a switch no text, title or accessible name of the old language i
 	const replies = {
 		...commentsDoc(withOpen("c1"), withOpen("c2", { sentAt: "2026-10-26T10:00:00.000Z", viewport: { width: 390, height: 844 } }), comment("c3", "01-a.html", "resolved", { resolution: "Done" }), comment("c4", "02-b.html")),
 		"/t/api/designs/alpha/handoffs": handoffDoc("01-a.html", { "01-a.html": { status: "implemented", implementedAt: stamp(9, 9), startedAt: stamp(9, 5), sentAt: stamp(9, 1), previewUrl: "http://localhost:3000/" } }),
-		[HISTORY_URL]: HISTORY,
 		...SYSTEM_REPLY,
 	};
 	for (const [from, to] of [["en", "es"], ["es", "en"]] as const) {
@@ -6129,16 +5489,7 @@ test("S2: after a switch no text, title or accessible name of the old language i
 		layoutWorld(canvas as unknown as Canvas, [[0, 0, 800, 600], [880, 0, 400, 300], [1360, 0, 400, 300]]);
 		canvas.windowEvent("resize");
 		void system;
-		// canvas-progressive S5: History and Original request open from the panel's More (its first and second items).
-		const more = (index: number) => () => {
-			canvas.document.getElementById("gd-panel-more").dispatch("click");
-			findAll(canvas.document.getElementById("gd-menu"), (element) => element.getAttribute("role") === "menuitem")[index].dispatch("click");
-		};
-		const views: Array<[string, () => void]> = [
-			...["gd-filter-open", "gd-filter-resolved", "gd-filter-all", "gd-tab-checks", "gd-tab-mix"].map((id) => [id, () => { canvas.document.getElementById(id).dispatch("click"); }] as [string, () => void]),
-			["History", more(0)],
-			["Original request", more(1)],
-		];
+		const views: Array<[string, () => void]> = ["gd-filter-open", "gd-filter-resolved", "gd-filter-all", "gd-tab-checks", "gd-tab-mix"].map((id) => [id, () => { canvas.document.getElementById(id).dispatch("click"); }]);
 		for (const [tab, open] of views) {
 			open();
 			chooseLang(canvas, to);
@@ -6172,7 +5523,7 @@ test("S2: after a switch nothing of the old language is left in focus mode with 
 	}
 });
 
-test("S2: after a switch nothing of the old language is left in Compare, a version comparison or a placeholder board", async () => {
+test("S2: after a switch nothing of the old language is left in Compare or a placeholder board", async () => {
 	for (const [from, to] of [["en", "es"], ["es", "en"]] as const) {
 		const compare = await loadLang({ browser: from, replies: { "/t/api/designs/alpha/handoffs": implementedDoc("01-a.html") } });
 		withClass(boardsOf(compare)[0], "gd-compare-start")[0].dispatch("click");
@@ -6181,14 +5532,6 @@ test("S2: after a switch nothing of the old language is left in Compare, a versi
 		assert.deepEqual(leftovers(compare, from), [], `${from} -> ${to} in Compare`);
 		chooseLang(compare, from);
 		assert.deepEqual(leftovers(compare, to), [], `${to} -> ${from} in Compare`);
-
-		const versions = await loadLang({ browser: from, replies: { [HISTORY_URL]: HISTORY, ...commentsDoc(comment("a1", "01-a.html", "resolved")) } });
-		openHistory(versions as unknown as Canvas);
-		withClass(versions.document.getElementById("gd-history"), "gd-version-compare")[0].dispatch("click");
-		chooseLang(versions, to);
-		assert.deepEqual(leftovers(versions, from), [], `${from} -> ${to} in a version comparison`);
-		chooseLang(versions, from);
-		assert.deepEqual(leftovers(versions, to), [], `${to} -> ${from} in a version comparison`);
 
 		const variant = await loadLang({ browser: from, replies: { "/t/api/designs/alpha/variant": { queued: false } } });
 		menuButtonOf(boardsOf(variant)[0]).dispatch("click");
@@ -7068,7 +6411,7 @@ test("canvas-mix S6: the mix speaks Spanish with tú forms, and a switch leaves 
 test("canvas-mix S6: index.html carries the Mix tab, the popover action and the tray; canvas.css styles them with tokens, focus rings and no motion", () => {
 	const html = read("index.html");
 	assert.equal([...html.matchAll(/role="tab"/g)].length, 3);
-	assert.ok(html.indexOf('id="gd-tab-mix"') > html.indexOf('id="gd-tab-checks"') && html.indexOf('id="gd-tab-mix"') < html.indexOf('id="gd-panel-more"'), "Mix sits after Quality, before More");
+	assert.ok(html.indexOf('id="gd-tab-mix"') > html.indexOf('id="gd-tab-checks"') && html.indexOf('id="gd-tab-mix"') < html.indexOf('id="gd-tabs-next"'), "Mix sits after Quality, the last tab");
 	assert.match(html, /<button type="button" role="tab" id="gd-tab-mix" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.mix">Mix<\/span> <span id="gd-count-mix" class="gd-count">0<\/span><\/button>/);
 	const actions = html.slice(html.indexOf('class="gd-popover-actions"'), html.indexOf("</form>", html.indexOf('class="gd-popover-actions"')));
 	assert.match(actions, /<button type="button" id="gd-popover-mix"[^>]*data-i18n="mix.add">Add to the mix<\/button>/);
@@ -7383,17 +6726,16 @@ test("canvas-ux S2: the toggle is a named, pressed button at the bottom of the r
 
 // ---- canvas-ux-quick-wins T2: plain wording (S3), one Comments tab with a filter (S4) ----
 
-// canvas-progressive S5: three tabs; History and Original request are More views.
+// canvas-progressive S5: three tabs.
 const tabIds = ["gd-tab-comments", "gd-tab-checks", "gd-tab-mix"];
 const selectedTabs = (canvas: Canvas) => tabIds.filter((id) => canvas.document.getElementById(id).getAttribute("aria-selected") === "true");
 const filterState = (canvas: Canvas) => ["gd-filter-open", "gd-filter-resolved"].map((id) => `${canvas.document.getElementById(id).textContent}=${canvas.document.getElementById(id).getAttribute("aria-pressed")}`);
 const pendingLine = (canvas: Canvas) => canvas.document.getElementById("gd-send-pending");
 
-test("canvas-ux S3: plain words: Accessible ✓, Original request, Save to send later and Directions, in English and Spanish", async () => {
+test("canvas-ux S3: plain words: Accessible ✓, Save to send later and Directions, in English and Spanish", async () => {
 	const { en, es } = loadCatalog();
 	const words: Array<[string, string, string]> = [
 		["a11y.ok", "Accessible ✓", "Accesible ✓"],
-		["tab.brief", "Original request", "Petición original"],
 		["panel.collect", "Save to send later", "Guardar para enviar luego"],
 		["viewport.label", "Directions", "Propuestas"],
 		["panel.footIntro", "Your comments go to the agent so it changes the design", "Tus comentarios se envían al agente para que cambie el diseño"],
@@ -7416,11 +6758,6 @@ test("canvas-ux S3: plain words: Accessible ✓, Original request, Save to send 
 	assert.equal(texts(checksPanel(canvas), "gd-check-summary")[0], "Accesible ✓");
 	const spanish = canvas.document.querySelectorAll("[data-i18n]").map((element) => element.textContent);
 	for (const text of ["Guardar para enviar luego", "Tus comentarios se envían al agente para que cambie el diseño"]) assert.ok(spanish.includes(text), text);
-	// canvas-progressive S5: Original request opens from the panel's More (its second item).
-	canvas.document.getElementById("gd-panel-more").dispatch("click");
-	assert.equal(texts(findAll(canvas.document.getElementById("gd-menu"), (element) => element.getAttribute("role") === "menuitem")[1], "gd-menu-label")[0], "Petición original");
-	findAll(canvas.document.getElementById("gd-menu"), (element) => element.getAttribute("role") === "menuitem")[1].dispatch("click");
-	assert.equal(canvas.document.getElementById("gd-brief-text").textContent, "Aún no se ha escrito la petición original.");
 });
 
 test("canvas-ux S3: the footer says where comments go and how many wait to be sent, plural-safe and hidden at 0", async () => {
@@ -7525,11 +6862,12 @@ test("canvas-ux S5: the docs and the README use the plain words, the footer sent
 	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
 	const section = docs.slice(docs.indexOf("### Gentle Design"));
 	// canvas-progressive S5: the filter reads Open · N / Resolved · N.
-	for (const part of ["**Original request**", "**Save to send later**", "`Accessible ✓`", "**Open · N**", "**Resolved · N**", "\"Your comments go to the agent so it changes the design\"", "**N waiting to be sent**"]) assert.ok(section.includes(part), `docs mention ${part}`);
-	for (const old of ["**Collect**", "A11y ✓", "**Resolved**, **History**", "Resolved tab", "Comments and Resolved tabs", "**Brief** tabs"]) assert.ok(!section.includes(old), `docs no longer say ${old}`);
+	for (const part of ["**Save to send later**", "`Accessible ✓`", "**Open · N**", "**Resolved · N**", "\"Your comments go to the agent so it changes the design\"", "**N waiting to be sent**"]) assert.ok(section.includes(part), `docs mention ${part}`);
+	for (const old of ["**Collect**", "A11y ✓", "**Resolved**, **History**", "Resolved tab", "Comments and Resolved tabs", "**Brief** tabs", "**Original request**"]) assert.ok(!section.includes(old), `docs no longer say ${old}`);
 	const readme = readFileSync(fileURLToPath(new URL("../README.md", import.meta.url)), "utf8");
 	const row = readme.split("\n").find((line) => line.startsWith("| Gentle Design |"))!;
-	for (const part of ["opens it in focus", "Technical details", "Original request", "Save to send later", "Open / Resolved"]) assert.ok(row.includes(part), `the README row mentions ${part}`);
+	for (const part of ["opens it in focus", "Technical details", "Save to send later", "Open / Resolved"]) assert.ok(row.includes(part), `the README row mentions ${part}`);
+	for (const old of ["Original request", "History"]) assert.ok(!row.includes(old), `the README row no longer mentions ${old}`);
 });
 
 // ---- canvas-progressive T1: labeled rail and More (S1), connection chip (S3) ----
@@ -7708,12 +7046,6 @@ test("progressive S7 (T1): the docs describe the labeled rail, More and the conn
 
 const openButtonOf = (wrapper: FakeElement) => withClass(wrapper, "gd-board-open")[0];
 const implementOf = (wrapper: FakeElement) => withClass(wrapper, "gd-implement")[0];
-const panelMore = (canvas: Canvas) => canvas.document.getElementById("gd-panel-more");
-/** Opens the review panel's More menu and chooses the item labeled `label` (History, Original request). */
-const openPanelView = (canvas: Canvas, label: string) => {
-	panelMore(canvas).dispatch("click");
-	itemNamed(canvas, label).dispatch("click");
-};
 const progressiveFilters = (canvas: Canvas) => ["gd-filter-open", "gd-filter-resolved", "gd-filter-all"].map((id) => `${canvas.document.getElementById(id).textContent}=${canvas.document.getElementById(id).getAttribute("aria-pressed")}`);
 const selectedPanelTabs = (canvas: Canvas) => ["gd-tab-comments", "gd-tab-checks", "gd-tab-mix"].filter((id) => canvas.document.getElementById(id).getAttribute("aria-selected") === "true");
 
@@ -7773,57 +7105,57 @@ test("progressive S4: the ⋯ menu keeps its items; its Implement this opens the
 	assert.equal(canvas.posts.length, 0, "nothing is sent before confirming");
 });
 
-test("progressive S5: the review panel has three tabs, Comments, Quality and Mix with counts, and More with History and Original request", async () => {
+test("progressive S5: the review panel has three tabs, Comments, Quality and Mix with counts, and no More beside them (canvas-trim S3, S5)", async () => {
 	const html = read("index.html");
 	const tablist = html.slice(html.indexOf('<div id="gd-tabs"'), html.indexOf("</div>", html.indexOf('<div id="gd-tabs"')));
 	assert.deepEqual([...tablist.matchAll(/role="tab" id="([^"]+)"/g)].map((match) => match[1]), ["gd-tab-comments", "gd-tab-checks", "gd-tab-mix"]);
 	for (const id of ["gd-count-open", "gd-count-checks", "gd-count-mix"]) assert.ok(tablist.includes(`id="${id}"`), `${id} in its tab`);
 	assert.equal([...html.matchAll(/role="tab"/g)].length, 3);
-	for (const gone of ["gd-tab-history", "gd-tab-brief", "gd-count-history"]) assert.ok(!html.includes(`id="${gone}"`), `${gone} is no longer a tab`);
-	// canvas-progressive fix: More is an icon button named More, so Comments, Quality and Mix fit the panel.
-	assert.match(html, /<button type="button" id="gd-panel-more" class="gd-tab gd-tab-more" aria-haspopup="menu" aria-expanded="false" aria-controls="gd-menu" title="More" data-i18n-title="panel.more"><span class="gd-visually-hidden" data-i18n="panel.more">More<\/span><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-more"\/><\/svg><\/button>/);
-	assert.ok(!tablist.includes("gd-panel-more"), "More is a menu button beside the tablist, not a tab");
+	for (const gone of ["gd-tab-history", "gd-tab-brief", "gd-count-history", "gd-panel-more"]) assert.ok(!html.includes(`id="${gone}"`), `${gone} is gone`);
 	const { en, es } = loadCatalog();
-	assert.deepEqual([en["tab.comments"], en["tab.checks"], en["tab.mix"], en["panel.more"]], ["Comments", "Quality", "Mix", "More"]);
-	assert.deepEqual([es["tab.comments"], es["tab.checks"], es["tab.mix"], es["panel.more"]], ["Comentarios", "Calidad", "Mezcla", "Más"]);
+	assert.deepEqual([en["tab.comments"], en["tab.checks"], en["tab.mix"]], ["Comments", "Quality", "Mix"]);
+	assert.deepEqual([es["tab.comments"], es["tab.checks"], es["tab.mix"]], ["Comentarios", "Calidad", "Mezcla"]);
 
-	const canvas = await withHistory();
+	const canvas = await loadRail();
 	const doc = canvas.document;
-	panelMore(canvas).dispatch("click");
-	assert.equal(panelMore(canvas).getAttribute("aria-expanded"), "true");
-	assert.equal(menuEl(canvas).getAttribute("aria-label"), "More");
-	assert.deepEqual(itemLabels(canvas), ["History", "Original request"]);
-	assert.deepEqual(texts(itemNamed(canvas, "History"), "gd-count"), ["4"], "History keeps its count");
-	itemNamed(canvas, "History").dispatch("click");
-	assert.equal(menuEl(canvas).hidden, true);
-	assert.equal(historyPanel(canvas).hidden, false, "History opens in the panel");
-	assert.equal(doc.getElementById("gd-comment-list").hidden, true);
-	assert.deepEqual(selectedPanelTabs(canvas), [], "no tab is selected while a More view shows");
-	assert.equal(doc.getElementById("gd-tab-comments").getAttribute("tabindex"), "0", "the tablist stays reachable");
-	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-label"), "History");
-	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-labelledby"), null);
-	assert.ok(panelMore(canvas).classes.has("gd-tab-more-current"), "More is marked while its view shows");
-	openPanelView(canvas, "Original request");
-	assert.equal(doc.getElementById("gd-brief").hidden, false);
-	assert.equal(historyPanel(canvas).hidden, true);
-	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-label"), "Original request");
-	doc.getElementById("gd-tabs").dispatch("keydown", { key: "ArrowRight" });
-	assert.deepEqual(selectedPanelTabs(canvas), ["gd-tab-comments"], "the arrows return to the tabs");
+	assert.deepEqual(selectedPanelTabs(canvas), ["gd-tab-comments"]);
 	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-labelledby"), "gd-tab-comments");
-	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-label"), null);
-	assert.ok(!panelMore(canvas).classes.has("gd-tab-more-current"));
 	doc.getElementById("gd-tabs").dispatch("keydown", { key: "End" });
 	assert.deepEqual(selectedPanelTabs(canvas), ["gd-tab-mix"]);
+	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-labelledby"), "gd-tab-mix");
 	doc.getElementById("gd-tabs").dispatch("keydown", { key: "ArrowRight" });
 	assert.deepEqual(selectedPanelTabs(canvas), ["gd-tab-comments"], "three tabs, wrapping around");
+	assert.equal(doc.getElementById("gd-tabpanel").getAttribute("aria-label"), null);
 
 	const spanish = await loadLang({ browser: "es" });
-	const s = spanish as unknown as Canvas;
 	const shown = staticText(spanish);
-	for (const label of ["Comentarios", "Calidad", "Mezcla", "Más"]) assert.ok(shown.includes(label), label);
-	panelMore(s).dispatch("click");
-	assert.deepEqual(itemLabels(s), ["Historial", "Petición original"]);
-	assert.equal(menuEl(s).getAttribute("aria-label"), "Más");
+	for (const label of ["Comentarios", "Calidad", "Mezcla"]) assert.ok(shown.includes(label), label);
+});
+
+test("canvas-trim S3, S5: the page has no History, version comparison or Original request, nothing offers them, and nothing loads them", async () => {
+	const html = read("index.html");
+	for (const id of ["gd-history", "gd-versions", "gd-versions-title", "gd-versions-stage", "gd-versions-close", "gd-brief", "gd-brief-title", "gd-brief-text", "gd-brief-feature", "gd-panel-more"]) assert.ok(!html.includes(`id="${id}"`), `${id} is gone`);
+	assert.ok(!html.includes('<symbol id="i-restore"'), "the restore icon went with them");
+	assert.match(html, /<code id="gd-feature" class="gd-feature"/, "the top bar keeps the feature document");
+	const css = read("canvas.css");
+	for (const selector of [".gd-history", ".gd-version", ".gd-brief", ".gd-tab-more"]) assert.ok(!css.includes(selector), `${selector} is not styled`);
+	const { en, es } = loadCatalog();
+	for (const [name, catalog] of [["en", en], ["es", es]] as const) {
+		const stale = Object.keys(catalog).filter((key) => /^(tab\.history|tab\.brief|panel\.more|history\.|versions?\.|brief\.|reason\.restore\.)|^reason\.(invalid-history|history-limit)$/.test(key));
+		assert.deepEqual(stale, [], `${name} keeps no History or Original request strings`);
+	}
+
+	const canvas = await loadRail(300, { "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "Make a checkout.", feature: "odd/tasks/checkout.md", artboards: [{ file: "01-a.html", title: "First", tradeoff: "", width: 400, height: 300 }] } });
+	assert.deepEqual(canvas.fetched.filter((url) => url.includes("history")), [], "the canvas never asks for a history");
+	assert.equal(canvas.document.getElementById("gd-feature").textContent, "odd/tasks/checkout.md");
+	assert.ok(!allText(canvas.document.getElementById("gd-tabpanel")).includes("Make a checkout."), "the brief is shown nowhere in the panel");
+	canvas.document.getElementById("gd-rail-more").dispatch("click");
+	const labels = itemLabels(canvas);
+	assert.ok(labels.length > 0, "the rail's More still opens");
+	for (const gone of ["History", "Original request"]) assert.ok(!labels.includes(gone), `More offers no ${gone}`);
+	const before = canvas.fetched.length;
+	await canvas.serverEvent("history", { slug: "alpha", file: "01-a.html", n: 2 });
+	assert.equal(canvas.fetched.length, before, "an event named history is ignored");
 });
 
 test("progressive S5: the comments filter is Open · n, Resolved · n and All; All lists every comment", async () => {
@@ -7893,11 +7225,11 @@ test("progressive S5: the footer offers Send now or Save to send later, and Tech
 	assert.match(css, /\.gd-technical\s*{[^}]*width:\s*100%/);
 });
 
-test("progressive S7 (T2): the docs describe Open, the review panel's tabs and More, the All filter and Technical details at the bottom", () => {
+test("progressive S7 (T2): the docs describe Open, the review panel's tabs, the All filter and Technical details at the bottom", () => {
 	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
 	const section = docs.slice(docs.indexOf("### Gentle Design"));
-	for (const part of ["**Open**", "**Comments**, **Quality**, and **Mix**", "**History** and **Original request**", "**All**", "**Open · N**", "**Resolved · N**", "**No comments yet**", "bottom of the review side"]) assert.ok(section.includes(part), `docs mention ${part}`);
-	for (const old of ["**Open (N)**", "**Resolved (N)**", "**Comments**, **History**, **Checks**, **Mix**, and **Original request** tabs", "toggle in the top bar"]) assert.ok(!section.includes(old), `docs no longer say ${old}`);
+	for (const part of ["**Open**", "**Comments**, **Quality**, and **Mix**", "**All**", "**Open · N**", "**Resolved · N**", "**No comments yet**", "bottom of the review side"]) assert.ok(section.includes(part), `docs mention ${part}`);
+	for (const old of ["**Open (N)**", "**Resolved (N)**", "**Comments**, **History**, **Checks**, **Mix**, and **Original request** tabs", "toggle in the top bar", "**History**", "Version history", ".history"]) assert.ok(!section.includes(old), `docs no longer say ${old}`);
 	const readme = readFileSync(fileURLToPath(new URL("../README.md", import.meta.url)), "utf8");
 	const row = readme.split("\n").find((line) => line.startsWith("| Gentle Design |"))!;
 	for (const part of ["Open", "Quality", "Open / Resolved / All", "bottom of the review side"]) assert.ok(row.includes(part), `the README row mentions ${part}`);
@@ -8160,13 +7492,7 @@ test("help S7: the docs describe the step-by-step help", () => {
 
 // ---- canvas-progressive fix: every review tab stays in view in the default 360px panel
 
-test("canvas-progressive fix: the panel's More is an icon button that keeps its name, and the tabs shrink instead of scrolling out of view", async () => {
-	const html = read("index.html");
-	const more = /<button type="button" id="gd-panel-more"[^>]*>([^]*?)<\/button>/.exec(html);
-	assert.ok(more, "the More button is in index.html");
-	assert.match(more[0], /title="More" data-i18n-title="panel.more"/, "its tooltip names it");
-	assert.match(more[1], /<span class="gd-visually-hidden" data-i18n="panel.more">More<\/span>/, "its name stays for assistive technology, visually hidden");
-	assert.match(more[1], /<use href="#i-more"\/>/, "it shows the ⋯ icon");
+test("canvas-progressive fix: the tabs shrink instead of scrolling out of view", () => {
 	const css = read("canvas.css");
 	const rule = (selector: string) => {
 		const start = css.indexOf(`\n${selector} {`);
@@ -8177,9 +7503,6 @@ test("canvas-progressive fix: the panel's More is an icon button that keeps its 
 	assert.match(rule(".gd-tabs .gd-tab"), /min-width:\s*0/);
 	assert.match(rule(".gd-tabs .gd-tab"), /text-overflow:\s*ellipsis/);
 	assert.match(rule(".gd-tab"), /font-size:\s*13px/);
-	const spanish = await loadLang({ browser: "es" });
-	const button = spanish.document.getElementById("gd-panel-more");
-	assert.equal(button.title, "Más", "the tooltip follows the language");
 });
 
 // ---- Board spacing: a long tradeoff never widens a direction (fix/canvas-board-spacing)

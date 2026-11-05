@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import gentleDesign, { DESIGN_COMMAND_NAME } from "../extensions/gentle-design.ts";
 import { formatDesignComment, formatDesignCommentBatch, startDesignCanvasServer, type DesignCanvasServer, type DesignCanvasServerOptions, type DesignComment } from "../lib/design-canvas-server.ts";
-import { createDesignHistoryStore } from "../lib/design-history.ts";
 import { designImplementMessage, designImplementPartMessage, designMixMessage, designVariantMessage } from "../lib/gentle-design.ts";
 import type { OpenInBrowserResult } from "../lib/design-open-browser.ts";
 import { __testing } from "../extensions/skill-registry.ts";
@@ -726,7 +725,7 @@ test("the gentle_design_comments tool resolves comments by id and writes comment
 	assert.equal(readFileSync(join(cwd, "design", "login", "comments.json"), "utf8"), "{ broken");
 });
 
-// S5: the agent's one-line reply on a resolved comment, in comments.json and on the matching version.
+// S5: the agent's one-line reply on a resolved comment, in comments.json.
 
 async function resolveWith(cwd: string, params: Record<string, unknown>) {
 	const { pi, tool } = fakePi();
@@ -735,7 +734,6 @@ async function resolveWith(cwd: string, params: Record<string, unknown>) {
 }
 
 const storedComments = (cwd: string) => JSON.parse(readFileSync(join(cwd, "design", "login", "comments.json"), "utf8")).comments;
-const historyOf = (cwd: string) => createDesignHistoryStore(join(cwd, "design")).read("login");
 
 test("S5: the comments tool takes an optional note of at most 500 characters and says so", () => {
 	const { pi, tool } = fakePi();
@@ -747,65 +745,28 @@ test("S5: the comments tool takes an optional note of at most 500 characters and
 	assert.match(comments.description, /note/);
 });
 
-test("S5: resolve with a note stores it as the comment's resolution and tags the version the agent's edit made", async () => {
+test("S5: resolve with a note stores it as the comment's resolution, with no version history (canvas-trim S3)", async () => {
 	const cwd = scratchCwd();
 	writeDesign(cwd, "login", "Login screen");
 	seedComments(cwd, "login", [{ id: "aaa111" }, { id: "bbb222" }]);
-	const history = createDesignHistoryStore(join(cwd, "design"));
-	await history.observe("login", "01-a.html");
 	writeFileSync(join(cwd, "design", "login", "01-a.html"), "<h1>A, bigger</h1>");
 	const result = await resolveWith(cwd, { ids: ["aaa111"], note: "  Made the title 32px.  " });
-	assert.match(toolText(result), /Resolved 1 comment/);
-	assert.ok(!/History|warning/i.test(toolText(result)), toolText(result));
+	assert.equal(toolText(result), "Resolved 1 comment in design/login: aaa111.");
 	const stored = storedComments(cwd);
 	assert.equal(stored[0].resolution, "Made the title 32px.");
 	assert.equal("resolution" in stored[1], false);
-	const versions = (await historyOf(cwd)).artboards["01-a.html"].versions;
-	assert.deepEqual(versions.map((version) => [version.n, version.source]), [[1, "hand"], [2, "agent"]]);
-	assert.equal(versions[1].comment, "aaa111");
-	assert.equal(versions[1].note, "Made the title 32px.");
-	assert.equal(versions[0].comment, undefined);
+	assert.equal(existsSync(join(cwd, "design", "login", ".history")), false, "nothing is written to .history");
 });
 
-test("S5: when the edit was already snapshotted the latest version is tagged, not a new one", async () => {
-	const cwd = scratchCwd();
-	writeDesign(cwd, "login", "Login screen");
-	seedComments(cwd, "login", [{ id: "aaa111" }]);
-	const history = createDesignHistoryStore(join(cwd, "design"));
-	await history.observe("login", "01-a.html");
-	writeFileSync(join(cwd, "design", "login", "01-a.html"), "<h1>A, bigger</h1>");
-	await history.observe("login", "01-a.html");
-	await resolveWith(cwd, { ids: ["aaa111"], note: "Bigger title." });
-	const versions = (await historyOf(cwd)).artboards["01-a.html"].versions;
-	assert.deepEqual(versions.map((version) => [version.n, version.source, version.comment, version.note]), [[1, "hand", undefined, undefined], [2, "agent", "aaa111", "Bigger title."]]);
-});
-
-test("S5: a version already tagged with another comment is left alone, and the comment still keeps its resolution", async () => {
-	const cwd = scratchCwd();
-	writeDesign(cwd, "login", "Login screen");
-	seedComments(cwd, "login", [{ id: "aaa111" }, { id: "bbb222" }]);
-	const history = createDesignHistoryStore(join(cwd, "design"));
-	await history.observe("login", "01-a.html");
-	await history.annotate("login", "01-a.html", 1, { source: "agent", comment: "bbb222", note: "Earlier reply." });
-	const indexBefore = readFileSync(join(cwd, "design", "login", ".history", "index.json"), "utf8");
-	const result = await resolveWith(cwd, { ids: ["aaa111"], note: "Another reply." });
-	assert.match(toolText(result), /Resolved 1 comment/);
-	assert.equal(readFileSync(join(cwd, "design", "login", ".history", "index.json"), "utf8"), indexBefore);
-	assert.equal(storedComments(cwd)[0].resolution, "Another reply.");
-});
-
-test("S5: two comments resolved at once on one artboard: the first tags the version, the second leaves it alone", async () => {
+test("S5: two comments resolved at once on one artboard both keep the note", async () => {
 	const cwd = scratchCwd();
 	writeDesign(cwd, "login", "Login screen");
 	seedComments(cwd, "login", [{ id: "aaa111" }, { id: "bbb222" }]);
 	await resolveWith(cwd, { ids: ["aaa111", "bbb222"], note: "Both done." });
-	const versions = (await historyOf(cwd)).artboards["01-a.html"].versions;
-	assert.equal(versions.length, 1);
-	assert.deepEqual([versions[0].source, versions[0].comment, versions[0].note], ["agent", "aaa111", "Both done."]);
 	assert.deepEqual(storedComments(cwd).map((comment: { resolution?: string }) => comment.resolution), ["Both done.", "Both done."]);
 });
 
-test("S5: a note over 500 characters is refused and neither comments.json nor the history changes", async () => {
+test("S5: a note over 500 characters is refused and comments.json does not change", async () => {
 	const cwd = scratchCwd();
 	writeDesign(cwd, "login", "Login screen");
 	seedComments(cwd, "login", [{ id: "aaa111" }]);
@@ -813,7 +774,6 @@ test("S5: a note over 500 characters is refused and neither comments.json nor th
 	const before = readFileSync(path, "utf8");
 	await assert.rejects(resolveWith(cwd, { ids: ["aaa111"], note: "x".repeat(501) }), /500/);
 	assert.equal(readFileSync(path, "utf8"), before);
-	assert.deepEqual(await historyOf(cwd), { version: 1, artboards: {} });
 	const kept = await resolveWith(cwd, { ids: ["aaa111"], note: "y".repeat(500) });
 	assert.match(toolText(kept), /Resolved 1 comment/);
 	assert.equal(storedComments(cwd)[0].resolution.length, 500);
@@ -828,39 +788,6 @@ test("S5: resolve without a note still works and stores no resolution", async ()
 	assert.deepEqual(result.details, { slug: "login", resolved: ["aaa111"], unknown: [] });
 	assert.equal(storedComments(cwd)[0].status, "resolved");
 	assert.equal("resolution" in storedComments(cwd)[0], false);
-});
-
-test("S5: a history failure does not fail the resolve: it is reported as a warning line", async () => {
-	const cwd = scratchCwd();
-	writeDesign(cwd, "login", "Login screen");
-	seedComments(cwd, "login", [{ id: "aaa111" }]);
-	mkdirSync(join(cwd, "design", "login", ".history"));
-	writeFileSync(join(cwd, "design", "login", ".history", "index.json"), "{ broken");
-	const result = await resolveWith(cwd, { ids: ["aaa111"], note: "Done." });
-	const lines = toolText(result).split("\n");
-	assert.match(lines[0], /^Resolved 1 comment/);
-	assert.ok(lines.some((line) => /^Warning: .*01-a\.html.*index\.json/.test(line)), toolText(result));
-	assert.equal(storedComments(cwd)[0].status, "resolved");
-	assert.equal(storedComments(cwd)[0].resolution, "Done.");
-	assert.equal(readFileSync(join(cwd, "design", "login", ".history", "index.json"), "utf8"), "{ broken", "a corrupt index is left untouched");
-});
-
-test("S5: a comment on a missing or linked artboard, or one the manifest does not list, resolves with a warning", async () => {
-	const cwd = scratchCwd();
-	writeDesign(cwd, "login", "Login screen");
-	writeFileSync(join(cwd, "design", "login", "design.json"), JSON.stringify({ title: "L", brief: "b", artboards: [
-		{ file: "01-a.html", title: "A", tradeoff: "t", width: 800, height: 600 },
-		{ file: "02-gone.html", title: "G", tradeoff: "t", width: 800, height: 600 },
-		{ file: "03-link.html", title: "K", tradeoff: "t", width: 800, height: 600 },
-	] }));
-	symlinkSync(join(cwd, "design", "login", "01-a.html"), join(cwd, "design", "login", "03-link.html"));
-	seedComments(cwd, "login", [{ id: "aaa111", file: "02-gone.html" }, { id: "bbb222", file: "03-link.html" }, { id: "ccc333", file: "09-unlisted.html" }]);
-	const result = await resolveWith(cwd, { ids: ["aaa111", "bbb222", "ccc333"], note: "Done." });
-	const text = toolText(result);
-	assert.match(text, /^Resolved 3 comments/);
-	for (const file of ["02-gone.html", "03-link.html", "09-unlisted.html"]) assert.ok(text.split("\n").some((line) => line.startsWith("Warning: ") && line.includes(file)), `${file}: ${text}`);
-	assert.deepEqual(storedComments(cwd).map((comment: { status: string; resolution: string }) => [comment.status, comment.resolution]), [["resolved", "Done."], ["resolved", "Done."], ["resolved", "Done."]]);
-	assert.deepEqual(await historyOf(cwd), { version: 1, artboards: {} }, "nothing was stored for these artboards");
 });
 
 test("S5: the hint that lists open comments asks for a one-line note when resolving", async () => {

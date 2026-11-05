@@ -1263,8 +1263,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .gd-panel[hidden] { display: none; }
 
-/* Tabs: Comments N / Resolved N / History N / Checks N / Brief */
-/* The tabs (Comments, Quality, Mix) and More beside them can be wider than the panel: the row stays one line and scrolls rather than
+/* The tabs (Comments, Quality, Mix) can be wider than the panel: the row stays one line and scrolls rather than
    squeezing labels and counts into each other; an arrow on each edge with tabs behind it scrolls toward that side.
    The bottom line is an inset shadow on the bar because a scrolling row clips anything drawn below it. */
 .gd-tabs-bar {
@@ -1329,12 +1328,6 @@ button:disabled { opacity: 0.5; cursor: default; }
 	white-space: nowrap;
 }
 
-/* More (History, Original request): a menu button beside the tablist, underlined while one of its views shows. */
-/* More is an icon (⋯) with a visually hidden name and a tooltip, so the tabs keep the room. */
-.gd-tab-more { margin: 8px 6px 0 0; }
-.gd-tab-more[aria-expanded="true"] { color: var(--text); background: var(--surface-2); }
-.gd-tab-more.gd-tab-more-current { color: var(--text); border-bottom-color: var(--accent); }
-
 .gd-count {
 	padding: 0 6px;
 	border-radius: var(--radius-pill);
@@ -1376,8 +1369,6 @@ button:disabled { opacity: 0.5; cursor: default; }
 /* The Comments tab's Open / Resolved filter: the segmented control of the size bar. */
 .gd-comment-filter { align-self: flex-start; }
 .gd-comment-filter[hidden] { display: none; }
-
-.gd-brief { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 
 /* Mix: the picks by artboard, then Structure from and Create combined direction. */
 .gd-mix { display: flex; flex-direction: column; gap: 12px; }
@@ -1432,8 +1423,6 @@ button:disabled { opacity: 0.5; cursor: default; }
 .gd-mix-base select { flex: 1; min-width: 0; color: var(--text); }
 .gd-mix-foot .gd-primary { width: 100%; min-height: 40px; }
 .gd-mix-clear { align-self: flex-start; }
-.gd-brief-title { margin: 0; font-size: 15px; }
-.gd-brief-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* Handoff timeline */
 .gd-handoff-panel {
@@ -1662,7 +1651,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .gd-badge-detached { color: var(--error); }
 .gd-badge-sent { color: var(--success); }
 
-/* The agent's note on a resolved comment: the same reply look as in History. */
+/* The agent's note on a resolved comment. */
 .gd-comment-reply {
 	margin: 0 12px 4px;
 	padding: 8px 10px;
@@ -1992,147 +1981,12 @@ kbd {
 .gd-dialog-note { margin: 12px 0 0; color: var(--text-muted); font-size: 12px; }
 .gd-dialog-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
 
-/* ---- version history (History tab) ---------------------------------------------------- */
-
-.gd-history { display: flex; flex-direction: column; gap: 8px; }
-.gd-history-title { font-size: 13px; font-weight: 600; }
-
-.gd-history-warning {
-	padding: 8px 10px;
-	border: 1px solid var(--warning-line);
-	border-radius: var(--radius-md);
-	color: var(--warning);
-	font-size: 12px;
-}
-
-.gd-history-empty, .gd-history-note { margin: 0; color: var(--text-muted); font-size: 12px; }
-
-.gd-version {
-	display: grid;
-	grid-template-columns: 14px minmax(0, 1fr);
-	gap: 10px;
-	padding: 10px;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-md);
-	background: var(--surface-1);
-	font-size: 13px;
-}
-
-.gd-version::before {
-	content: "";
-	width: 10px;
-	height: 10px;
-	margin-top: 4px;
-	border: 2px solid var(--text-faint);
-	border-radius: 50%;
-	box-sizing: border-box;
-}
-
-.gd-version-current { border-color: var(--accent-line); }
-.gd-version-current::before { background: var(--accent); border-color: var(--accent); }
-.gd-version-comparing { border-color: var(--info-line); }
-.gd-version-comparing::before { background: var(--info); border-color: var(--info); }
-
-.gd-version-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.gd-version-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; font-size: 13px; }
-.gd-version-tag { color: var(--text-muted); font-weight: 600; }
-.gd-version-current .gd-version-tag { color: var(--accent); }
-
-.gd-version-comparing-chip, .gd-version-applied {
-	padding: 0 8px;
-	border: 1px solid var(--info-line);
-	border-radius: var(--radius-pill);
-	color: var(--info);
-	font-size: 11px;
-	font-weight: 600;
-}
-
-.gd-version-applied { border-color: var(--success-line); color: var(--success); }
-.gd-version-meta { color: var(--text-muted); font-size: 12px; }
-.gd-version-note { margin-top: 2px; overflow-wrap: anywhere; }
-
-.gd-version-reply {
-	margin-top: 4px;
-	padding: 8px 10px;
-	border-radius: var(--radius-sm);
-	background: var(--wash);
-	font-size: 12px;
-	overflow-wrap: anywhere;
-}
-
-.gd-version-reply-label { margin-right: 4px; color: var(--success); font-weight: 700; }
-.gd-version-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-
-.gd-version-confirm {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 6px;
-	margin-top: 4px;
-	padding: 8px;
-	border: 1px solid var(--accent-line);
-	border-radius: var(--radius-md);
-}
-
-.gd-version-confirm-text { flex: 1 0 100%; font-size: 12px; }
-
-/* ---- version comparison (over the focused artboard) ----------------------------------- */
-
-.gd-versions {
-	position: absolute;
-	inset: 0;
-	z-index: 4;
-	display: flex;
-	flex-direction: column;
-	background: var(--bg);
-}
-
-/* Heights match VERSIONS_BAR and SIZES_HEAD in canvas.js, which size the panes. */
-.gd-versions-bar {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	flex: none;
-	height: 72px;
-	padding: 0 16px;
-	box-sizing: border-box;
-}
-
-.gd-versions-title { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
-.gd-versions-mode { flex: none; }
-.gd-versions-stage { display: flex; flex: 1 1 auto; justify-content: center; align-items: flex-start; min-height: 0; }
-
-.gd-versions-compare { position: relative; display: flex; gap: 20px; }
-.gd-versions-stage[data-mode="slider"] .gd-versions-compare { border-radius: var(--radius-sm); box-shadow: 0 0 0 2px var(--accent), var(--shadow-frame); }
-.gd-versions-stage[data-mode="slider"] .gd-versions-pane { position: absolute; inset: 0; }
-.gd-versions-stage[data-mode="side"] .gd-versions-pane { display: flex; flex-direction: column; gap: 8px; }
-
-.gd-versions-box { position: relative; overflow: hidden; border-radius: var(--radius-sm); background: var(--paper); }
-.gd-versions-stage[data-mode="side"] .gd-versions-box { box-shadow: var(--shadow-frame); }
-.gd-versions-scale { transform-origin: 0 0; }
-.gd-versions-frame { display: block; border: 0; background: var(--paper); }
-
-.gd-versions-label {
-	align-self: flex-start;
-	height: 20px;
-	padding: 0 10px;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-pill);
-	background: var(--surface);
-	color: var(--text);
-	font-size: 12px;
-	line-height: 20px;
-	white-space: nowrap;
-}
-
-.gd-versions-stage[data-mode="slider"] .gd-versions-label { position: absolute; top: 10px; z-index: 3; }
-.gd-versions-stage[data-mode="slider"] .gd-versions-pane-old .gd-versions-label { left: 10px; }
-.gd-versions-stage[data-mode="slider"] .gd-versions-pane-new .gd-versions-label { right: 10px; }
+/* ---- the split line of Compare's Slider mode ---- */
 
 /* The shield takes the drag over the frames; the handle shows the position and takes the keyboard. */
-.gd-versions-shield { position: absolute; inset: 0; z-index: 2; cursor: ew-resize; touch-action: none; }
+.gd-split-shield { position: absolute; inset: 0; z-index: 2; cursor: ew-resize; touch-action: none; }
 
-.gd-versions-handle {
+.gd-split-handle {
 	position: absolute;
 	top: 0;
 	bottom: 0;
@@ -2143,10 +1997,10 @@ kbd {
 	pointer-events: none;
 }
 
-.gd-versions-handle:focus-visible { outline: none; }
-.gd-versions-handle:focus-visible .gd-versions-knob { outline: 2px solid var(--text); outline-offset: 2px; }
+.gd-split-handle:focus-visible { outline: none; }
+.gd-split-handle:focus-visible .gd-split-knob { outline: 2px solid var(--text); outline-offset: 2px; }
 
-.gd-versions-knob {
+.gd-split-knob {
 	position: absolute;
 	top: 50%;
 	left: 50%;

@@ -29,7 +29,7 @@ const DesignCommentsParams = Type.Object({
 	slug: Type.Optional(Type.String({ description: "Design slug (directory under design/); required for resolve" })),
 	file: Type.Optional(Type.String({ description: "Artboard file within the design, such as 01-calm.html (list only)" })),
 	ids: Type.Optional(Type.Array(Type.String(), { maxItems: 500, description: "Comment ids to resolve" })),
-	note: Type.Optional(Type.String({ maxLength: 500, description: "resolve only: one line on what you changed, at most 500 characters; shown next to the comment and on the matching version in the canvas History" })),
+	note: Type.Optional(Type.String({ maxLength: 500, description: "resolve only: one line on what you changed, at most 500 characters; shown next to the comment in the canvas" })),
 });
 
 const DesignParams = Type.Object({

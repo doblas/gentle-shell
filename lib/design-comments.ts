@@ -14,7 +14,7 @@ export const DESIGN_COMMENT_LIMITS = Object.freeze({ comment: 2000, selector: 50
 /** The size a comment was made at (S7): whole CSS px, inclusive. */
 export const DESIGN_VIEWPORT_LIMITS = Object.freeze({ minWidth: 240, maxWidth: 4096, minHeight: 1, maxHeight: 20000 });
 
-/** The longest one-line note: the agent's reply on a resolved comment, and a version's note in the history. */
+/** The longest one-line note: the agent's reply on a resolved comment. */
 export const DESIGN_NOTE_LIMIT = 500;
 
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;

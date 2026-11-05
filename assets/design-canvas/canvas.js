@@ -32,7 +32,7 @@
 	const CLICK_SLOP = 4;
 	// The minimap: its map box in CSS px (canvas.css gives .gd-minimap-map the same size) and the pad kept free around the blocks.
 	const MINIMAP = { width: 204, height: 96, pad: 6, minBlock: 2 };
-	const LIMITS = { selector: 500, excerpt: 300, comment: 2000, variant: 2000, mixPicks: 20, pins: 500, tokens: 500, versions: 50, historyArtboards: 256, screenshotBytes: 5 * 1024 * 1024 };
+	const LIMITS = { selector: 500, excerpt: 300, comment: 2000, variant: 2000, mixPicks: 20, pins: 500, tokens: 500, screenshotBytes: 5 * 1024 * 1024 };
 	const SCREENSHOT_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 	const MODE_KEY = "gentle-design:send-mode";
 	// "on" shows the CSS selectors on cards and the token inspector; anything else (or nothing) is off.
@@ -74,7 +74,7 @@
 	const DELIVERY = { comment: true, batch: true, implement: true, variant: true, mix: true, part: true, ...(config.delivery && typeof config.delivery === "object" ? config.delivery : {}) };
 	// Suggestions in the "another direction" dialog: each fills the field with its own label.
 	const VARIANT_SUGGESTIONS = ["variant.compact", "variant.bolder", "variant.mobile", "variant.calmer"];
-	// The review panel's tabs; History and Original request ("history", "brief") are views its More menu opens in the panel.
+	// The review panel's tabs.
 	const TAB_NAMES = ["comments", "checks", "mix"];
 
 	/* catalog:start */
@@ -160,13 +160,10 @@
 			"panel.label": "Review",
 			"panel.toggleTitle": "Review panel (])",
 			"tab.comments": "Comments",
-			"tab.history": "History",
 			"tab.checks": "Quality",
 			"tab.mix": "Mix",
-			"tab.brief": "Original request",
 			"tabs.prev": "Earlier tabs",
 			"tabs.next": "More tabs",
-			"panel.more": "More",
 			"panel.comments": "Comments",
 			"panel.empty.none": "No comments yet",
 			"panel.empty.hint": "Open a direction and press “Comment” on whatever you want to change.",
@@ -186,8 +183,6 @@
 			"panel.sent.one": "Sent {count} comment to the session",
 			"panel.sent.other": "Sent {count} comments to the session",
 			"panel.noUnsent": "No unsent comments",
-			"brief.noDesign": "No design selected",
-			"brief.none": "No original request written.",
 			"comment.sent": "Sent",
 			"comment.waiting": "Waiting",
 			"comment.detached": "Detached",
@@ -457,38 +452,6 @@
 			"check.heading.title": "Heading level skipped",
 			"check.heading.detail.one": "h{level} \"{text}\" follows h{previous}: {missing} is missing.",
 			"check.heading.detail.other": "h{level} \"{text}\" follows h{previous}: {missing} are missing.",
-			"history.empty": "No versions of this artboard yet. The canvas keeps one when it first sees an artboard and whenever its file changes.",
-			"history.note": "Versions are kept in design/{slug}/.history/; Restore saves the current one first, so nothing is lost.",
-			"version.aria": "Version {n}",
-			"version.ariaCurrent": "Version {n} (current)",
-			"version.current": "Current",
-			"version.original": "Original",
-			"version.comparing": "Comparing",
-			"version.applied": "Applied #{number}",
-			"version.source.agent": "Agent",
-			"version.source.hand": "You",
-			"version.source.restore": "Restore",
-			"version.view": "View",
-			"version.viewAria": "View the current version, v{n}",
-			"version.compare": "Compare with current",
-			"version.compareAria": "Compare v{n} with the current version",
-			"version.restore": "Restore",
-			"version.restoreAria": "Restore v{n}",
-			"version.confirmAria": "Confirm restoring v{n}",
-			"version.confirmText": "Restore v{n}? The current version is saved first, so nothing is lost.",
-			"version.restored": "Restored v{n} as v{made}",
-			"version.same": "v{n} already has the current content, so nothing changed.",
-			"versions.group": "Comparison mode",
-			"versions.close": "Close comparison",
-			"versions.closeTitle": "Close comparison (Esc)",
-			"versions.title": "Compare versions · {title}",
-			"versions.frameOld": "{title} artboard, v{n}",
-			"versions.frameCurrent": "{title} artboard, current version",
-			"versions.valueText": "{pos}%: v{n} on the left, v{current} (current) on the right",
-			"versions.boxAria": "Comparison of v{n} and the current version of {title}",
-			"versions.labelCurrent": "v{n} · Current",
-			"versions.goneOld": "v{n} is no longer kept, so the comparison was closed.",
-			"versions.goneCurrent": "v{n} is now the current version, so the comparison was closed.",
 			"keys.navigate": "Move around the canvas",
 			"keys.comment": "Comment on an element",
 			"keys.or": "or",
@@ -515,8 +478,6 @@
 			"reason.too-many-handoffs": "This design has too many handoffs recorded. Remove old ones from handoffs.json, then try again.",
 			"reason.invalid-comments": "comments.json for this design is not valid, so it cannot be changed. Fix or remove the file, then try again.",
 			"reason.invalid-handoffs": "handoffs.json for this design is not valid, so it cannot be changed. Fix or remove the file, then try again.",
-			"reason.invalid-history": "The version history of this design cannot be used right now (its index or a version file is damaged, or the artboard is a link), so nothing was changed. Fix or remove what the detail names under .history, then try again.",
-			"reason.history-limit": "The history index is full, so this change was not recorded. Delete old versions from .history to make room, then try again.",
 			"reason.invalid-comment": "This comment was rejected by the server. Write 1 to 2000 characters and try again.",
 			"reason.invalid-handoff": "This handoff was rejected by the server. Reload the canvas and try again.",
 			"reason.invalid-screenshot": "The screenshot was rejected. Attach a PNG, JPEG, WebP or GIF image of at most 5 MB, or remove it.",
@@ -533,8 +494,6 @@
 			"reason.implement.delivery-failed": "The session did not accept the handoff, so it was not recorded. Check that the session is running, then use Implement this again.",
 			"reason.variant.delivery-failed": "The session did not accept the request, so nothing was sent. Check that the session is running, then use Send to the session again.",
 			"reason.mix.delivery-failed": "The session did not accept the request, so nothing was sent and your picks stay in the mix. Check that the session is running, then use Create combined direction again.",
-			"reason.restore.file-too-large": "The artboard is too large to save a copy before restoring (versions are limited to 8 MB), so nothing was changed. Make it smaller, then try again.",
-			"reason.restore.not-found": "That version is no longer kept, so nothing was changed. Choose another version.",
 		},
 		es: {
 			"common.cancel": "Cancelar",
@@ -615,13 +574,10 @@
 			"panel.label": "Revisión",
 			"panel.toggleTitle": "Panel de revisión (])",
 			"tab.comments": "Comentarios",
-			"tab.history": "Historial",
 			"tab.checks": "Calidad",
 			"tab.mix": "Mezcla",
-			"tab.brief": "Petición original",
 			"tabs.prev": "Pestañas anteriores",
 			"tabs.next": "Más pestañas",
-			"panel.more": "Más",
 			"panel.comments": "Comentarios",
 			"panel.empty.none": "Aún no hay comentarios",
 			"panel.empty.hint": "Abre una propuesta y pulsa «Comentar» sobre lo que quieras cambiar.",
@@ -641,8 +597,6 @@
 			"panel.sent.one": "Se envió {count} comentario a la sesión",
 			"panel.sent.other": "Se enviaron {count} comentarios a la sesión",
 			"panel.noUnsent": "No hay comentarios sin enviar",
-			"brief.noDesign": "Ningún diseño seleccionado",
-			"brief.none": "Aún no se ha escrito la petición original.",
 			"comment.sent": "Enviado",
 			"comment.waiting": "Esperando",
 			"comment.detached": "Desvinculado",
@@ -912,38 +866,6 @@
 			"check.heading.title": "Nivel de encabezado omitido",
 			"check.heading.detail.one": "h{level} \"{text}\" sigue a h{previous}: falta {missing}.",
 			"check.heading.detail.other": "h{level} \"{text}\" sigue a h{previous}: faltan {missing}.",
-			"history.empty": "Aún no hay versiones de este artboard. El canvas guarda una cuando ve un artboard por primera vez y cada vez que cambia su archivo.",
-			"history.note": "Las versiones se guardan en design/{slug}/.history/; Restaurar guarda antes la actual, así que no se pierde nada.",
-			"version.aria": "Versión {n}",
-			"version.ariaCurrent": "Versión {n} (actual)",
-			"version.current": "Actual",
-			"version.original": "Original",
-			"version.comparing": "Comparando",
-			"version.applied": "Aplicado #{number}",
-			"version.source.agent": "Agente",
-			"version.source.hand": "Tú",
-			"version.source.restore": "Restauración",
-			"version.view": "Ver",
-			"version.viewAria": "Ver la versión actual, v{n}",
-			"version.compare": "Comparar con la actual",
-			"version.compareAria": "Comparar v{n} con la versión actual",
-			"version.restore": "Restaurar",
-			"version.restoreAria": "Restaurar v{n}",
-			"version.confirmAria": "Confirmar la restauración de v{n}",
-			"version.confirmText": "¿Restaurar v{n}? La versión actual se guarda antes, así que no se pierde nada.",
-			"version.restored": "v{n} restaurada como v{made}",
-			"version.same": "v{n} ya tiene el contenido actual, así que no cambió nada.",
-			"versions.group": "Modo de comparación",
-			"versions.close": "Cerrar comparación",
-			"versions.closeTitle": "Cerrar comparación (Esc)",
-			"versions.title": "Comparar versiones · {title}",
-			"versions.frameOld": "Artboard {title}, v{n}",
-			"versions.frameCurrent": "Artboard {title}, versión actual",
-			"versions.valueText": "{pos}%: v{n} a la izquierda, v{current} (actual) a la derecha",
-			"versions.boxAria": "Comparación de v{n} y la versión actual de {title}",
-			"versions.labelCurrent": "v{n} · Actual",
-			"versions.goneOld": "v{n} ya no se conserva, así que se cerró la comparación.",
-			"versions.goneCurrent": "v{n} es ahora la versión actual, así que se cerró la comparación.",
 			"keys.navigate": "Moverte por el lienzo",
 			"keys.comment": "Comentar un elemento",
 			"keys.or": "o",
@@ -970,8 +892,6 @@
 			"reason.too-many-handoffs": "Este diseño tiene demasiados handoffs registrados. Elimina los antiguos de handoffs.json y vuelve a intentarlo.",
 			"reason.invalid-comments": "comments.json de este diseño no es válido, así que no se puede modificar. Corrige o elimina el archivo y vuelve a intentarlo.",
 			"reason.invalid-handoffs": "handoffs.json de este diseño no es válido, así que no se puede modificar. Corrige o elimina el archivo y vuelve a intentarlo.",
-			"reason.invalid-history": "El historial de versiones de este diseño no se puede usar ahora (su índice o un archivo de versión está dañado, o el artboard es un enlace), así que no se cambió nada. Corrige o elimina lo que indica el detalle dentro de .history y vuelve a intentarlo.",
-			"reason.history-limit": "El índice del historial está lleno, así que este cambio no se registró. Elimina versiones antiguas de .history para hacer sitio y vuelve a intentarlo.",
 			"reason.invalid-comment": "El servidor rechazó este comentario. Escribe de 1 a 2000 caracteres y vuelve a intentarlo.",
 			"reason.invalid-handoff": "El servidor rechazó este handoff. Recarga el canvas y vuelve a intentarlo.",
 			"reason.invalid-screenshot": "Se rechazó la captura. Adjunta una imagen PNG, JPEG, WebP o GIF de 5 MB como máximo, o quítala.",
@@ -988,8 +908,6 @@
 			"reason.implement.delivery-failed": "La sesión no aceptó el handoff, así que no se registró. Comprueba que la sesión esté en marcha y usa Implementar esto de nuevo.",
 			"reason.variant.delivery-failed": "La sesión no aceptó la solicitud, así que no se envió nada. Comprueba que la sesión esté en marcha y usa Enviar a la sesión de nuevo.",
 			"reason.mix.delivery-failed": "La sesión no aceptó la solicitud, así que no se envió nada y tus selecciones siguen en la mezcla. Comprueba que la sesión esté en marcha y usa Crear propuesta combinada de nuevo.",
-			"reason.restore.file-too-large": "El artboard es demasiado grande para guardar una copia antes de restaurar (las versiones están limitadas a 8 MB), así que no se cambió nada. Redúcelo e inténtalo de nuevo.",
-			"reason.restore.not-found": "Esa versión ya no se conserva, así que no se cambió nada. Elige otra versión.",
 		},
 	};
 	/* catalog:end */
@@ -1133,14 +1051,6 @@
 		tabs: $("gd-tabs"),
 		tabsPrev: $("gd-tabs-prev"),
 		tabsNext: $("gd-tabs-next"),
-		panelMore: $("gd-panel-more"),
-		history: $("gd-history"),
-		versions: $("gd-versions"),
-		versionsTitle: $("gd-versions-title"),
-		versionsModeSlider: $("gd-versions-mode-slider"),
-		versionsModeSide: $("gd-versions-mode-side"),
-		versionsClose: $("gd-versions-close"),
-		versionsStage: $("gd-versions-stage"),
 		tabChecks: $("gd-tab-checks"),
 		countChecks: $("gd-count-checks"),
 		checks: $("gd-checks"),
@@ -1162,10 +1072,6 @@
 		mixShow: $("gd-popover-show-mix"),
 		countOpen: $("gd-count-open"),
 		tabPanel: $("gd-tabpanel"),
-		brief: $("gd-brief"),
-		briefTitle: $("gd-brief-title"),
-		briefText: $("gd-brief-text"),
-		briefFeature: $("gd-brief-feature"),
 		handoffPanel: $("gd-handoff-panel"),
 		work: $("gd-work"),
 		handoffTitle: $("gd-handoff-title"),
@@ -1275,7 +1181,7 @@
 		shotToken: 0,
 		closeTimer: 0,
 		comments: [],
-		// The review tab (TAB_NAMES) or More view ("history", "brief"), and which comments the Comments tab lists: "open", "resolved" or "all".
+		// The review tab (TAB_NAMES), and which comments the Comments tab lists: "open", "resolved" or "all".
 		tab: "comments",
 		filter: "open",
 		mode: storedMode(),
@@ -1288,7 +1194,7 @@
 		parts: { slug: null, parts: [] },
 		activeId: null,
 		designCount: 0,
-		// The minimap's switch (M); it also hides in focus mode, Compare and a version comparison.
+		// The minimap's switch (M); it also hides in focus mode and Compare.
 		minimap: true,
 		// The open artboard menu: { board, button, items, actions }, or null.
 		menu: null,
@@ -1304,18 +1210,6 @@
 		savedPanel: null,
 		// The size shown while focused: { kind: "phone" | "tablet" | "desktop" | "all" }, or { kind: "custom", width }.
 		size: { kind: "desktop" },
-		// The open version comparison: { board, n, mode, pos, enteredFocus, ... }, or null.
-		vcompare: null,
-		// The history of design `slug`: Map of artboard file to its versions (oldest first), the reply's warnings, and a load error.
-		history: { slug: null, artboards: new Map(), warnings: [], error: null },
-		historyPending: null,
-		historyAgain: false,
-		historyAlert: null,
-		// The version whose restore is being confirmed ({ slug, file, n }), a failed restore's reply, and what to focus next.
-		restoreAsk: null,
-		restoreBusy: false,
-		restoreError: null,
-		historyFocus: null,
 		// The project's design tokens (design/system.md), for the inspector: [{ name, value, section, group }].
 		tokens: [],
 		// The ring Show draws around a finding's element: { board, issue, ring, label, card }, or null. One at a time.
@@ -1533,7 +1427,7 @@
 	const rounded = (value) => `${Number(value.toFixed(2))}px`;
 
 	function minimapVisible() {
-		return state.minimap && !state.focus && !state.compare && !state.vcompare && allBoards().length > 0;
+		return state.minimap && !state.focus && !state.compare && allBoards().length > 0;
 	}
 
 	function minimapBlock(entry) {
@@ -1838,7 +1732,6 @@
 		els.design.disabled = Boolean(focused) || state.designCount === 0;
 		els.back.hidden = !focused;
 		els.compareApp.disabled = Boolean(state.compare);
-		renderHistory();
 		renderNavMode();
 		renderMinimap();
 		renderGuide(false);
@@ -1855,7 +1748,6 @@
 
 	function enterFocus(board) {
 		if (state.focus === board) return;
-		if (state.vcompare && state.vcompare.board !== board) closeVersionCompare(false, false);
 		if (!state.focus) {
 			state.savedView = { zoom: state.zoom, x: state.x, y: state.y };
 			// The artboard keeps its designed width at 100%; hiding the panel gains room for it.
@@ -1874,7 +1766,6 @@
 
 	function exitFocus() {
 		if (!state.focus) return;
-		closeVersionCompare(false, false);
 		closePopover();
 		state.focus = null;
 		state.size = { kind: "desktop" };
@@ -2629,7 +2520,6 @@
 		if (action.icon) item.append(icon(action.icon, "gd-i gd-i-s"));
 		item.append(chip("gd-menu-label", t(action.label)));
 		if (checkable) item.append(icon("i-check", "gd-i gd-i-s gd-menu-check"));
-		if (typeof action.count === "number") item.append(chip("gd-count", String(action.count)));
 		// A single-key shortcut that does the same, shown at the end of the item.
 		if (action.shortcut) {
 			item.setAttribute("aria-keyshortcuts", action.shortcut);
@@ -2878,18 +2768,6 @@
 		setCompareView(state.compareMode);
 	}
 
-	function renderVersionText() {
-		const compare = state.vcompare;
-		if (!compare) return;
-		const { title } = compare.board.artboard;
-		compare.older.frame.title = t("versions.frameOld", { title, n: compare.n });
-		compare.current.frame.title = t("versions.frameCurrent", { title });
-		compare.handle.setAttribute("aria-label", t("compare.position"));
-		els.versionsTitle.textContent = t("versions.title", { title });
-		renderVersionLabels();
-		setSlider(compare.pos);
-	}
-
 	/**
 	 * The whole page in the current language, live: <html lang>, the code on the button, everything marked with a key (index.html and
 	 * what loc wrote), then what is built from state. No artboard frame is touched, so nothing reloads.
@@ -2904,11 +2782,9 @@
 		renderConnection();
 		renderComments();
 		renderHandoffs();
-		renderBrief();
 		for (const board of state.boards) board.implement.refresh();
 		if (state.focus) renderSizeControl(state.focus);
 		renderCompareText();
-		renderVersionText();
 		renderMark();
 		renderGuide(false);
 		if (state.inspect && !els.inspector.hidden) showInspector(state.inspect.surface, state.inspect.measure);
@@ -3217,7 +3093,6 @@
 		renderCompareApp();
 		renderTimeline();
 		renderParts();
-		renderHistory();
 		// After Compare with app: the help points at it once it shows.
 		renderGuide(false);
 	}
@@ -3808,18 +3683,6 @@
 		els.feature.textContent = feature;
 		els.feature.hidden = !feature;
 		els.featureSep.hidden = !feature;
-		els.briefFeature.textContent = feature;
-		els.briefFeature.hidden = !feature;
-	}
-
-	/** The Brief tab: the design's title, brief and feature document. */
-	function renderBrief() {
-		const manifest = state.manifest;
-		if (manifest) setRaw(els.briefTitle, manifest.title);
-		else loc(els.briefTitle, "text", "brief.noDesign");
-		if (manifest && typeof manifest.brief === "string" && manifest.brief) setRaw(els.briefText, manifest.brief);
-		else if (manifest) loc(els.briefText, "text", "brief.none");
-		else setRaw(els.briefText, "");
 	}
 
 	/** No design selected: only the system board, or the empty notice. */
@@ -3827,7 +3690,6 @@
 		state.manifest = null;
 		state.boards = [];
 		showFeature(null);
-		renderBrief();
 		if (!state.systemBoard) {
 			showEmpty("empty.noDesigns");
 			return;
@@ -3855,7 +3717,6 @@
 		state.placeholder = null;
 		state.manifest = manifest;
 		showFeature(manifest);
-		renderBrief();
 		document.title = `${manifest.title} · Gentle Design`;
 		history.replaceState(null, "", `${base}d/${encodeURIComponent(slug)}/`);
 		if (manifest.artboards.length === 0 && !state.systemBoard) {
@@ -3879,7 +3740,6 @@
 		await loadHandoffs();
 		await loadParts();
 		await loadComments();
-		loadHistory().catch(() => {});
 	}
 
 	function reloadBoard(board) {
@@ -3942,7 +3802,6 @@
 	els.design.addEventListener("change", () => {
 		exitCompare(false);
 		state.slug = els.design.value;
-		resetHistory();
 		loadManifest(state.slug, false);
 	});
 
@@ -3962,7 +3821,6 @@
 			state.comments = [];
 			state.activeId = null;
 			useMix(slug);
-			resetHistory();
 			renderComments();
 		}
 		if (!(await refreshSystem()) && state.systemBoard) reloadBoard(state.systemBoard);
@@ -4014,13 +3872,6 @@
 			if (request.slug !== null && !(typeof request.slug === "string" && /^[a-z0-9][a-z0-9-]*$/.test(request.slug))) return;
 			showDesign(request.slug).catch(() => {});
 		});
-		// design/<slug>/.history changed (a version was stored): refresh the list of that design.
-		source.addEventListener("history", (event) => {
-			let change;
-			try { change = JSON.parse(event.data); } catch { return; }
-			if (!change || typeof change !== "object" || typeof change.slug !== "string" || change.slug !== state.slug) return;
-			loadHistory().catch(() => {});
-		});
 		source.addEventListener("change", (event) => {
 			let change;
 			try { change = JSON.parse(event.data); } catch { return; }
@@ -4054,7 +3905,6 @@
 				return;
 			}
 			if (state.compare && state.compare.board.artboard.file === change.file) state.compare.artboardFrame.src = `${boardUrl(state.compare.board)}?v=${Date.now()}`;
-			if (state.vcompare && state.vcompare.board.artboard.file === change.file) state.vcompare.current.frame.src = `${boardUrl(state.vcompare.board)}?v=${Date.now()}`;
 			const matching = state.boards.filter((board) => board.artboard.file === change.file);
 			// A shared asset (CSS, image, font) can affect every artboard of the design.
 			const targets = matching.length > 0 ? matching : change.file.endsWith(".html") ? [] : state.boards;
@@ -4757,306 +4607,10 @@
 		els.text.value = text.slice(0, LIMITS.comment);
 	}
 
-	// ---- version history ----------------------------------------------------------
-	// design/<slug>/.history keeps earlier versions of every artboard (lib/design-history.ts). The History tab lists the
-	// versions of one artboard: the focused one, else the chosen one, else the first. Compare puts an older version and the
-	// current artboard over each other (a slider) or next to each other; Restore writes a version back through the server.
-	// The frames of a comparison run sandboxed like artboards but are never registered as message sources: nothing they post is trusted.
+	// ---- the split line of Compare's Slider mode
 
-	const VERSION_SOURCES = ["agent", "hand", "restore"];
-	// Room above a comparison for its bar; below it the Back to canvas button keeps BACK_SPACE.
-	const VERSIONS_BAR = 72;
-	const VERSIONS_GAP = 20;
 	const SLIDER_STEP = 2;
 	const SLIDER_BIG_STEP = 10;
-
-	/** `history/<slug>/<n>/<file>`: version n of an artboard, served read-only like an artboard. */
-	function versionUrl(slug, n, file) {
-		return `${base}history/${encodeURIComponent(slug)}/${n}/${file.split("/").map(encodeURIComponent).join("/")}`;
-	}
-
-	async function getReply(path) {
-		let response;
-		try {
-			response = await fetch(base + path, { headers: { Accept: "application/json" }, cache: "no-store" });
-		} catch (error) {
-			return { status: 0, ok: false, body: { error: "network", reason: typeof error?.message === "string" ? error.message : String(error) } };
-		}
-		let body = null;
-		try { body = await response.json(); } catch { body = null; }
-		return { status: response.status, ok: response.ok, body: body || {} };
-	}
-
-	/** A GET history reply checked field by field; null when it is not one. */
-	function readHistory(body) {
-		if (!body || typeof body !== "object" || !body.artboards || typeof body.artboards !== "object" || Array.isArray(body.artboards)) return null;
-		const artboards = new Map();
-		for (const [file, entry] of Object.entries(body.artboards).slice(0, LIMITS.historyArtboards)) {
-			const list = entry && Array.isArray(entry.versions) ? entry.versions.slice(0, LIMITS.versions) : [];
-			const versions = [];
-			for (const item of list) {
-				if (!item || !Number.isInteger(item.n) || item.n < 1 || typeof item.createdAt !== "string" || !VERSION_SOURCES.includes(item.source)) continue;
-				const version = { n: item.n, createdAt: item.createdAt.slice(0, 64), source: item.source };
-				if (typeof item.comment === "string" && item.comment.length <= 32) version.comment = item.comment;
-				if (typeof item.note === "string" && item.note) version.note = item.note.slice(0, 500);
-				versions.push(version);
-			}
-			if (versions.length > 0) artboards.set(file, versions.sort((a, b) => a.n - b.n));
-		}
-		const warnings = Array.isArray(body.warnings) ? body.warnings.filter((text) => typeof text === "string" && text).slice(0, 10).map((text) => text.slice(0, 300)) : [];
-		return { artboards, warnings };
-	}
-
-	function resetHistory() {
-		state.history = { slug: null, artboards: new Map(), warnings: [], error: null };
-		state.restoreAsk = null;
-		state.restoreError = null;
-		renderHistory();
-	}
-
-	/** One load at a time; a request that arrives meanwhile (a burst of history events) runs once more afterwards. */
-	function loadHistory() {
-		if (!state.slug) return Promise.resolve();
-		if (state.historyPending) {
-			state.historyAgain = true;
-			return state.historyPending;
-		}
-		const run = (async () => {
-			do {
-				state.historyAgain = false;
-				await fetchHistory();
-			} while (state.historyAgain);
-		})().finally(() => { state.historyPending = null; });
-		state.historyPending = run;
-		return run;
-	}
-
-	async function fetchHistory() {
-		const slug = state.slug;
-		const reply = await getReply(`api/designs/${encodeURIComponent(slug)}/history`);
-		if (slug !== state.slug) return;
-		const parsed = reply.ok ? readHistory(reply.body) : null;
-		const same = state.history.slug === slug;
-		if (parsed) state.history = { slug, artboards: parsed.artboards, warnings: parsed.warnings, error: null };
-		// A failed reload keeps the last good list and says why in the tab.
-		else state.history = { slug, artboards: same ? state.history.artboards : new Map(), warnings: same ? state.history.warnings : [], error: reply.ok ? { status: 500, body: { error: "internal" } } : reply };
-		renderHistory();
-		refreshVersionCompare();
-	}
-
-	/** The artboard whose history the tab shows: the focused one, else the chosen one, else the first. */
-	function historyBoard() {
-		if (state.focus && !state.focus.system) return state.focus;
-		return chosenBoard() ?? state.boards[0] ?? null;
-	}
-
-	function boardVersions(board) {
-		if (!board || state.history.slug !== state.slug) return [];
-		return state.history.artboards.get(board.artboard.file) ?? [];
-	}
-
-	function versionLabelTime(version) {
-		return shortTime(version.createdAt);
-	}
-
-	function renderHistory() {
-		const board = historyBoard();
-		const versions = boardVersions(board);
-		if (state.tab !== "history") return;
-		if (!state.historyAlert) {
-			state.historyAlert = createAlert();
-			state.historyAlert.onDismiss = () => {
-				state.restoreError = null;
-				state.history.error = null;
-			};
-		}
-		const keyed = new Map();
-		const wanted = state.historyFocus ?? (els.history.contains(document.activeElement) ? document.activeElement.dataset.key : null);
-		state.historyFocus = null;
-		const alertReply = state.restoreError ?? state.history.error;
-		if (alertReply) showAlert(state.historyAlert, alertReply, state.restoreError ? "restore" : undefined);
-		else hideAlert(state.historyAlert);
-		const parts = [];
-		if (board) parts.push(chip("gd-history-title", `${String(board.number).padStart(2, "0")} ${board.artboard.title}`));
-		parts.push(state.historyAlert.root);
-		for (const warning of state.history.slug === state.slug ? state.history.warnings : []) parts.push(chip("gd-history-warning", warning));
-		if (board && versions.length === 0) parts.push(chip("gd-history-empty", t("history.empty")));
-		const newest = versions[versions.length - 1];
-		for (let index = versions.length - 1; index >= 0; index--) parts.push(versionCard(board, versions[index], newest, keyed));
-		if (board) {
-			const note = document.createElement("p");
-			note.className = "gd-history-note";
-			note.textContent = t("history.note", { slug: state.slug });
-			parts.push(note);
-		}
-		els.history.replaceChildren(...parts);
-		if (wanted) keyed.get(wanted)?.focus();
-	}
-
-	/** One version of the artboard: number, who and when, the comment it applied, the note, and its actions. */
-	function versionCard(board, version, newest, keyed) {
-		const current = version.n === newest.n;
-		const comparing = Boolean(state.vcompare && state.vcompare.board === board && state.vcompare.n === version.n);
-		const card = document.createElement("article");
-		card.className = "gd-version";
-		card.classList.toggle("gd-version-current", current);
-		card.classList.toggle("gd-version-comparing", comparing);
-		card.dataset.n = String(version.n);
-		card.setAttribute("aria-label", t(current ? "version.ariaCurrent" : "version.aria", { n: version.n }));
-		const title = document.createElement("h4");
-		title.className = "gd-version-title";
-		title.append(chip("gd-version-number", `v${version.n}`));
-		if (current) title.append(chip("gd-version-tag", t("version.current")));
-		else if (version.n === 1) title.append(chip("gd-version-tag", t("version.original")));
-		if (comparing) title.append(chip("gd-version-comparing-chip", t("version.comparing")));
-		const comment = version.comment ? state.comments.find((candidate) => candidate.id === version.comment) : null;
-		if (comment) title.append(chip("gd-version-applied", t("version.applied", { number: commentNumber(comment) })));
-		const time = versionLabelTime(version);
-		const body = document.createElement("div");
-		body.className = "gd-version-body";
-		const source = t(`version.source.${version.source}`);
-		body.append(title, chip("gd-version-meta", time ? `${source} · ${time}` : source));
-		if (version.note && version.source === "agent") {
-			const reply = document.createElement("div");
-			reply.className = "gd-version-reply";
-			reply.append(chip("gd-version-reply-label", t("comment.agent")), chip("gd-version-reply-text", version.note));
-			body.append(reply);
-		} else if (version.note) body.append(chip("gd-version-note", version.note));
-		const actions = document.createElement("div");
-		actions.className = "gd-version-actions";
-		const button = (className, label, iconName, aria, key, onClick) => {
-			const element = document.createElement("button");
-			element.type = "button";
-			element.className = `${className} gd-small`;
-			element.setAttribute("aria-label", aria);
-			element.dataset.key = key;
-			element.append(icon(iconName, "gd-i gd-i-s"), chip("", label));
-			element.addEventListener("click", onClick);
-			keyed.set(key, element);
-			actions.append(element);
-		};
-		if (current) button("gd-version-view", t("version.view"), "i-eye", t("version.viewAria", { n: version.n }), `view-${version.n}`, () => viewCurrent(board));
-		else {
-			button("gd-version-compare", t("version.compare"), "i-compare", t("version.compareAria", { n: version.n }), `compare-${version.n}`, () => startVersionCompare(board, version));
-			button("gd-version-restore", t("version.restore"), "i-restore", t("version.restoreAria", { n: version.n }), `restore-${version.n}`, () => askRestore(board, version));
-		}
-		const asking = state.restoreAsk && state.restoreAsk.slug === state.slug && state.restoreAsk.file === board.artboard.file && state.restoreAsk.n === version.n;
-		actions.hidden = Boolean(asking);
-		body.append(actions);
-		if (asking) body.append(restoreConfirm(board, version, keyed));
-		card.append(body);
-		return card;
-	}
-
-	function restoreConfirm(board, version, keyed) {
-		const box = document.createElement("div");
-		box.className = "gd-version-confirm";
-		box.setAttribute("role", "group");
-		box.setAttribute("aria-label", t("version.confirmAria", { n: version.n }));
-		const question = chip("gd-version-confirm-text", t("version.confirmText", { n: version.n }));
-		const yes = document.createElement("button");
-		yes.type = "button";
-		yes.className = "gd-version-confirm-restore gd-primary gd-small";
-		yes.textContent = t("version.restore");
-		yes.dataset.key = `confirm-${version.n}`;
-		yes.disabled = state.restoreBusy;
-		const no = document.createElement("button");
-		no.type = "button";
-		no.className = "gd-version-confirm-cancel gd-small";
-		no.textContent = t("common.cancel");
-		no.dataset.key = `cancel-${version.n}`;
-		const cancel = () => {
-			state.restoreAsk = null;
-			state.historyFocus = `restore-${version.n}`;
-			renderHistory();
-		};
-		yes.addEventListener("click", () => restoreVersion(board, version));
-		no.addEventListener("click", cancel);
-		box.addEventListener("keydown", (event) => {
-			if (event.key !== "Escape") return;
-			event.preventDefault();
-			event.stopPropagation();
-			cancel();
-		});
-		keyed.set(yes.dataset.key, yes);
-		keyed.set(no.dataset.key, no);
-		box.append(question, yes, no);
-		return box;
-	}
-
-	function askRestore(board, version) {
-		state.restoreAsk = { slug: state.slug, file: board.artboard.file, n: version.n };
-		state.restoreError = null;
-		state.historyFocus = `confirm-${version.n}`;
-		renderHistory();
-	}
-
-	/** Writes the version back through the server, which saves the current content first; the artboard then reloads. */
-	async function restoreVersion(board, version) {
-		const slug = state.slug;
-		const file = board.artboard.file;
-		state.restoreBusy = true;
-		state.restoreError = null;
-		renderHistory();
-		const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/history/restore`, { file, n: version.n });
-		state.restoreBusy = false;
-		state.restoreAsk = null;
-		if (slug !== state.slug) return;
-		if (!reply.ok) {
-			state.restoreError = reply;
-			state.historyFocus = `restore-${version.n}`;
-			renderHistory();
-			return;
-		}
-		const made = Number.isInteger(reply.body.version) ? reply.body.version : null;
-		showToast(made === null ? t("version.same", { n: version.n }) : t("version.restored", { n: version.n, made }), false);
-		reloadBoard(board);
-		state.historyFocus = null;
-		renderHistory();
-		await loadHistory();
-	}
-
-	/** View on the current version: the artboard itself, in focus mode. */
-	function viewCurrent(board) {
-		closeVersionCompare(false, false);
-		if (state.focus !== board) enterFocus(board);
-		else board.frame.focus();
-	}
-
-	// ---- comparing a version with the current artboard
-
-	function versionFrame(board, src, title) {
-		const frame = document.createElement("iframe");
-		frame.className = "gd-versions-frame";
-		frame.setAttribute("sandbox", "allow-scripts");
-		frame.setAttribute("referrerpolicy", "no-referrer");
-		frame.setAttribute("tabindex", "-1");
-		frame.title = title;
-		frame.style.width = `${board.artboard.width}px`;
-		frame.style.height = `${board.artboard.height}px`;
-		frame.src = src;
-		return frame;
-	}
-
-	/** A pane: its label, and a box clipping the scaled frame. */
-	function versionPane(kind, board, src, title) {
-		const root = document.createElement("div");
-		root.className = `gd-versions-pane gd-versions-pane-${kind}`;
-		const label = chip("gd-versions-label", "");
-		const box = document.createElement("div");
-		box.className = "gd-versions-box";
-		const scale = document.createElement("div");
-		scale.className = "gd-versions-scale";
-		scale.style.width = `${board.artboard.width}px`;
-		scale.style.height = `${board.artboard.height}px`;
-		const frame = versionFrame(board, src, title);
-		scale.append(frame);
-		box.append(scale);
-		root.append(label, box);
-		return { root, label, box, scale, frame };
-	}
-
-	// ---- the split line shared by the version comparison and Compare's Slider mode
 
 	/** A slider position, 0 to 100, to one decimal. */
 	function clampSlider(value) {
@@ -5066,7 +4620,7 @@
 	/** The vertical line with its knob: a named, focusable slider whose value the caller keeps (aria-valuenow and -valuetext). */
 	function splitHandle(label) {
 		const handle = document.createElement("div");
-		handle.className = "gd-versions-handle";
+		handle.className = "gd-split-handle";
 		handle.setAttribute("role", "slider");
 		handle.setAttribute("tabindex", "0");
 		handle.setAttribute("aria-label", label);
@@ -5074,7 +4628,7 @@
 		handle.setAttribute("aria-valuemin", "0");
 		handle.setAttribute("aria-valuemax", "100");
 		const knob = document.createElement("span");
-		knob.className = "gd-versions-knob";
+		knob.className = "gd-split-knob";
 		knob.setAttribute("aria-hidden", "true");
 		knob.textContent = "↔";
 		handle.append(knob);
@@ -5084,7 +4638,7 @@
 	/** Frames take pointer events themselves, so a transparent shield over them carries the drag. */
 	function splitShield() {
 		const shield = document.createElement("div");
-		shield.className = "gd-versions-shield";
+		shield.className = "gd-split-shield";
 		shield.setAttribute("aria-hidden", "true");
 		return shield;
 	}
@@ -5119,133 +4673,6 @@
 			move(next);
 		});
 	}
-
-	function startVersionCompare(board, version) {
-		const versions = boardVersions(board);
-		const newest = versions[versions.length - 1];
-		if (!newest || version.n === newest.n) return;
-		closeVersionCompare(false, false);
-		const enteredFocus = state.focus !== board;
-		if (enteredFocus) enterFocus(board);
-		closePopover();
-		const older = versionPane("old", board, versionUrl(state.slug, version.n, board.artboard.file), t("versions.frameOld", { title: board.artboard.title, n: version.n }));
-		const current = versionPane("new", board, boardUrl(board), t("versions.frameCurrent", { title: board.artboard.title }));
-		const box = document.createElement("div");
-		box.className = "gd-versions-compare";
-		box.setAttribute("role", "group");
-		const handle = splitHandle(t("compare.position"));
-		const shield = splitShield();
-		box.append(older.root, current.root, handle, shield);
-		const compare = { board, n: version.n, mode: "slider", pos: 50, enteredFocus, older, current, box, handle, shield };
-		state.vcompare = compare;
-		renderMinimap();
-		bindSplitInput({ shield, handle, box, position: () => compare.pos, move: setSlider });
-		els.versionsTitle.textContent = t("versions.title", { title: board.artboard.title });
-		els.versionsStage.replaceChildren(box);
-		els.versions.hidden = false;
-		els.world.inert = true;
-		setCompareMode("slider");
-		renderHistory();
-		handle.focus();
-	}
-
-	function setCompareMode(mode) {
-		const compare = state.vcompare;
-		if (!compare) return;
-		compare.mode = mode;
-		els.versionsStage.dataset.mode = mode;
-		els.versionsModeSlider.setAttribute("aria-pressed", String(mode === "slider"));
-		els.versionsModeSide.setAttribute("aria-pressed", String(mode === "side"));
-		compare.handle.hidden = mode !== "slider";
-		compare.shield.hidden = mode !== "slider";
-		layoutVersions();
-		setSlider(compare.pos);
-	}
-
-	/** The slider position, 0 to 100: where the line is; the older version shows left of it, the current one right of it. */
-	function setSlider(value) {
-		const compare = state.vcompare;
-		if (!compare) return;
-		compare.pos = clampSlider(value);
-		compare.current.box.style.clipPath = compare.mode === "slider" ? `inset(0 0 0 ${compare.pos}%)` : "";
-		compare.handle.style.left = `${compare.pos}%`;
-		compare.handle.setAttribute("aria-valuenow", String(compare.pos));
-		const versions = boardVersions(compare.board);
-		const newest = versions[versions.length - 1];
-		compare.handle.setAttribute("aria-valuetext", t("versions.valueText", { pos: compare.pos, n: compare.n, current: newest ? newest.n : "?" }));
-		compare.box.setAttribute("aria-label", t("versions.boxAria", { n: compare.n, title: compare.board.artboard.title }));
-	}
-
-	/** One scale for the frames, small enough to fit under the bar and above Back to canvas. */
-	function layoutVersions() {
-		const compare = state.vcompare;
-		if (!compare) return;
-		const viewport = els.viewport.getBoundingClientRect();
-		const { width, height } = compare.board.artboard;
-		const side = compare.mode === "side";
-		const panes = side ? 2 : 1;
-		const availableWidth = viewport.width - FOCUS_MARGIN * 2 - VERSIONS_GAP * (panes - 1);
-		const availableHeight = viewport.height - VERSIONS_BAR - BACK_SPACE - (side ? SIZES_HEAD : 0);
-		const scale = Math.max(MIN_SIZES_SCALE, Math.min(1, availableWidth / (width * panes), availableHeight / height));
-		for (const pane of [compare.older, compare.current]) {
-			pane.box.style.width = `${Math.round(width * scale)}px`;
-			pane.box.style.height = `${Math.round(height * scale)}px`;
-			pane.scale.style.transform = `scale(${scale})`;
-		}
-		compare.box.style.width = side ? "" : compare.older.box.style.width;
-		compare.box.style.height = side ? "" : compare.older.box.style.height;
-		renderVersionLabels();
-	}
-
-	function renderVersionLabels() {
-		const compare = state.vcompare;
-		if (!compare) return;
-		const versions = boardVersions(compare.board);
-		const older = versions.find((version) => version.n === compare.n);
-		const newest = versions[versions.length - 1];
-		const time = older ? versionLabelTime(older) : "";
-		compare.older.label.textContent = time ? `v${compare.n} · ${time}` : `v${compare.n}`;
-		compare.current.label.textContent = t("versions.labelCurrent", { n: newest ? newest.n : "?" });
-	}
-
-	/** After the history changed: the labels follow the newest version, and a comparison whose version is gone closes. */
-	function refreshVersionCompare() {
-		const compare = state.vcompare;
-		if (!compare) return;
-		const versions = boardVersions(compare.board);
-		const newest = versions[versions.length - 1];
-		if (!newest || !versions.some((version) => version.n === compare.n) || compare.n === newest.n) {
-			const gone = t(newest && compare.n !== newest.n ? "versions.goneOld" : "versions.goneCurrent", { n: compare.n });
-			closeVersionCompare(true);
-			showToast(gone, false);
-			return;
-		}
-		renderVersionLabels();
-		setSlider(compare.pos);
-	}
-
-	/**
-	 * Ends the comparison. `leaveFocus`: when it was the comparison that put the artboard in focus mode, that ends too.
-	 * `restoreFocus`: the keyboard goes back to the button that opened it.
-	 */
-	function closeVersionCompare(restoreFocus, leaveFocus = true) {
-		const compare = state.vcompare;
-		if (!compare) return;
-		state.vcompare = null;
-		renderMinimap();
-		els.versions.hidden = true;
-		els.versionsStage.replaceChildren();
-		els.world.inert = false;
-		// After exitFocus: it renders the history itself and then moves the keyboard to the viewport.
-		if (leaveFocus && compare.enteredFocus && state.focus === compare.board) exitFocus();
-		state.historyFocus = restoreFocus ? `compare-${compare.n}` : null;
-		renderHistory();
-		if (restoreFocus && state.focus === compare.board) compare.board.frame.focus();
-	}
-
-	els.versionsModeSlider.addEventListener("click", () => setCompareMode("slider"));
-	els.versionsModeSide.addEventListener("click", () => setCompareMode("side"));
-	els.versionsClose.addEventListener("click", () => closeVersionCompare(true));
 
 	// ---- comments ----------------------------------------------------------
 
@@ -5335,39 +4762,25 @@
 		els.filterAll.setAttribute("aria-pressed", String(state.filter === "all"));
 		// New counts change how wide the row is without resizing it.
 		updateTabFades();
-		// A More view (History, Original request) selects no tab; the first one then keeps the tablist in the tab order.
 		const tabIndex = TAB_NAMES.indexOf(state.tab);
 		TAB_NAMES.forEach((name, index) => {
 			const tab = tabButtons()[index];
 			tab.setAttribute("aria-selected", String(index === tabIndex));
-			tab.setAttribute("tabindex", index === Math.max(0, tabIndex) ? "0" : "-1");
+			tab.setAttribute("tabindex", index === tabIndex ? "0" : "-1");
 		});
-		if (tabIndex >= 0) {
-			els.tabPanel.setAttribute("aria-labelledby", tabButtons()[tabIndex].id);
-			loc(els.tabPanel, "aria-label", null);
-		} else {
-			const viewKey = state.tab === "history" ? "tab.history" : "tab.brief";
-			els.tabPanel.removeAttribute("aria-labelledby");
-			loc(els.tabPanel, "aria-label", viewKey);
-		}
-		els.panelMore.classList.toggle("gd-tab-more-current", tabIndex < 0);
+		els.tabPanel.setAttribute("aria-labelledby", tabButtons()[tabIndex].id);
 		const unsent = open.filter((comment) => comment.sentAt === null).length;
 		loc(els.sendAll, "text", "panel.sendAll", { count: unsent });
 		els.sendAll.disabled = unsent === 0 || !DELIVERY.batch;
 		loc(els.sendPending, "text", unsent > 0 ? plural("panel.pending", unsent) : null, { count: unsent });
 		els.sendPending.hidden = unsent === 0;
-		const brief = state.tab === "brief";
 		const checks = state.tab === "checks";
-		const history = state.tab === "history";
 		const mix = state.tab === "mix";
-		els.brief.hidden = !brief;
 		els.checks.hidden = !checks;
-		els.history.hidden = !history;
 		els.mix.hidden = !mix;
-		els.list.hidden = brief || checks || history || mix;
+		els.list.hidden = checks || mix;
 		els.commentFilter.hidden = state.tab !== "comments";
 		renderChecks();
-		renderHistory();
 		renderMix();
 		const shown = state.filter === "resolved" ? resolved : state.filter === "all" ? state.comments : open;
 		// No comments at all: how to add one; comments but none under this filter: one line.
@@ -5843,16 +5256,6 @@
 	els.filterResolved.addEventListener("click", () => setFilter("resolved"));
 	els.filterAll.addEventListener("click", () => setFilter("all"));
 
-	/** The review panel's More: History (with its count) and Original request, which open in the panel. */
-	function panelMoreActions() {
-		return [
-			{ label: "tab.history", count: boardVersions(historyBoard()).length, run: () => setTab("history") },
-			{ label: "tab.brief", run: () => setTab("brief") },
-		];
-	}
-
-	wireMenu(els.panelMore, (last) => showMenu(els.panelMore, panelMoreActions(), t("panel.more"), last));
-
 	/** The tab row scrolls when it is wider than the panel; each edge with tabs behind it fades and shows its arrow (L10, A2). */
 	function updateTabFades() {
 		const tabs = els.tabs;
@@ -5887,10 +5290,9 @@
 	tabButtons().forEach((tab, index) => tab.addEventListener("click", () => setTab(TAB_NAMES[index])));
 	// Arrow keys, Home and End move between the tabs, wrapping around.
 	els.tabs.addEventListener("keydown", (event) => {
-		// From a More view (no tab selected), ArrowRight comes back to the first tab and ArrowLeft to the last.
 		const current = TAB_NAMES.indexOf(state.tab);
 		const count = TAB_NAMES.length;
-		const next = { ArrowRight: (current + 1) % count, ArrowLeft: current < 0 ? count - 1 : (current + count - 1) % count, Home: 0, End: count - 1 }[event.key];
+		const next = { ArrowRight: (current + 1) % count, ArrowLeft: (current + count - 1) % count, Home: 0, End: count - 1 }[event.key];
 		if (next === undefined) return;
 		event.preventDefault();
 		setTab(TAB_NAMES[next]);
@@ -6133,12 +5535,6 @@
 	});
 	document.addEventListener("keydown", (event) => {
 		if (event.defaultPrevented || event.key !== "Escape") return;
-		// Esc and Shift+Esc close a version comparison first.
-		if (state.vcompare) {
-			event.preventDefault();
-			closeVersionCompare(true);
-			return;
-		}
 		if (event.shiftKey) {
 			if (state.compare) {
 				event.preventDefault();
@@ -6328,12 +5724,11 @@
 	window.addEventListener("resize", () => closeMenu(false));
 	window.addEventListener("resize", () => closeLangMenu(false));
 	window.addEventListener("resize", layoutCompare);
-	window.addEventListener("resize", layoutVersions);
 	window.addEventListener("resize", renderMinimap);
 	window.addEventListener("resize", updateTabFades);
 	window.addEventListener("resize", placeGuide);
 	// The viewport also changes size when the comments panel opens or closes.
-	if (typeof ResizeObserver === "function") new ResizeObserver(() => { centerFocus(); layoutVersions(); renderMinimap(); }).observe(els.viewport);
+	if (typeof ResizeObserver === "function") new ResizeObserver(() => { centerFocus(); renderMinimap(); }).observe(els.viewport);
 	// Fires once on observe, then when fonts or the panel change the row: the fades are right from the first layout.
 	if (typeof ResizeObserver === "function") new ResizeObserver(updateTabFades).observe(els.tabs);
 	else window.addEventListener("resize", () => centerFocus());

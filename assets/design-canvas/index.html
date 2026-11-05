@@ -25,7 +25,6 @@
 		<symbol id="i-tablet" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M11 18h2"/></symbol>
 		<symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
 		<symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
-		<symbol id="i-restore" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
 		<symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/></symbol>
 		<symbol id="i-palette" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="8" cy="10" r="1"/><circle cx="12" cy="7" r="1"/><circle cx="16" cy="10" r="1"/><path d="M12 21a3 3 0 0 1 0-6h2"/></symbol>
 		<symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
@@ -74,17 +73,6 @@
 		<main id="gd-viewport" class="gd-viewport" aria-label="Directions" data-i18n-aria-label="viewport.label" tabindex="0">
 			<div id="gd-world" class="gd-world"></div>
 			<p id="gd-empty" class="gd-empty" hidden></p>
-			<section id="gd-versions" class="gd-versions" aria-labelledby="gd-versions-title" hidden>
-				<div class="gd-versions-bar">
-					<h2 id="gd-versions-title" class="gd-versions-title"></h2>
-					<div class="gd-devices gd-versions-mode" role="group" aria-label="Comparison mode" data-i18n-aria-label="versions.group">
-						<button type="button" id="gd-versions-mode-slider" class="gd-size-button" aria-pressed="true" data-i18n="compare.slider">Slider</button>
-						<button type="button" id="gd-versions-mode-side" class="gd-size-button" aria-pressed="false" data-i18n="compare.side">Side by side</button>
-					</div>
-					<button type="button" id="gd-versions-close" class="gd-small" aria-keyshortcuts="Escape" title="Close comparison (Esc)" data-i18n-title="versions.closeTitle"><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-x"/></svg><span data-i18n="versions.close">Close comparison</span></button>
-				</div>
-				<div id="gd-versions-stage" class="gd-versions-stage"></div>
-			</section>
 			<button type="button" id="gd-back" class="gd-back" aria-keyshortcuts="Shift+Escape" title="Back to canvas (Shift+Esc)" data-i18n="back" data-i18n-title="back.title" hidden>Back to canvas</button>
 			<section id="gd-minimap" class="gd-minimap" aria-labelledby="gd-minimap-title">
 				<h2 id="gd-minimap-title" class="gd-minimap-title"><span data-i18n="minimap.title">Minimap</span><kbd aria-hidden="true">M</kbd></h2>
@@ -115,7 +103,6 @@
 					<button type="button" role="tab" id="gd-tab-mix" class="gd-tab" aria-selected="false" aria-controls="gd-tabpanel" tabindex="-1"><span data-i18n="tab.mix">Mix</span> <span id="gd-count-mix" class="gd-count">0</span></button>
 				</div>
 				<button type="button" id="gd-tabs-next" class="gd-tabs-arrow" tabindex="-1" aria-hidden="true" aria-label="More tabs" data-i18n-aria-label="tabs.next" data-i18n-title="tabs.next" title="More tabs" hidden><svg class="gd-i"><use href="#i-chevron-right"/></svg></button>
-				<button type="button" id="gd-panel-more" class="gd-tab gd-tab-more" aria-haspopup="menu" aria-expanded="false" aria-controls="gd-menu" title="More" data-i18n-title="panel.more"><span class="gd-visually-hidden" data-i18n="panel.more">More</span><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-more"/></svg></button>
 			</div>
 			<div id="gd-tabpanel" class="gd-panel-body" role="tabpanel" aria-labelledby="gd-tab-comments">
 				<div id="gd-comment-filter" class="gd-devices gd-comment-filter" role="group" aria-label="Show comments" data-i18n-aria-label="filter.label">
@@ -130,12 +117,6 @@
 				</div>
 				<p id="gd-panel-empty" class="gd-panel-empty" data-i18n="panel.empty.open" hidden>No open comments.</p>
 				<ol id="gd-comment-list" class="gd-comment-list" aria-label="Comments" data-i18n-aria-label="panel.comments"></ol>
-				<div id="gd-brief" class="gd-brief" hidden>
-					<h3 id="gd-brief-title" class="gd-brief-title"></h3>
-					<p id="gd-brief-text" class="gd-brief-text"></p>
-					<code id="gd-brief-feature" class="gd-feature" title="Feature document" data-i18n-title="bar.feature" hidden></code>
-				</div>
-				<div id="gd-history" class="gd-history" hidden></div>
 				<div id="gd-checks" class="gd-checks" hidden></div>
 				<div id="gd-mix" class="gd-mix" hidden>
 					<p id="gd-mix-empty" class="gd-panel-empty" data-i18n="mix.empty">Nothing in the mix yet. In Comment mode, click an element and choose Add to the mix: a container brings its whole section, an element only itself.</p>
