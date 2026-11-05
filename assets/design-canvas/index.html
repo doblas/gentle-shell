@@ -20,7 +20,6 @@
 		<symbol id="i-compare" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></symbol>
 		<symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></symbol>
 		<symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
-		<symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></symbol>
 		<symbol id="i-keys" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
 		<symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></symbol>
 		<symbol id="i-tablet" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M11 18h2"/></symbol>
@@ -44,7 +43,6 @@
 		<button type="button" id="gd-comment" class="gd-tool" aria-pressed="false" aria-keyshortcuts="C" title="Comment on an element (C)" data-i18n-title="rail.comment.title"><svg class="gd-i" aria-hidden="true"><use href="#i-comment"/></svg><span class="gd-tool-label" data-i18n="rail.comment">Comment</span></button>
 		<span class="gd-sep" aria-hidden="true"></span>
 		<button type="button" id="gd-rail-fit" class="gd-tool" aria-keyshortcuts="F" title="See all the directions (F)" data-i18n-title="rail.overview.title"><svg class="gd-i" aria-hidden="true"><use href="#i-fit"/></svg><span class="gd-tool-label" data-i18n="rail.overview">Overview</span></button>
-		<button type="button" id="gd-nav-toggle" class="gd-tool" aria-pressed="true" aria-controls="gd-nav" aria-keyshortcuts="[" title="Direction list ([)" data-i18n-title="rail.list.title"><svg class="gd-i" aria-hidden="true"><use href="#i-layers"/></svg><span class="gd-tool-label" data-i18n="rail.list">List</span></button>
 		<button type="button" id="gd-rail-more" class="gd-tool gd-bottom" aria-haspopup="menu" aria-expanded="false" aria-controls="gd-menu" title="More: design system and keyboard shortcuts" data-i18n-title="rail.more.title"><svg class="gd-i" aria-hidden="true"><use href="#i-more"/></svg><span class="gd-tool-label" data-i18n="rail.more">More</span></button>
 	</nav>
 	<header class="gd-bar" role="toolbar" aria-label="Design canvas controls" data-i18n-aria-label="bar.label">
@@ -58,7 +56,6 @@
 			<span id="gd-feature-sep" class="gd-crumb-sep" aria-hidden="true" hidden>/</span>
 			<code id="gd-feature" class="gd-feature" title="Feature document" data-i18n-title="bar.feature" hidden></code>
 		</div>
-		<nav id="gd-steps" class="gd-steps" aria-label="Steps" data-i18n-aria-label="steps.label"><ol id="gd-steps-list" class="gd-steps-list"></ol></nav>
 		<div id="gd-work" class="gd-work" role="status" aria-live="polite" hidden></div>
 		<span class="gd-spacer"></span>
 		<button type="button" id="gd-lang" class="gd-lang-button" aria-haspopup="menu" aria-expanded="false" aria-controls="gd-lang-menu" aria-label="Language (EN)" title="Language / Idioma" data-i18n-aria-label="lang.button" data-i18n-title="lang.title"><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-globe"/></svg><span id="gd-lang-code">EN</span></button>
@@ -74,12 +71,6 @@
 		<p id="gd-status" class="gd-status" role="status" aria-live="polite"></p>
 	</header>
 	<div class="gd-main">
-		<aside id="gd-nav" class="gd-nav" aria-labelledby="gd-nav-title">
-			<h2 id="gd-nav-title" class="gd-nav-title" data-i18n="nav.title">Directions · 0</h2>
-			<button type="button" id="gd-nav-discarded" class="gd-nav-discarded" aria-expanded="true" aria-controls="gd-nav-list" data-i18n="nav.hideDiscarded" hidden>Hide discarded (0)</button>
-			<ol id="gd-nav-list" class="gd-nav-list"></ol>
-			<p id="gd-nav-note" class="gd-nav-note" data-i18n="nav.note">Open a direction to comment on it, mix it or implement it.</p>
-		</aside>
 		<main id="gd-viewport" class="gd-viewport" aria-label="Directions" data-i18n-aria-label="viewport.label" tabindex="0">
 			<div id="gd-world" class="gd-world"></div>
 			<p id="gd-empty" class="gd-empty" hidden></p>
@@ -97,7 +88,7 @@
 			<button type="button" id="gd-back" class="gd-back" aria-keyshortcuts="Shift+Escape" title="Back to canvas (Shift+Esc)" data-i18n="back" data-i18n-title="back.title" hidden>Back to canvas</button>
 			<section id="gd-minimap" class="gd-minimap" aria-labelledby="gd-minimap-title">
 				<h2 id="gd-minimap-title" class="gd-minimap-title"><span data-i18n="minimap.title">Minimap</span><kbd aria-hidden="true">M</kbd></h2>
-				<div id="gd-minimap-map" class="gd-minimap-map" role="img" aria-label="Position of the visible area among the directions. Click or drag to move the view; use the direction list with the keyboard." data-i18n-aria-label="minimap.aria"><b id="gd-minimap-view" class="gd-minimap-view"></b></div>
+				<div id="gd-minimap-map" class="gd-minimap-map" role="img" aria-label="Position of the visible area among the directions. Click or drag to move the view; with the keyboard, use the Open button on each direction." data-i18n-aria-label="minimap.aria"><b id="gd-minimap-view" class="gd-minimap-view"></b></div>
 			</section>
 			<p id="gd-nav-mode" class="gd-nav-mode" role="status" aria-live="polite" data-i18n="mode.navigating">Moving around the canvas · wheel to zoom</p>
 			<section id="gd-inspector" class="gd-inspector" aria-labelledby="gd-inspector-title" hidden>
@@ -267,7 +258,6 @@
 			<dt><kbd>+</kbd> <kbd>-</kbd></dt><dd data-i18n="keys.zoom">Zoom in and out</dd>
 			<dt><kbd>&larr;</kbd> <kbd>&rarr;</kbd> <kbd>&uarr;</kbd> <kbd>&darr;</kbd></dt><dd data-i18n="keys.pan">Pan (Shift for larger steps)</dd>
 			<dt><kbd>M</kbd></dt><dd data-i18n="keys.minimap">Show or hide the minimap</dd>
-			<dt><kbd>[</kbd></dt><dd data-i18n="keys.nav">Show or hide the direction list</dd>
 			<dt><kbd>]</kbd></dt><dd data-i18n="keys.panel">Show or hide the review panel</dd>
 			<dt><kbd>Esc</kbd></dt><dd data-i18n="keys.esc">Leave Comment mode or close the comment box</dd>
 			<dt><kbd>Shift</kbd> + <kbd>Esc</kbd></dt><dd data-i18n="keys.shiftEsc">Back to canvas from an artboard or Compare</dd>

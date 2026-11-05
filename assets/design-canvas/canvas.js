@@ -12,9 +12,9 @@
 // A minimap in the viewport's bottom right (M) shows every board and the visible area; clicking or dragging in it pans.
 // Every word it shows is in one catalog (English and Spanish, below); the language starts from the browser's and
 // a button in the top bar switches it live. Messages sent to the session are not text of the canvas and stay English.
-// A left tool rail of labeled tools (Move, Comment, Overview, List, and More: design system, shortcuts) and the
-// single-key shortcuts behind it; the mode chip in the viewport names the active mode. The top bar shows where the
-// review stands (1 Compare · 2 Review · 3 Choose · 4 Implement) and whether a Pi session is connected.
+// A left tool rail of labeled tools (Move, Comment, Overview, and More: design system, shortcuts) and the
+// single-key shortcuts behind it; the mode chip in the viewport names the active mode. The top bar shows the chosen
+// direction's status and whether a Pi session is connected.
 // Handoffs (design/<slug>/handoffs.json) show live on each artboard's header: the
 // handoff state, the chosen artboard and its alternatives, and, once implemented
 // with a loopback previewUrl, a Compare view of the artboard next to the running app.
@@ -52,7 +52,7 @@
 	const PREVIEW_TIMEOUT_MS = 6000;
 	// CSP host sources have no IPv6 literal form, so Chromium drops the [::1] source from frame-src (the hint compare.hintIpv6 says so).
 	// Below this on-screen artboard width, the screen-size handoff row and Implement this would
-	// overlap the next artboard: they collapse, and the navigator and the timeline carry the state.
+	// overlap the next artboard: they collapse, and the top-bar status and the timeline carry the state.
 	const COMPACT_BOARD_WIDTH = 360;
 	const COMPARE_GAP = 24;
 	const COMPARE_PADDING = 24;
@@ -105,8 +105,6 @@
 			"rail.comment.title": "Comment on an element (C)",
 			"rail.overview": "Overview",
 			"rail.overview.title": "See all the directions (F)",
-			"rail.list": "List",
-			"rail.list.title": "Direction list ([)",
 			"rail.more": "More",
 			"rail.more.title": "More: design system, keyboard shortcuts and step-by-step help",
 			"rail.system": "Design system board",
@@ -114,21 +112,20 @@
 			"rail.help": "Step-by-step help",
 			"guide.eyebrow": "Step-by-step help · {n} of {total}",
 			"guide.steps": "Steps",
+			"guide.step.compare": "Compare",
+			"guide.step.review": "Review",
+			"guide.step.choose": "Choose",
+			"guide.step.implement": "Implement",
 			"guide.compare.title": "These are your directions",
 			"guide.compare.text": "Under each title you see what each one does better and what it gives up. Press “Open” on the one you want to review.",
 			"guide.review.title": "Review this direction",
 			"guide.review.text": "Press “Comment” and click whatever you want to change, or add it to the mix. When it convinces you, press “Implement this”.",
 			"guide.building.title": "The agent is building it",
-			"guide.building.text": "Step 4 at the top tells you how it is going. You can keep commenting meanwhile.",
+			"guide.building.text": "The status at the top tells you how it is going. You can keep commenting meanwhile.",
 			"guide.done.title": "It is implemented",
 			"guide.done.text": "If your app is running, “Compare with app” at the top shows the design next to it.",
 			"guide.off": "Turn off help",
 			"guide.dismiss": "Got it",
-			"steps.label": "Steps",
-			"steps.compare": "Compare",
-			"steps.review": "Review",
-			"steps.choose": "Choose",
-			"steps.implement": "Implement",
 			"connection.on": "Connected",
 			"connection.onTitle": "Connected to the Pi session: your comments and requests reach the agent.",
 			"connection.off": "Not connected",
@@ -147,21 +144,9 @@
 			"zoom.in.title": "Zoom in (+)",
 			"zoom.fit": "Fit all",
 			"zoom.fit.title": "Fit all (0)",
-			"nav.title": "Directions · {count}",
-			"nav.note": "Open a direction to comment on it, mix it or implement it.",
-			"nav.thumb": "{title} preview",
-			"nav.summary.open.one": "{count} open comment",
-			"nav.summary.open.other": "{count} open comments",
-			"nav.summary.resolved.one": "{count} resolved",
-			"nav.summary.resolved.other": "{count} resolved",
-			"nav.summary.none": "No comments",
-			"nav.hideDiscarded": "Hide discarded ({count})",
-			"nav.showDiscarded": "Show discarded ({count})",
 			"a11y.ok": "Accessible ✓",
 			"a11y.fails.one": "{count} check",
 			"a11y.fails.other": "{count} checks",
-			"a11y.okTitle": "Automatic checks found no problems. They are heuristics, not a full audit.",
-			"a11y.failTitle": "Open the Quality tab to see them.",
 			"viewport.label": "Directions",
 			"mode.navigating": "Moving around the canvas · wheel to zoom",
 			"mode.commenting": "Click a direction to open it and comment · Esc",
@@ -169,9 +154,9 @@
 			"back": "Back to canvas",
 			"back.title": "Back to canvas (Shift+Esc)",
 			"minimap.title": "Minimap",
-			"minimap.aria": "Position of the visible area among the directions. Click or drag to move the view; use the direction list with the keyboard.",
-			"minimap.aria.one": "Position of the visible area among {count} direction. Click or drag to move the view; use the direction list with the keyboard.",
-			"minimap.aria.other": "Position of the visible area among {count} directions. Click or drag to move the view; use the direction list with the keyboard.",
+			"minimap.aria": "Position of the visible area among the directions. Click or drag to move the view; with the keyboard, use the Open button on each direction.",
+			"minimap.aria.one": "Position of the visible area among {count} direction. Click or drag to move the view; with the keyboard, use the Open button on each direction.",
+			"minimap.aria.other": "Position of the visible area among {count} directions. Click or drag to move the view; with the keyboard, use the Open button on each direction.",
 			"panel.label": "Review",
 			"panel.toggleTitle": "Review panel (])",
 			"tab.comments": "Comments",
@@ -511,7 +496,6 @@
 			"keys.zoom": "Zoom in and out",
 			"keys.pan": "Pan (Shift for larger steps)",
 			"keys.minimap": "Show or hide the minimap",
-			"keys.nav": "Show or hide the direction list",
 			"keys.panel": "Show or hide the review panel",
 			"keys.esc": "Leave Comment mode or close the comment box",
 			"keys.shiftEsc": "Back to canvas from an artboard or Compare",
@@ -576,8 +560,6 @@
 			"rail.comment.title": "Comentar un elemento (C)",
 			"rail.overview": "Ver todo",
 			"rail.overview.title": "Ver todas las propuestas (F)",
-			"rail.list": "Lista",
-			"rail.list.title": "Lista de propuestas ([)",
 			"rail.more": "Más",
 			"rail.more.title": "Más: sistema de diseño, atajos de teclado y ayuda paso a paso",
 			"rail.system": "Sistema de diseño",
@@ -585,21 +567,20 @@
 			"rail.help": "Ayuda paso a paso",
 			"guide.eyebrow": "Ayuda paso a paso · {n} de {total}",
 			"guide.steps": "Pasos",
+			"guide.step.compare": "Comparar",
+			"guide.step.review": "Revisar",
+			"guide.step.choose": "Elegir",
+			"guide.step.implement": "Implementar",
 			"guide.compare.title": "Estas son tus propuestas",
 			"guide.compare.text": "Debajo de cada título verás en qué gana y en qué cede. Pulsa «Abrir» en la que quieras revisar.",
 			"guide.review.title": "Revisa esta propuesta",
 			"guide.review.text": "Pulsa «Comentar» y haz clic en lo que quieras cambiar, o añádelo a la mezcla. Cuando te convenza, pulsa «Implementar esto».",
 			"guide.building.title": "El agente la está construyendo",
-			"guide.building.text": "El paso 4 de arriba te dice cómo va. Mientras tanto puedes seguir comentando.",
+			"guide.building.text": "El estado de arriba te dice cómo va. Mientras tanto puedes seguir comentando.",
 			"guide.done.title": "Ya está implementada",
 			"guide.done.text": "Si tu app está en marcha, «Comparar con la app» arriba te enseña el diseño a su lado.",
 			"guide.off": "Apagar la ayuda",
 			"guide.dismiss": "Entendido",
-			"steps.label": "Pasos",
-			"steps.compare": "Comparar",
-			"steps.review": "Revisar",
-			"steps.choose": "Elegir",
-			"steps.implement": "Implementar",
 			"connection.on": "Conectado",
 			"connection.onTitle": "Conectado a la sesión de Pi: tus comentarios y peticiones llegan al agente.",
 			"connection.off": "Sin conexión",
@@ -618,21 +599,9 @@
 			"zoom.in.title": "Acercar (+)",
 			"zoom.fit": "Ajustar todo",
 			"zoom.fit.title": "Ajustar todo (0)",
-			"nav.title": "Propuestas · {count}",
-			"nav.note": "Abre una propuesta para comentarla, mezclarla o implementarla.",
-			"nav.thumb": "Vista previa de {title}",
-			"nav.summary.open.one": "{count} comentario abierto",
-			"nav.summary.open.other": "{count} comentarios abiertos",
-			"nav.summary.resolved.one": "{count} resuelto",
-			"nav.summary.resolved.other": "{count} resueltos",
-			"nav.summary.none": "Sin comentarios",
-			"nav.hideDiscarded": "Ocultar descartadas ({count})",
-			"nav.showDiscarded": "Mostrar descartadas ({count})",
 			"a11y.ok": "Accesible ✓",
 			"a11y.fails.one": "{count} comprobación",
 			"a11y.fails.other": "{count} comprobaciones",
-			"a11y.okTitle": "Las comprobaciones automáticas no encontraron problemas. Son heurísticas, no una auditoría completa.",
-			"a11y.failTitle": "Abre la pestaña Calidad para verlas.",
 			"viewport.label": "Propuestas",
 			"mode.navigating": "Moviéndote por el lienzo · rueda para acercar",
 			"mode.commenting": "Haz clic en una propuesta para abrirla y comentar · Esc",
@@ -640,9 +609,9 @@
 			"back": "Volver al canvas",
 			"back.title": "Volver al canvas (Shift+Esc)",
 			"minimap.title": "Minimapa",
-			"minimap.aria": "Posición del área visible entre las propuestas. Haz clic o arrastra para mover la vista; usa la lista de propuestas con el teclado.",
-			"minimap.aria.one": "Posición del área visible entre {count} propuesta. Haz clic o arrastra para mover la vista; usa la lista de propuestas con el teclado.",
-			"minimap.aria.other": "Posición del área visible entre {count} propuestas. Haz clic o arrastra para mover la vista; usa la lista de propuestas con el teclado.",
+			"minimap.aria": "Posición del área visible entre las propuestas. Haz clic o arrastra para mover la vista; con el teclado, usa el botón Abrir de cada propuesta.",
+			"minimap.aria.one": "Posición del área visible entre {count} propuesta. Haz clic o arrastra para mover la vista; con el teclado, usa el botón Abrir de cada propuesta.",
+			"minimap.aria.other": "Posición del área visible entre {count} propuestas. Haz clic o arrastra para mover la vista; con el teclado, usa el botón Abrir de cada propuesta.",
 			"panel.label": "Revisión",
 			"panel.toggleTitle": "Panel de revisión (])",
 			"tab.comments": "Comentarios",
@@ -982,7 +951,6 @@
 			"keys.zoom": "Acercar y alejar",
 			"keys.pan": "Desplazar (Shift para pasos más grandes)",
 			"keys.minimap": "Mostrar u ocultar el minimapa",
-			"keys.nav": "Mostrar u ocultar la lista de propuestas",
 			"keys.panel": "Mostrar u ocultar el panel de revisión",
 			"keys.esc": "Salir del modo Comentar o cerrar el cuadro de comentario",
 			"keys.shiftEsc": "Volver al canvas desde un artboard o Comparar",
@@ -1146,10 +1114,7 @@
 		navMode: $("gd-nav-mode"),
 		toolNavigate: $("gd-tool-navigate"),
 		railFit: $("gd-rail-fit"),
-		navToggle: $("gd-nav-toggle"),
 		railMore: $("gd-rail-more"),
-		steps: $("gd-steps"),
-		stepsList: $("gd-steps-list"),
 		connection: $("gd-connection"),
 		guide: $("gd-guide"),
 		guideSpot: $("gd-guide-spot"),
@@ -1162,11 +1127,6 @@
 		guideNextLabel: $("gd-guide-next-label"),
 		shortcuts: $("gd-shortcuts"),
 		shortcutsClose: $("gd-shortcuts-close"),
-		nav: $("gd-nav"),
-		navTitle: $("gd-nav-title"),
-		navList: $("gd-nav-list"),
-		navNote: $("gd-nav-note"),
-		navDiscarded: $("gd-nav-discarded"),
 		featureSep: $("gd-feature-sep"),
 		compareApp: $("gd-compare-app"),
 		technical: $("gd-technical"),
@@ -1315,8 +1275,6 @@
 		shotToken: 0,
 		closeTimer: 0,
 		comments: [],
-		// Whether the navigator hides the discarded artboards while one is chosen.
-		hideDiscarded: false,
 		// The review tab (TAB_NAMES) or More view ("history", "brief"), and which comments the Comments tab lists: "open", "resolved" or "all".
 		tab: "comments",
 		filter: "open",
@@ -1344,7 +1302,6 @@
 		focus: null,
 		savedView: null,
 		savedPanel: null,
-		savedNav: null,
 		// The size shown while focused: { kind: "phone" | "tablet" | "desktop" | "all" }, or { kind: "custom", width }.
 		size: { kind: "desktop" },
 		// The open version comparison: { board, n, mode, pos, enteredFocus, ... }, or null.
@@ -1590,7 +1547,7 @@
 		return entry.board ? `${entry.board.system ? "" : `${String(entry.board.number).padStart(2, "0")} · `}${titleOf(entry.board)}` : t((PLACEHOLDER_KEYS[entry.wrapper.dataset.kind] ?? PLACEHOLDER_KEYS.variant).title);
 	}
 
-	/** The world, the boards and the visible area, drawn small. Blocks are plain boxes: the artboard list stays the keyboard path. */
+	/** The world, the boards and the visible area, drawn small. Blocks are plain boxes: each artboard's Open button stays the keyboard path. */
 	function renderMinimap() {
 		const visible = minimapVisible();
 		els.minimap.hidden = !visible;
@@ -1881,10 +1838,8 @@
 		els.design.disabled = Boolean(focused) || state.designCount === 0;
 		els.back.hidden = !focused;
 		els.compareApp.disabled = Boolean(state.compare);
-		renderNav();
 		renderHistory();
 		renderNavMode();
-		renderSteps();
 		renderMinimap();
 		renderGuide(false);
 	}
@@ -1906,9 +1861,6 @@
 			// The artboard keeps its designed width at 100%; hiding the panel gains room for it.
 			state.savedPanel = !els.panel.hidden;
 			setPanel(false);
-			// The artboard list gives its room too, but only when the artboard would not fit beside it.
-			state.savedNav = !els.nav.hidden;
-			if (state.savedNav && board.artboard.width + FOCUS_MARGIN * 2 > els.viewport.getBoundingClientRect().width) setNav(false);
 		}
 		closePopover();
 		state.focus = board;
@@ -1928,8 +1880,6 @@
 		state.size = { kind: "desktop" };
 		if (state.savedPanel !== null) setPanel(state.savedPanel);
 		state.savedPanel = null;
-		if (state.savedNav !== null) setNav(state.savedNav);
-		state.savedNav = null;
 		if (state.savedView) Object.assign(state, state.savedView);
 		state.savedView = null;
 		applyView();
@@ -2084,8 +2034,6 @@
 		setFrameSize(board, artboard.width, artboard.height);
 		renderShield(board);
 		renderHandoff(board);
-		// The system board is not listed in the navigator, so it has no item or thumbnail.
-		if (!system) board.nav = createNavItem(board);
 		if (menuButton) wireMenuButton(board);
 		if (openButton) openButton.addEventListener("click", () => enterFocus(board));
 		shield.addEventListener("keydown", (event) => {
@@ -2115,7 +2063,6 @@
 		if (surface === ownerOf(surface) && !surface.system && surface.checks) {
 			surface.checks = null;
 			renderChecks();
-			renderNav();
 		}
 		surface.overflow = null;
 		renderOverflow(surface);
@@ -3263,15 +3210,13 @@
 		return typeof chosen === "string" ? state.boards.find((board) => board.artboard.file === chosen) ?? null : null;
 	}
 
-	/** Everything outside the artboards that follows handoffs, boards and comments: navigator, Compare with app, timeline. */
+	/** Everything outside the artboards that follows handoffs, boards and comments: the top-bar status, Compare with app, timeline. */
 	function renderHandoffViews() {
 		renderMinimap();
-		renderSteps();
 		renderWork();
 		renderCompareApp();
 		renderTimeline();
 		renderParts();
-		renderNav();
 		renderHistory();
 		// After Compare with app: the help points at it once it shows.
 		renderGuide(false);
@@ -3312,7 +3257,7 @@
 	}
 
 	/**
-	 * The top-bar status of the chosen direction, step 4's detail: what is being built, its state since when, the agent's
+	 * The top-bar status of the chosen direction: what is being built, its state since when, the agent's
 	 * last note, and Show to open it in focus mode. Implemented leaves comparing to the bar's Compare with app.
 	 */
 	function renderWork() {
@@ -3338,7 +3283,6 @@
 			const time = clockOrDate(kind === "in_progress" ? entry.startedAt ?? entry.sentAt : entry.sentAt);
 			stateText = time ? t("work.since", { state: t(`handoff.${kind}`), time }) : t(`handoff.${kind}`);
 		}
-		// Step 4 of the breadcrumb already says Implement, current or done: the status starts at the title.
 		const parts = [dot, title];
 		if (stateText) parts.push(chip("gd-work-state", stateText));
 		if (kind && typeof entry.note === "string" && entry.note) {
@@ -3355,66 +3299,6 @@
 		parts.push(show);
 		els.work.replaceChildren(...parts);
 		if (hadFocus) show.focus();
-	}
-
-	// ---- step breadcrumb (canvas-progressive S2) -----------------------------------------
-	// 1 Compare · 2 Review · 3 Choose · 4 Implement after the design selector: where the review stands and what comes next.
-	// Compare goes to the overview and Review opens the chosen direction (or the first); Choose and Implement are not
-	// actions of their own. The top-bar status (#gd-work) right after it is step 4's detail.
-
-	const STEP_KEYS = ["steps.compare", "steps.review", "steps.choose", "steps.implement"];
-	let stepParts = null;
-
-	function createSteps() {
-		stepParts = STEP_KEYS.map((key, index) => {
-			const item = document.createElement("li");
-			item.className = "gd-steps-item";
-			const link = document.createElement(index < 2 ? "button" : "span");
-			link.className = "gd-steps-link";
-			if (index < 2) link.type = "button";
-			const label = chip("gd-steps-label", "");
-			// Never color alone: the state is also in words for assistive technology.
-			const words = chip("gd-visually-hidden gd-steps-state", "");
-			link.append(chip("gd-steps-num", String(index + 1)), label, words);
-			item.append(link);
-			return { item, link, label, words };
-		});
-		stepParts[0].link.addEventListener("click", () => {
-			exitCompare(false);
-			if (state.focus) exitFocus();
-			else fit();
-		});
-		stepParts[1].link.addEventListener("click", () => {
-			const board = chosenBoard() ?? state.boards[0];
-			if (!board) return;
-			exitCompare(false);
-			enterFocus(board);
-		});
-		els.stepsList.replaceChildren(...stepParts.map((part) => part.item));
-	}
-
-	/** The index of the current step: a handoff is at 4 (all done once implemented), focus on a direction at 2, else 1. */
-	function currentStep() {
-		const board = chosenBoard();
-		if (board) {
-			const entry = handoffOf(board).entry;
-			return entry && handoffKind(entry) === "implemented" ? STEP_KEYS.length : 3;
-		}
-		return state.focus && !state.focus.system ? 1 : 0;
-	}
-
-	function renderSteps() {
-		if (!stepParts) createSteps();
-		const at = currentStep();
-		stepParts.forEach(({ item, link, label, words }, index) => {
-			const status = index < at ? "done" : index === at ? "current" : "pending";
-			item.dataset.state = status;
-			if (status === "current") link.setAttribute("aria-current", "step");
-			else link.removeAttribute("aria-current");
-			label.textContent = t(STEP_KEYS[index]);
-			words.textContent = ` ${t(status === "done" ? "timeline.done" : status === "current" ? "timeline.current" : "timeline.pending")}`;
-		});
-		stepParts[1].link.disabled = state.boards.length === 0;
 	}
 
 	// ---- connection (canvas-progressive S3) ----------------------------------------------
@@ -3448,9 +3332,12 @@
 	const HELP_STEPS = {
 		compare: { title: "guide.compare.title", text: "guide.compare.text", target: () => els.world },
 		review: { title: "guide.review.title", text: "guide.review.text", target: () => state.focus?.implement?.root ?? null },
-		building: { title: "guide.building.title", text: "guide.building.text", target: () => (stepParts ? stepParts[3].item : null) },
-		done: { title: "guide.done.title", text: "guide.done.text", target: () => (els.compareApp.hidden ? (stepParts ? stepParts[3].item : null) : els.compareApp) },
+		building: { title: "guide.building.title", text: "guide.building.text", target: () => els.work },
+		done: { title: "guide.done.title", text: "guide.done.text", target: () => (els.compareApp.hidden ? els.work : els.compareApp) },
 	};
+	// The card's own list of steps, and which one each help step is at: the agent building it and done are both Implement.
+	const GUIDE_STEP_KEYS = ["guide.step.compare", "guide.step.review", "guide.step.choose", "guide.step.implement"];
+	const GUIDE_STEP_AT = { compare: 0, review: 1, building: 3, done: 3 };
 	// The room the spotlight leaves around its target, and between the target and the card (where its arrow is).
 	const GUIDE_PAD = 8;
 	const GUIDE_GAP = 16;
@@ -3465,7 +3352,7 @@
 	}
 	state.help.on = storedHelp();
 
-	/** The step the help speaks about: the breadcrumb's (canvas-progressive S2), or null on the design system board or with no directions. */
+	/** The step the help speaks about, or null on the design system board or with no directions. */
 	function helpStep() {
 		if (state.boards.length === 0 || state.focus?.system) return null;
 		const board = chosenBoard();
@@ -3511,11 +3398,11 @@
 		els.guideSpot.hidden = !shown;
 		if (!shown) return;
 		const step = HELP_STEPS[name];
-		const at = Math.min(currentStep(), STEP_KEYS.length - 1);
-		loc(els.guideEyebrow, "text", "guide.eyebrow", { n: at + 1, total: STEP_KEYS.length });
+		const at = GUIDE_STEP_AT[name];
+		loc(els.guideEyebrow, "text", "guide.eyebrow", { n: at + 1, total: GUIDE_STEP_KEYS.length });
 		loc(els.guideTitle, "text", step.title);
 		loc(els.guideText, "text", step.text);
-		els.guideSteps.replaceChildren(...STEP_KEYS.map((key, index) => {
+		els.guideSteps.replaceChildren(...GUIDE_STEP_KEYS.map((key, index) => {
 			const item = document.createElement("li");
 			loc(item, "text", key);
 			if (index === at) item.setAttribute("aria-current", "step");
@@ -3628,135 +3515,6 @@
 			return item;
 		}));
 	}
-
-	function commentSummary(board) {
-		const mine = commentsForBoard(board);
-		const open = mine.filter((comment) => comment.status === "open").length;
-		const resolved = mine.filter((comment) => comment.status === "resolved").length;
-		const parts = [];
-		if (open > 0) parts.push(tn("nav.summary.open", open));
-		if (resolved > 0) parts.push(tn("nav.summary.resolved", resolved));
-		return parts.length > 0 ? parts.join(" · ") : t("nav.summary.none");
-	}
-
-	/**
-	 * One navigator item, built once per board: its live thumbnail is an iframe, and an iframe that is
-	 * removed from the page and put back reloads. renderNav therefore only updates the item in place.
-	 */
-	function createNavItem(board) {
-		const item = document.createElement("li");
-		const button = document.createElement("button");
-		button.type = "button";
-		button.className = "gd-nav-item";
-		button.dataset.file = board.artboard.file;
-		const thumb = createThumb(board);
-		const text = document.createElement("span");
-		text.className = "gd-nav-text";
-		const title = chip("gd-nav-item-title", "");
-		const summary = chip("gd-nav-summary", "");
-		const tags = chip("gd-nav-tags", "");
-		text.append(title, summary, tags);
-		button.append(thumb.box, text);
-		button.addEventListener("click", () => enterFocus(board));
-		item.append(button);
-		return { item, button, thumb, text, title, summary, tags, tag: chip("gd-nav-tag", ""), a11y: chip("gd-nav-a11y", "") };
-	}
-
-	// The live thumbnail shows the artboard scaled to this width.
-	const THUMB_WIDTH = 56;
-
-	/**
-	 * The live thumbnail: the artboard in a sandboxed iframe (scripts only, like the canvas), scaled down.
-	 * It is inert, hidden from assistive technology, never focusable and takes no pointer events (canvas.css),
-	 * and it is not a registered artboard frame, so nothing it posts is trusted.
-	 */
-	function createThumb(board) {
-		const { width, height, title } = board.artboard;
-		const box = chip("gd-nav-thumb", "");
-		box.setAttribute("aria-hidden", "true");
-		const frame = document.createElement("iframe");
-		frame.className = "gd-nav-thumb-frame";
-		frame.setAttribute("sandbox", "allow-scripts");
-		frame.setAttribute("referrerpolicy", "no-referrer");
-		// Lazy: a long list does not load every artboard at once.
-		frame.setAttribute("loading", "lazy");
-		frame.setAttribute("tabindex", "-1");
-		frame.setAttribute("aria-hidden", "true");
-		frame.inert = true;
-		loc(frame, "title", "nav.thumb", { title });
-		frame.style.width = `${width}px`;
-		frame.style.height = `${height}px`;
-		frame.style.transform = `scale(${THUMB_WIDTH / width})`;
-		frame.src = boardUrl(board);
-		box.append(frame);
-		return { box, frame };
-	}
-
-	function reloadThumb(board) {
-		if (board.nav) board.nav.thumb.frame.src = `${boardUrl(board)}?v=${Date.now()}`;
-	}
-
-	/**
-	 * The artboard navigator: one item per design artboard; the system board is not listed. Once one is chosen it is marked
-	 * and the others are dimmed, and Hide discarded hides them in place: an item never moves, or its thumbnail would reload.
-	 */
-	function renderNav() {
-		loc(els.navTitle, "text", "nav.title", { count: state.boards.length });
-		els.navNote.hidden = state.boards.length === 0;
-		const refocus = els.navList.contains(document.activeElement) ? document.activeElement.dataset.file : null;
-		let discardedCount = 0;
-		let anyChosen = false;
-		const items = state.boards.map((board) => {
-			const nav = board.nav;
-			if (board === state.focus) nav.button.setAttribute("aria-current", "true");
-			else nav.button.removeAttribute("aria-current");
-			nav.title.textContent = `${String(board.number).padStart(2, "0")} ${board.artboard.title}`;
-			nav.summary.textContent = commentSummary(board);
-			const tags = [];
-			const { chosen } = handoffOf(board);
-			const isChosen = typeof chosen === "string" && chosen === board.artboard.file;
-			const isDiscarded = typeof chosen === "string" && !isChosen;
-			if (typeof chosen === "string") anyChosen = true;
-			if (isDiscarded) discardedCount += 1;
-			nav.button.classList.toggle("gd-nav-item-chosen", isChosen);
-			nav.button.classList.toggle("gd-nav-item-discarded", isDiscarded);
-			nav.item.hidden = isDiscarded && state.hideDiscarded;
-			if (typeof chosen === "string") {
-				nav.tag.className = `gd-nav-tag${isChosen ? " gd-nav-tag-chosen" : ""}`;
-				nav.tag.textContent = t(isChosen ? "choice.chosen" : "choice.discarded");
-				tags.push(nav.tag);
-			}
-			const failures = checkFailures(board);
-			if (failures !== null) {
-				nav.a11y.textContent = failures === 0 ? t("a11y.ok") : tn("a11y.fails", failures);
-				nav.a11y.dataset.state = failures === 0 ? "ok" : "warn";
-				nav.a11y.title = t(failures === 0 ? "a11y.okTitle" : "a11y.failTitle");
-				tags.push(nav.a11y);
-			}
-			nav.tags.replaceChildren(...tags);
-			return nav.item;
-		});
-		renderNavDiscarded(anyChosen, discardedCount);
-		// Putting the same items back would reload their thumbnails: rebuild the list only when it changed.
-		const current = Array.from(els.navList.children);
-		if (items.length === current.length && items.every((item, index) => item === current[index])) return;
-		els.navList.replaceChildren(...items);
-		if (refocus) els.navList.querySelector?.(`[data-file="${CSS.escape(refocus)}"]`)?.focus();
-	}
-
-	/** Hide discarded (N) or Show discarded (N): only while an artboard is chosen; clearing the choice shows everything again. */
-	function renderNavDiscarded(anyChosen, count) {
-		// Nothing is discarded without a choice, so no item is hidden; the next choice starts with everything shown.
-		if (!anyChosen) state.hideDiscarded = false;
-		els.navDiscarded.hidden = !anyChosen;
-		els.navDiscarded.setAttribute("aria-expanded", String(!state.hideDiscarded));
-		loc(els.navDiscarded, "text", state.hideDiscarded ? "nav.showDiscarded" : "nav.hideDiscarded", { count });
-	}
-
-	els.navDiscarded.addEventListener("click", () => {
-		state.hideDiscarded = !state.hideDiscarded;
-		renderNav();
-	});
 
 	function setHandoffs(slug, data) {
 		const valid = Boolean(data && typeof data === "object" && data.handoffs && typeof data.handoffs === "object" && !Array.isArray(data.handoffs));
@@ -4012,7 +3770,6 @@
 		renderGuide(false);
 		els.viewport.inert = true;
 		els.panel.inert = true;
-		els.nav.inert = true;
 		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit, els.design, els.compareApp]) control.disabled = true;
 		setCompareView(state.compareMode);
 		els.compareBack.focus();
@@ -4028,7 +3785,6 @@
 		els.compare.hidden = true;
 		els.viewport.inert = false;
 		els.panel.inert = false;
-		els.nav.inert = false;
 		applyFocusState();
 		if (!restoreFocus) return;
 		const board = state.boards.find((candidate) => candidate.artboard.file === compare.board.artboard.file);
@@ -4303,7 +4059,6 @@
 			// A shared asset (CSS, image, font) can affect every artboard of the design.
 			const targets = matching.length > 0 ? matching : change.file.endsWith(".html") ? [] : state.boards;
 			targets.forEach(reloadBoard);
-			targets.forEach(reloadThumb);
 		});
 	}
 
@@ -5256,7 +5011,6 @@
 		const made = Number.isInteger(reply.body.version) ? reply.body.version : null;
 		showToast(made === null ? t("version.same", { n: version.n }) : t("version.restored", { n: version.n, made }), false);
 		reloadBoard(board);
-		reloadThumb(board);
 		state.historyFocus = null;
 		renderHistory();
 		await loadHistory();
@@ -5708,7 +5462,6 @@
 
 	function renderComments() {
 		renderList();
-		renderNav();
 		state.boards.forEach((board) => surfacesOf(board).forEach(renderPins));
 	}
 
@@ -6151,13 +5904,6 @@
 
 	els.panelToggle.addEventListener("click", () => setPanel(els.panel.hidden));
 
-	function setNav(show) {
-		els.nav.hidden = !show;
-		els.navToggle.setAttribute("aria-pressed", String(show));
-	}
-
-	els.navToggle.addEventListener("click", () => setNav(els.nav.hidden));
-
 	/** What the rail's More offers: the design system board (when there is one, and not over Compare), the keyboard shortcuts and the step-by-step help switch. */
 	function moreActions() {
 		return [
@@ -6241,7 +5987,6 @@
 			c: () => setCommenting(true),
 			f: fit,
 			m: () => setMinimap(!state.minimap),
-			"[": () => setNav(els.nav.hidden),
 			"]": () => setPanel(els.panel.hidden),
 			"?": openShortcuts,
 		};
@@ -6569,7 +6314,6 @@
 			board.checks = result;
 			followMark(board);
 			renderChecks();
-			renderNav();
 		} else if (data.type === "gd:escape") {
 			if (!els.popover.hidden) closePopover();
 			else if (state.mark) clearMark();
