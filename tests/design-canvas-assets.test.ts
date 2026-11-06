@@ -346,15 +346,59 @@ test("a taller artboard is top-aligned and clipped to the viewport while focused
 	first.frame.parentElement!.offsetLeft = 480;
 	first.frame.parentElement!.offsetTop = 20;
 	click(first.shield!, 200, 200);
-	// The 700 px viewport keeps a 16 px margin, the 20 px label and a 64 px band for the Back button.
-	assert.equal(first.frame.style.height, "600px");
-	// x centers the 400 px board in 1000 px: 300 - 480; y puts its top 16 + 20 px down: 36 - 20.
-	assert.equal(canvas.world.style.transform, "translate(-180px, 16px) scale(1)");
+	// canvas-layout S5: the 700 px viewport keeps an 8 px margin (16 before), the 20 px label and a 48 px band for the
+	// Back button (64 before): 624 px of frame instead of 600.
+	assert.equal(first.frame.style.height, "624px");
+	// x centers the 400 px board in 1000 px: 300 - 480; y puts its top 8 + 20 px down: 28 - 20.
+	assert.equal(canvas.world.style.transform, "translate(-180px, 8px) scale(1)");
 	// Re-centering (window resize, panel toggle) is idempotent.
 	canvas.windowEvent("resize");
-	assert.equal(canvas.world.style.transform, "translate(-180px, 16px) scale(1)");
+	assert.equal(canvas.world.style.transform, "translate(-180px, 8px) scale(1)");
 	canvas.document.getElementById("gd-back").dispatch("click");
 	assert.equal(first.frame.style.height, "1600px");
+});
+
+test("canvas-layout S5: an open artboard uses the room: 8 px margins, a one-line header with the tradeoff in its tooltip, Back in a 48 px band", async () => {
+	const long = "Shows what if: sliders per model and per agent change the forecast at once; wins on decisions and exploration, but needs interaction to see the day's real numbers.";
+	const canvas = await loadCanvas(300, { "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", brief: "", artboards: [
+		{ file: "01-a.html", title: "First", tradeoff: long, width: 1440, height: 900 },
+		{ file: "02-b.html", title: "Second", tradeoff: "", width: 400, height: 300 },
+	] } });
+	const [first] = canvas.boards;
+	first.frame.parentElement!.offsetTop = 32;
+	click(first.shield!, 200, 200);
+	// 1440 px drawn into 1000 - 2 * 8: 68% (67% with the old 16 px margins), from the left margin.
+	const zoom = 984 / 1440;
+	assert.equal(canvas.zoomLevel.textContent, "68%");
+	// 900 * 0.68 = 615 px now fits whole under the 8 px margin and the one-line 32 px header (22 px on screen), above the
+	// 48 px band, so it is centered; with the old 16 px margins and 64 px band it was clipped to 598 px on screen.
+	assert.equal(first.frame.style.height, "900px");
+	assert.equal(canvas.world.style.transform, `translate(8px, ${Math.round((700 - 900 * zoom) / 2 - 32 * zoom)}px) scale(${zoom})`);
+	const tradeoff = withClass(first.wrapper, "gd-artboard-tradeoff")[0];
+	assert.equal(tradeoff.textContent, long);
+	assert.equal(tradeoff.title, long, "the whole tradeoff is in the tooltip of its one line");
+
+	const css = read("canvas.css");
+	const rule = (selector: string) => {
+		const start = css.indexOf(`\n${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	const label = rule(".gd-focus-board .gd-artboard-label");
+	assert.match(label, /flex-direction:\s*row/, "number, title, tradeoff and actions on one line");
+	assert.match(label, /align-items:\s*center/);
+	const line = rule(".gd-focus-board .gd-artboard-tradeoff");
+	for (const part of [/white-space:\s*nowrap/, /overflow:\s*hidden/, /text-overflow:\s*ellipsis/, /min-width:\s*0/]) assert.match(line, part, "the tradeoff is cut to one line");
+	const actions = rule(".gd-focus-board .gd-board-actions");
+	assert.match(actions, /position:\s*static/);
+	assert.match(actions, /flex-direction:\s*row/, "the handoff row and Implement this sit on the header's line");
+	assert.match(rule(".gd-focus-board"), /gap:\s*4px/, "4 px between the header and the frame (8 in the overview)");
+	assert.match(rule(".gd-back"), /bottom:\s*8px/, "Back to canvas sits in the 48 px band");
+	assert.match(rule(".gd-back"), /min-height:\s*32px/);
+	assert.match(rule(".gd-focused .gd-nav-mode"), /bottom:\s*8px/, "and the mode chip beside it");
+	const js = read("canvas.js");
+	assert.match(js, /const FOCUS_MARGIN = 8;/);
+	assert.match(js, /const BACK_SPACE = 48;/);
 });
 
 test("entering focus hides an open panel and exiting restores it; a closed panel stays closed", async () => {
@@ -1511,50 +1555,219 @@ const wideAlpha = { "/t/api/designs/alpha": { slug: "alpha", title: "Alpha", bri
 	{ file: "02-b.html", title: "Second", tradeoff: "", width: 400, height: 300 },
 ] } };
 const focusOn = (canvas: Canvas, index = 0) => click(canvas.boards[index].shield!, 200, 200);
-const sizeButtons = (canvas: Canvas, index = 0) => withClass(canvas.boards[index].wrapper, "gd-size-button");
-const sizeButton = (canvas: Canvas, size: string, index = 0) => sizeButtons(canvas, index).find((button) => button.dataset.size === size)!;
-const pressedSizes = (canvas: Canvas, index = 0) => sizeButtons(canvas, index).filter((button) => button.getAttribute("aria-pressed") === "true").map((button) => button.dataset.size);
-const readout = (canvas: Canvas, index = 0) => withClass(canvas.boards[index].wrapper, "gd-size-readout")[0].textContent;
-const customInput = (canvas: Canvas, index = 0) => withClass(canvas.boards[index].wrapper, "gd-size-input")[0];
-const sizeError = (canvas: Canvas, index = 0) => withClass(canvas.boards[index].wrapper, "gd-size-error")[0];
+// canvas-layout S6: the size is chosen in the top bar's device menu (#gd-device, #gd-device-menu), built when it opens.
+const deviceButton = (canvas: Canvas) => canvas.document.getElementById("gd-device");
+const deviceMenu = (canvas: Canvas) => canvas.document.getElementById("gd-device-menu");
+const deviceItems = (canvas: Canvas) => findAll(deviceMenu(canvas), (element) => element.getAttribute("role") === "menuitemradio");
+const openDevices = (canvas: Canvas) => { if (deviceMenu(canvas).hidden) deviceButton(canvas).dispatch("click"); };
+const chooseSize = (canvas: Canvas, size: string) => {
+	openDevices(canvas);
+	deviceItems(canvas).find((item) => item.dataset.size === size)!.dispatch("click");
+};
+/** The checked items of the device menu, read with the menu open, then closed again when it was closed. */
+const pressedSizes = (canvas: Canvas) => {
+	const closed = deviceMenu(canvas).hidden;
+	openDevices(canvas);
+	const sizes = deviceItems(canvas).filter((item) => item.getAttribute("aria-checked") === "true").map((item) => item.dataset.size);
+	if (closed) deviceButton(canvas).dispatch("click");
+	return sizes;
+};
+/** What the device button reads: the size's short name and, at one size, its width × height. */
+const readout = (canvas: Canvas) => [canvas.document.getElementById("gd-device-name").textContent, canvas.document.getElementById("gd-device-size").textContent].filter(Boolean).join(" ");
+const deviceIcon = (canvas: Canvas) => canvas.document.getElementById("gd-device-icon").getAttribute("href");
+const customInput = (canvas: Canvas) => {
+	openDevices(canvas);
+	return withClass(deviceMenu(canvas), "gd-device-input")[0];
+};
+const customRow = (canvas: Canvas) => withClass(deviceMenu(canvas), "gd-device-custom")[0];
+const sizeError = (canvas: Canvas) => withClass(deviceMenu(canvas), "gd-device-error")[0];
+const setCustom = (canvas: Canvas, value: string, key?: string) => {
+	const input = customInput(canvas);
+	input.value = value;
+	if (key) input.dispatch("keydown", { key });
+	else input.dispatch("change");
+	return input;
+};
 const tallViewport = (canvas: Canvas) => { canvas.viewport.rect = { left: 0, top: 50, width: 1000, height: 1400 }; };
 const sizeSections = (canvas: Canvas) => withClass(canvas.viewport, "gd-size-frame");
 const iframeOf = (root: FakeElement) => findAll(root, (element) => element.localName === "iframe")[0];
 const overflowChip = (root: FakeElement) => withClass(root, "gd-overflow-flag")[0];
 const report = (width: number, scrollWidth: number) => ({ type: "gd:overflow", overflow: scrollWidth > width, width, scrollWidth });
 
-test("S1: the focused artboard's header offers Phone, Tablet, Desktop, All sizes and a custom width, Desktop selected", async () => {
+test("canvas-layout S6: the top bar's device button opens a menu of Phone, Tablet, Desktop, All sizes and a custom width, Desktop checked", async () => {
 	const canvas = await loadRail();
-	const wrapper = canvas.boards[0].wrapper;
-	assert.equal(wrapper.classes.has("gd-focus-board"), false, "the control belongs to focus mode");
+	const button = deviceButton(canvas);
+	assert.equal(button.disabled, true, "outside an open artboard the button does nothing");
+	assert.equal(button.title, "Open an artboard to choose its preview size");
+	button.dispatch("click");
+	assert.equal(deviceMenu(canvas).hidden, true, "and opens nothing");
 	focusOn(canvas);
-	assert.equal(wrapper.classes.has("gd-focus-board"), true);
-	const group = withClass(wrapper, "gd-devices")[0];
-	assert.equal(group.getAttribute("role"), "group");
-	assert.equal(group.getAttribute("aria-label"), "Preview size");
-	const buttons = sizeButtons(canvas);
-	assert.deepEqual(buttons.map((button) => button.dataset.size), ["phone", "tablet", "desktop", "all"]);
-	assert.deepEqual(buttons.map((button) => texts(button, "gd-size-label")[0]), ["Phone", "Tablet", "Desktop", "All sizes"]);
-	assert.deepEqual(buttons.map((button) => button.title), ["Phone 390 × 844", "Tablet 820 × 1180", "Desktop 400 × 300", "All sizes: Phone, Tablet and Desktop side by side"]);
-	assert.ok(buttons.every((button) => button.type === "button"));
-	assert.deepEqual(pressedSizes(canvas), ["desktop"], "Desktop is selected when focus mode starts");
-	for (const button of buttons.slice(0, 3)) assert.equal(withClass(button, "gd-i")[0].getAttribute("aria-hidden"), "true", "icons are decoration");
+	assert.equal(button.disabled, false);
+	assert.equal(button.title, "Preview size of the open artboard");
+	assert.equal(button.getAttribute("aria-label"), "Preview size: Desktop 400 × 300");
+	assert.equal(readout(canvas), "Desktop 400 × 300", "the button reads the current size");
+	assert.equal(deviceIcon(canvas), "#i-monitor");
+	assert.notEqual(button.getAttribute("aria-expanded"), "true", "index.html starts it false");
+	button.dispatch("click");
+	const menu = deviceMenu(canvas);
+	assert.equal(menu.hidden, false);
+	assert.equal(button.getAttribute("aria-expanded"), "true");
+	assert.equal(menu.getAttribute("aria-label"), "Preview size");
+	const items = deviceItems(canvas);
+	assert.deepEqual(items.map((item) => item.dataset.size), ["phone", "tablet", "desktop", "all"]);
+	assert.deepEqual(items.map((item) => texts(item, "gd-menu-label")[0]), ["Phone", "Tablet", "Desktop", "All sizes"]);
+	assert.deepEqual(items.map((item) => texts(item, "gd-device-dim")[0]), ["390 × 844", "820 × 1180", "400 × 300", undefined]);
+	assert.deepEqual(items.map((item) => item.title), ["Phone 390 × 844", "Tablet 820 × 1180", "Desktop 400 × 300", "All sizes: Phone, Tablet and Desktop side by side"]);
+	assert.deepEqual(items.map((item) => item.getAttribute("aria-checked")), ["false", "false", "true", "false"], "Desktop is checked when focus mode starts");
+	assert.ok(items.every((item) => item.type === "button"));
+	for (const item of items) assert.equal(withClass(item, "gd-i")[0].getAttribute("aria-hidden"), "true", "icons are decoration");
+	assert.ok(canvas.document.activeElement === items[0], "focus moves to the first item");
 	const input = customInput(canvas);
 	assert.equal(input.getAttribute("aria-label"), "Custom width in pixels");
-	assert.deepEqual([input.type, input.getAttribute("min"), input.getAttribute("max"), input.getAttribute("step")], ["number", "240", "2560", "1"]);
-	assert.equal(readout(canvas), "400 × 300", "the current size reads width × height");
+	assert.deepEqual([input.type, (input as FakeElement & { name?: string }).name, input.getAttribute("min"), input.getAttribute("max"), input.getAttribute("step")], ["number", "gd-custom-width", "240", "2560", "1"]);
+	assert.deepEqual(texts(menu, "gd-device-custom-label"), ["Custom"]);
+	assert.equal(input.value, "");
+	assert.equal(sizeError(canvas).hidden, true);
+});
+
+test("canvas-layout S6: choosing a size closes the menu, gives focus back to the button and shows the size's icon and name on it", async () => {
+	const canvas = await loadRail();
+	tallViewport(canvas);
+	focusOn(canvas);
+	const shown: Array<[string | null, string, string | null]> = [];
+	for (const size of ["phone", "tablet", "all", "desktop"]) {
+		chooseSize(canvas, size);
+		assert.equal(deviceMenu(canvas).hidden, true, size);
+		assert.equal(deviceButton(canvas).getAttribute("aria-expanded"), "false");
+		assert.ok(canvas.document.activeElement === deviceButton(canvas), `${size}: focus is back on the button`);
+		shown.push([deviceIcon(canvas), readout(canvas), deviceButton(canvas).getAttribute("aria-label")]);
+	}
+	setCustom(canvas, "600");
+	shown.push([deviceIcon(canvas), readout(canvas), deviceButton(canvas).getAttribute("aria-label")]);
+	assert.deepEqual(shown, [
+		["#i-phone", "Phone 390 × 844", "Preview size: Phone 390 × 844"],
+		["#i-tablet", "Tablet 820 × 1180", "Preview size: Tablet 820 × 1180"],
+		["#i-devices", "All sizes", "Preview size: All sizes"],
+		["#i-monitor", "Desktop 400 × 300", "Preview size: Desktop 400 × 300"],
+		["#i-width", "Custom 600 × 300", "Preview size: Custom 600 × 300"],
+	]);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(deviceButton(canvas).disabled, true, "back on the canvas it is off again");
+	assert.equal(readout(canvas), "Desktop", "naming no size of its own");
+	assert.equal(deviceIcon(canvas), "#i-monitor");
+});
+
+test("canvas-layout S6: the device menu keeps the language menu's keys, and the width field keeps its own", async () => {
+	const canvas = await loadRail();
+	tallViewport(canvas);
+	focusOn(canvas);
+	const button = deviceButton(canvas);
+	assert.equal(keyOn(button, "ArrowDown").defaultPrevented, true);
+	assert.equal(deviceMenu(canvas).hidden, false);
+	assert.ok(canvas.document.activeElement === deviceItems(canvas)[0], "ArrowDown opens on the first item");
+	assert.equal(keyOn(button, "Escape").defaultPrevented, true);
+	assert.equal(deviceMenu(canvas).hidden, true);
+	assert.equal(button.getAttribute("aria-expanded"), "false");
+	keyOn(button, "ArrowUp");
+	const items = deviceItems(canvas);
+	const input = withClass(deviceMenu(canvas), "gd-device-input")[0];
+	assert.ok(canvas.document.activeElement === input, "ArrowUp opens on the last entry, the width field");
+	keyOn(input, "ArrowDown");
+	assert.ok(canvas.document.activeElement === items[0], "ArrowDown wraps to the first");
+	keyOn(items[0], "ArrowUp");
+	assert.ok(canvas.document.activeElement === input, "ArrowUp wraps to the field");
+	keyOn(input, "ArrowUp");
+	assert.ok(canvas.document.activeElement === items[3]);
+	keyOn(items[3], "Home");
+	assert.ok(canvas.document.activeElement === items[0]);
+	keyOn(items[0], "End");
+	assert.ok(canvas.document.activeElement === input);
+	for (const key of ["Home", "End", "5", " "]) assert.equal(keyOn(input, key).defaultPrevented, false, `${JSON.stringify(key)} stays with the field`);
+	assert.ok(canvas.document.activeElement === input);
+	assert.equal(deviceMenu(canvas).hidden, false, "moving never closes it");
+	assert.equal(keyOn(input, "Escape").defaultPrevented, true);
+	assert.equal(deviceMenu(canvas).hidden, true);
+	assert.ok(canvas.document.activeElement === button, "Esc returns focus to the button");
+
+	for (const key of ["Enter", " "]) {
+		button.dispatch("click");
+		const chosen = keyOn(deviceItems(canvas)[0], key);
+		assert.equal(chosen.defaultPrevented, true, key);
+		assert.equal(readout(canvas), "Phone 390 × 844", key);
+		assert.equal(deviceMenu(canvas).hidden, true, key);
+		chooseSize(canvas, "desktop");
+	}
+
+	button.dispatch("click");
+	assert.equal(keyOn(deviceItems(canvas)[1], "Tab").defaultPrevented, false, "Tab keeps its move");
+	assert.equal(deviceMenu(canvas).hidden, true);
+
+	button.dispatch("click");
+	const pointerdown = (target: FakeElement) => (canvas.document.listeners.get("pointerdown") ?? []).forEach((listener) => listener({ target, button: 0 }));
+	pointerdown(deviceMenu(canvas));
+	pointerdown(withClass(deviceMenu(canvas), "gd-device-input")[0]);
+	assert.equal(deviceMenu(canvas).hidden, false, "a press inside does not close it");
+	pointerdown(button);
+	assert.equal(deviceMenu(canvas).hidden, false, "the button toggles on its own click");
+	pointerdown(canvas.viewport);
+	assert.equal(deviceMenu(canvas).hidden, true, "a press outside closes it");
+	button.dispatch("click");
+	button.dispatch("click");
+	assert.equal(deviceMenu(canvas).hidden, true, "the button closes it again");
+	assert.equal(readout(canvas), "Desktop 400 × 300", "closing chose nothing");
+});
+
+test("canvas-layout S6: the device, language and artboard menus close each other, and leaving the artboard closes the device menu", async () => {
+	const canvas = await loadRail();
+	focusOn(canvas);
+	const langMenuEl = canvas.document.getElementById("gd-lang-menu");
+	deviceButton(canvas).dispatch("click");
+	canvas.document.getElementById("gd-lang").dispatch("click");
+	assert.equal(deviceMenu(canvas).hidden, true);
+	assert.equal(deviceButton(canvas).getAttribute("aria-expanded"), "false");
+	assert.equal(langMenuEl.hidden, false);
+	deviceButton(canvas).dispatch("click");
+	assert.equal(langMenuEl.hidden, true);
+	assert.equal(deviceMenu(canvas).hidden, false);
+	menuButtonOf(canvas.boards[0].wrapper).dispatch("click");
+	assert.equal(deviceMenu(canvas).hidden, true);
+	assert.equal(menuEl(canvas).hidden, false);
+	deviceButton(canvas).dispatch("click");
+	assert.equal(menuEl(canvas).hidden, true);
+	assert.equal(deviceMenu(canvas).hidden, false);
+	canvas.windowEvent("resize");
+	assert.equal(deviceMenu(canvas).hidden, true, "a resize closes it, like the other menus");
+	deviceButton(canvas).dispatch("click");
+	canvas.message(canvas.boards[0].frame.contentWindow, { type: "gd:exit-focus" });
+	assert.equal(deviceMenu(canvas).hidden, true);
+	assert.equal(deviceButton(canvas).getAttribute("aria-expanded"), "false");
+	assert.equal(deviceButton(canvas).disabled, true);
+});
+
+test("canvas-layout S6: the artboard header has no size bar any more, in the overview or open", async () => {
+	const canvas = await loadRail();
+	focusOn(canvas);
+	for (const board of canvas.boards) {
+		for (const name of ["gd-sizebar", "gd-devices", "gd-size-button", "gd-size-custom", "gd-size-input", "gd-size-readout", "gd-size-error"]) assert.deepEqual(withClass(board.wrapper, name), [], name);
+		assert.deepEqual(findAll(board.wrapper, (element) => element.localName === "input"), [], "no field in the header");
+	}
+	const js = read("canvas.js");
+	assert.ok(!/createSizeControl|renderSizeControl|gd-sizebar|sizeControl/.test(js), "the code that built it is gone");
+	const css = read("canvas.css");
+	for (const selector of [".gd-sizebar", ".gd-size-custom", ".gd-size-input", ".gd-size-readout", ".gd-size-error"]) assert.ok(!css.includes(selector), `${selector} is not styled any more`);
 });
 
 test("S1: Desktop is the artboard's own manifest size, and each focus session starts at Desktop", async () => {
 	const canvas = await loadRail(300, wideAlpha);
 	focusOn(canvas);
-	assert.equal(readout(canvas), "1200 × 800");
-	assert.equal(sizeButton(canvas, "desktop").title, "Desktop 1200 × 800");
-	sizeButton(canvas, "phone").dispatch("click");
+	assert.equal(readout(canvas), "Desktop 1200 × 800");
+	openDevices(canvas);
+	assert.equal(deviceItems(canvas)[2].title, "Desktop 1200 × 800");
+	chooseSize(canvas, "phone");
 	canvas.document.getElementById("gd-back").dispatch("click");
 	focusOn(canvas);
 	assert.deepEqual(pressedSizes(canvas), ["desktop"]);
-	assert.equal(readout(canvas), "1200 × 800");
+	assert.equal(readout(canvas), "Desktop 1200 × 800");
 });
 
 test("S2: Phone, Tablet and Desktop resize the focused iframe in place, centered at 100%", async () => {
@@ -1563,26 +1776,26 @@ test("S2: Phone, Tablet and Desktop resize the focused iframe in place, centered
 	const [first] = canvas.boards;
 	const src = first.frame.src;
 	focusOn(canvas);
-	sizeButton(canvas, "phone").dispatch("click");
+	chooseSize(canvas, "phone");
 	assert.equal(first.frame.style.width, "390px");
 	assert.equal(first.frame.style.height, "844px");
 	assert.equal(canvas.world.style.transform, "translate(305px, 278px) scale(1)");
 	assert.equal(canvas.zoomLevel.textContent, "100%");
 	assert.deepEqual(pressedSizes(canvas), ["phone"]);
-	assert.equal(readout(canvas), "390 × 844");
+	assert.equal(readout(canvas), "Phone 390 × 844");
 
-	sizeButton(canvas, "tablet").dispatch("click");
+	chooseSize(canvas, "tablet");
 	assert.equal(first.frame.style.width, "820px");
 	assert.equal(first.frame.style.height, "1180px");
 	assert.equal(canvas.world.style.transform, "translate(90px, 110px) scale(1)");
 	assert.deepEqual(pressedSizes(canvas), ["tablet"]);
-	assert.equal(readout(canvas), "820 × 1180");
+	assert.equal(readout(canvas), "Tablet 820 × 1180");
 
-	sizeButton(canvas, "desktop").dispatch("click");
+	chooseSize(canvas, "desktop");
 	assert.equal(first.frame.style.width, "400px");
 	assert.equal(first.frame.style.height, "300px");
 	assert.deepEqual(pressedSizes(canvas), ["desktop"]);
-	assert.equal(readout(canvas), "400 × 300");
+	assert.equal(readout(canvas), "Desktop 400 × 300");
 	assert.equal(first.frame.src, src, "the artboard is not reloaded");
 	assert.equal(canvas.frames()[0], first.frame, "and keeps its iframe");
 });
@@ -1593,15 +1806,15 @@ test("S2: a size taller than the viewport keeps today's clip, and one wider than
 	first.frame.parentElement!.offsetLeft = 480;
 	first.frame.parentElement!.offsetTop = 20;
 	focusOn(canvas);
-	// Desktop is 1200 wide in a 1000 px viewport: it keeps its 1200 px width, drawn at (1000 - 2 * 16) / 1200, from the left margin.
-	const scale = 968 / 1200;
+	// Desktop is 1200 wide in a 1000 px viewport: it keeps its 1200 px width, drawn at (1000 - 2 * 8) / 1200, from the left margin.
+	const scale = 984 / 1200;
 	assert.equal(first.frame.style.width, "1200px", "the design still renders at its real width");
-	assert.equal(canvas.world.style.transform, `translate(${Math.round(16 - 480 * scale)}px, ${Math.round(16 + 20 * scale - 20 * scale)}px) scale(${scale})`);
-	assert.equal(canvas.zoomLevel.textContent, "81%", "the zoom says how much smaller it is drawn");
-	sizeButton(canvas, "phone").dispatch("click");
-	assert.equal(first.frame.style.height, "600px", "844 px does not fit the 700 px viewport (less the 16 px margin, the 20 px label and the 64 px band): clipped like a tall artboard");
-	assert.equal(readout(canvas), "390 × 844", "the readout keeps the preset height");
-	assert.equal(canvas.world.style.transform, "translate(-175px, 16px) scale(1)");
+	assert.equal(canvas.world.style.transform, `translate(${Math.round(8 - 480 * scale)}px, ${Math.round(8 + 20 * scale - 20 * scale)}px) scale(${scale})`);
+	assert.equal(canvas.zoomLevel.textContent, "82%", "the zoom says how much smaller it is drawn");
+	chooseSize(canvas, "phone");
+	assert.equal(first.frame.style.height, "624px", "844 px does not fit the 700 px viewport (less the 8 px margin, the 20 px label and the 48 px band): clipped like a tall artboard");
+	assert.equal(readout(canvas), "Phone 390 × 844", "the readout keeps the preset height");
+	assert.equal(canvas.world.style.transform, "translate(-175px, 8px) scale(1)");
 });
 
 test("S2: a custom width resizes the iframe with the manifest height; the field accepts whole px from 240 to 2560 only", async () => {
@@ -1609,37 +1822,41 @@ test("S2: a custom width resizes the iframe with the manifest height; the field 
 	tallViewport(canvas);
 	const [first] = canvas.boards;
 	focusOn(canvas);
-	const input = customInput(canvas);
-	input.value = "600";
-	input.dispatch("change");
+	setCustom(canvas, "600");
 	assert.equal(first.frame.style.width, "600px");
 	assert.equal(first.frame.style.height, "300px", "height keeps the artboard's manifest height");
-	assert.deepEqual(pressedSizes(canvas), [], "no preset is selected");
-	assert.equal(readout(canvas), "600 × 300");
-	assert.ok(withClass(canvas.boards[0].wrapper, "gd-size-custom")[0].classes.has("gd-selected"));
+	assert.equal(deviceMenu(canvas).hidden, true, "a valid width closes the menu");
+	assert.equal(readout(canvas), "Custom 600 × 300");
 	assert.equal(canvas.world.style.transform, "translate(200px, 550px) scale(1)");
+	assert.deepEqual(pressedSizes(canvas), [], "no preset is checked");
+	assert.equal(customInput(canvas).value, "600", "the field shows the width when the menu opens again");
+	assert.ok(customRow(canvas).classes.has("gd-selected"));
 
 	for (const bad of ["239", "2561", "abc", "500.5", "", "-300", "1e3"]) {
-		input.value = bad;
-		input.dispatch("change");
+		const input = setCustom(canvas, bad);
 		assert.equal(first.frame.style.width, "600px", `${JSON.stringify(bad)} is refused`);
-		assert.equal(readout(canvas), "600 × 300");
+		assert.equal(readout(canvas), "Custom 600 × 300");
 		assert.equal(input.getAttribute("aria-invalid"), "true");
 		assert.equal(sizeError(canvas).hidden, false);
-		assert.match(sizeError(canvas).textContent, /whole number from 240 to 2560/);
+		assert.equal(sizeError(canvas).textContent, "Enter a whole number from 240 to 2560 (px).");
+		assert.equal(sizeError(canvas).getAttribute("role"), "alert");
+		assert.equal(deviceMenu(canvas).hidden, false, "the menu stays open to correct it");
 	}
 	for (const edge of ["240", "2560"]) {
-		input.value = edge;
-		input.dispatch("keydown", { key: "Enter" });
+		const input = setCustom(canvas, edge, "Enter");
 		assert.equal(first.frame.style.width, `${edge}px`, `${edge} is accepted with Enter`);
 		assert.equal(input.getAttribute("aria-invalid"), null);
+		assert.equal(deviceMenu(canvas).hidden, true);
+		assert.ok(canvas.document.activeElement === deviceButton(canvas));
+		assert.equal(sizeError(canvas), undefined, "the menu is built again, without the error, when it opens");
+		assert.equal(customInput(canvas).getAttribute("aria-invalid"), null);
 		assert.equal(sizeError(canvas).hidden, true);
 	}
 	// A wider size than the viewport starts at the left margin, like a wide artboard.
-	assert.match(canvas.world.style.transform, /^translate\(16px, /);
-	sizeButton(canvas, "phone").dispatch("click");
-	assert.equal(input.value, "", "a preset clears the custom field");
-	assert.ok(!withClass(canvas.boards[0].wrapper, "gd-size-custom")[0].classes.has("gd-selected"));
+	assert.match(canvas.world.style.transform, /^translate\(8px, /);
+	chooseSize(canvas, "phone");
+	assert.equal(customInput(canvas).value, "", "a preset clears the custom field");
+	assert.ok(!customRow(canvas).classes.has("gd-selected"));
 });
 
 test("S2: leaving focus mode, or focusing another artboard, restores the manifest size", async () => {
@@ -1647,17 +1864,17 @@ test("S2: leaving focus mode, or focusing another artboard, restores the manifes
 	tallViewport(canvas);
 	const [first, second] = canvas.boards;
 	focusOn(canvas);
-	sizeButton(canvas, "tablet").dispatch("click");
+	chooseSize(canvas, "tablet");
 	canvas.document.getElementById("gd-back").dispatch("click");
 	assert.equal(first.frame.style.width, "400px");
 	assert.equal(first.frame.style.height, "300px");
 
 	focusOn(canvas);
-	sizeButton(canvas, "phone").dispatch("click");
+	chooseSize(canvas, "phone");
 	openDirection(canvas, 1);
 	assert.equal(first.frame.style.width, "400px", "the artboard left behind is restored");
 	assert.equal(first.frame.style.height, "300px");
-	assert.deepEqual(pressedSizes(canvas, 1), ["desktop"], "the new focus starts at Desktop");
+	assert.deepEqual(pressedSizes(canvas), ["desktop"], "the new focus starts at Desktop");
 	assert.equal(second.frame.style.width, "400px");
 	canvas.message(second.frame.contentWindow, { type: "gd:exit-focus" });
 	assert.equal(second.frame.style.width, "400px");
@@ -1667,11 +1884,11 @@ test("S2: the size survives a manifest refresh of the focused artboard", async (
 	const canvas = await loadRail();
 	tallViewport(canvas);
 	focusOn(canvas);
-	sizeButton(canvas, "phone").dispatch("click");
+	chooseSize(canvas, "phone");
 	await canvas.serverEvent("show", { slug: "alpha" });
 	assert.equal(canvas.frames()[0].style.width, "390px");
 	assert.deepEqual(pressedSizes(canvas), ["phone"]);
-	assert.equal(readout(canvas), "390 × 844");
+	assert.equal(readout(canvas), "Phone 390 × 844");
 });
 
 test("S3: All sizes shows Phone, Tablet and Desktop as real iframes at their true widths, scaled to fit together and labeled", async () => {
@@ -1679,7 +1896,7 @@ test("S3: All sizes shows Phone, Tablet and Desktop as real iframes at their tru
 	const [first] = canvas.boards;
 	focusOn(canvas);
 	const src = first.frame.src;
-	sizeButton(canvas, "all").dispatch("click");
+	chooseSize(canvas, "all");
 	assert.deepEqual(pressedSizes(canvas), ["all"]);
 	assert.equal(readout(canvas), "All sizes");
 	assert.ok(first.wrapper.classes.has("gd-all-sizes"));
@@ -1703,8 +1920,9 @@ test("S3: All sizes shows Phone, Tablet and Desktop as real iframes at their tru
 	const heights = boxes.map((box) => Number.parseInt(box.style.height, 10));
 	assert.deepEqual(widths, [390, 820, 1200].map((width) => Math.round(width * scales[0])));
 	assert.deepEqual(heights, [844, 1180, 800].map((height) => Math.round(height * scales[0])));
-	assert.ok(widths.reduce((sum, width) => sum + width, 0) <= 1000 - 32, "side by side within the viewport width");
-	assert.ok(Math.max(...heights) <= 700 - 64 - 16 - 28, "and above the Back to canvas band");
+	assert.ok(widths.reduce((sum, width) => sum + width, 0) <= 1000 - 16, "side by side within the viewport width");
+	// Below the 8 px margin and 8 px more, a 28 px band per label, and above the 48 px Back to canvas band.
+	assert.ok(Math.max(...heights) <= 700 - 8 - 8 - 28 - 48, "and above the Back to canvas band");
 	const percent = Math.round(scales[0] * 100);
 	assert.deepEqual(sections.map((section) => texts(section, "gd-size-name")[0]), ["Phone", "Tablet", "Desktop"]);
 	assert.deepEqual(sections.map((section) => texts(section, "gd-size-dim")[0]), ["390 × 844", "820 × 1180", "1200 × 800"]);
@@ -1712,7 +1930,7 @@ test("S3: All sizes shows Phone, Tablet and Desktop as real iframes at their tru
 	assert.equal(withClass(sections[0], "gd-i").length, 1, "each label carries its icon");
 
 	assert.equal(first.frame.src, src, "the artboard's own iframe is not reloaded");
-	sizeButton(canvas, "desktop").dispatch("click");
+	chooseSize(canvas, "desktop");
 	assert.equal(sizeSections(canvas).length, 0, "leaving All sizes removes the extra frames");
 	assert.ok(!first.wrapper.classes.has("gd-all-sizes"));
 	assert.equal(first.frame.style.width, "1200px");
@@ -1723,7 +1941,7 @@ test("S3: Back to canvas and focusing another artboard leave All sizes and resto
 	const canvas = await loadRail(300, wideAlpha);
 	const [first] = canvas.boards;
 	focusOn(canvas);
-	sizeButton(canvas, "all").dispatch("click");
+	chooseSize(canvas, "all");
 	assert.equal(sizeSections(canvas).length, 3);
 	canvas.document.getElementById("gd-back").dispatch("click");
 	assert.equal(sizeSections(canvas).length, 0);
@@ -1731,17 +1949,17 @@ test("S3: Back to canvas and focusing another artboard leave All sizes and resto
 	assert.ok(!first.wrapper.classes.has("gd-all-sizes"));
 
 	focusOn(canvas);
-	sizeButton(canvas, "all").dispatch("click");
+	chooseSize(canvas, "all");
 	openDirection(canvas, 1);
 	assert.equal(sizeSections(canvas).length, 0, "another artboard starts at Desktop");
 	assert.ok(!first.wrapper.classes.has("gd-all-sizes"));
-	assert.deepEqual(pressedSizes(canvas, 1), ["desktop"]);
+	assert.deepEqual(pressedSizes(canvas), ["desktop"]);
 });
 
 test("S3: All sizes follows the viewport and a manifest refresh, and live reload reloads the size frames", async () => {
 	const canvas = await loadRail(300, wideAlpha);
 	focusOn(canvas);
-	sizeButton(canvas, "all").dispatch("click");
+	chooseSize(canvas, "all");
 	const scaleOf = () => Number(/^scale\(([\d.]+)\)$/.exec(withClass(sizeSections(canvas)[0], "gd-size-stage")[0].style.transform)![1]);
 	const before = scaleOf();
 	canvas.viewport.rect = { left: 0, top: 50, width: 700, height: 700 };
@@ -1760,7 +1978,7 @@ test("S3: All sizes follows the viewport and a manifest refresh, and live reload
 test("S3/S4: size frames are registered like the artboard's frame: they get focus, mode and pins when they load", async () => {
 	const canvas = await loadRail(300, { ...wideAlpha, ...commentsDoc(comment("a1", "01-a.html")) });
 	focusOn(canvas);
-	sizeButton(canvas, "all").dispatch("click");
+	chooseSize(canvas, "all");
 	const frames = sizeSections(canvas).map(iframeOf);
 	for (const frame of frames) {
 		frame.dispatch("load");
@@ -1779,7 +1997,7 @@ test("S3/S4: size frames are registered like the artboard's frame: they get focu
 test("S4: in All sizes every size frame takes picks; the popover opens beside the picked element in that frame", async () => {
 	const canvas = await loadRail(300, wideAlpha);
 	focusOn(canvas);
-	sizeButton(canvas, "all").dispatch("click");
+	chooseSize(canvas, "all");
 	const [phone, tablet, desktop] = sizeSections(canvas).map(iframeOf);
 	const popover = canvas.document.getElementById("gd-popover");
 	const pick = { type: "gd:pick", selector: "#cta", excerpt: "Buy", rect: { x: 30, y: 40, width: 60, height: 20 } };
@@ -1820,7 +2038,7 @@ test("S4: at a single size the artboard's own frame takes picks at that size's s
 	tallViewport(canvas);
 	const [first] = canvas.boards;
 	focusOn(canvas);
-	sizeButton(canvas, "phone").dispatch("click");
+	chooseSize(canvas, "phone");
 	canvas.document.getElementById("gd-comment").dispatch("click");
 	first.frame.rect = { left: 100, top: 100, width: 195, height: 422 };
 	canvas.message(first.frame.contentWindow, { type: "gd:pick", selector: "#cta", excerpt: "", rect: { x: 40, y: 10, width: 20, height: 20 } });
@@ -1832,7 +2050,7 @@ test("S4: at a single size the artboard's own frame takes picks at that size's s
 test("S4: a pick from another artboard is refused while one is focused, also from its size frames", async () => {
 	const canvas = await loadRail(300, wideAlpha);
 	focusOn(canvas);
-	sizeButton(canvas, "all").dispatch("click");
+	chooseSize(canvas, "all");
 	canvas.document.getElementById("gd-comment").dispatch("click");
 	canvas.message(canvas.boards[1].frame.contentWindow, { type: "gd:pick", selector: "#x", excerpt: "", rect: { x: 0, y: 0, width: 1, height: 1 } });
 	assert.equal(canvas.document.getElementById("gd-popover").hidden, true);
@@ -1841,7 +2059,7 @@ test("S4: a pick from another artboard is refused while one is focused, also fro
 test("S4: the pins of the artboard show on every size frame at their element's position in that frame", async () => {
 	const canvas = await loadRail(300, { ...wideAlpha, ...commentsDoc(comment("a1", "01-a.html"), comment("b1", "02-b.html")) });
 	focusOn(canvas);
-	sizeButton(canvas, "all").dispatch("click");
+	chooseSize(canvas, "all");
 	const sections = sizeSections(canvas);
 	const [phone, tablet, desktop] = sections.map(iframeOf);
 	const pinsOf = (section: FakeElement) => withClass(section, "gd-pin");
@@ -1875,13 +2093,13 @@ test("S4: at a single size the pins follow the resized frame and hide when outsi
 	tallViewport(canvas);
 	const [first] = canvas.boards;
 	focusOn(canvas);
-	sizeButton(canvas, "phone").dispatch("click");
+	chooseSize(canvas, "phone");
 	const pins = () => withClass(first.wrapper, "gd-pin");
 	canvas.message(first.frame.contentWindow, { type: "gd:pin-rects", rects: [{ id: "a1", rect: { x: 300, y: 20, width: 40, height: 20 } }] });
 	assert.deepEqual(pins().map((pin) => pin.style.left), ["300px"]);
 	canvas.message(first.frame.contentWindow, { type: "gd:pin-rects", rects: [{ id: "a1", rect: { x: 500, y: 20, width: 40, height: 20 } }] });
 	assert.deepEqual(pins(), [], "outside the 390 px frame");
-	sizeButton(canvas, "tablet").dispatch("click");
+	chooseSize(canvas, "tablet");
 	canvas.message(first.frame.contentWindow, { type: "gd:pin-rects", rects: [{ id: "a1", rect: { x: 500, y: 20, width: 40, height: 20 } }] });
 	assert.deepEqual(pins().map((pin) => pin.style.left), ["500px"], "inside the 820 px frame");
 });
@@ -1893,7 +2111,7 @@ test("S5: a size whose page is wider than its frame shows an Overflows chip titl
 	const chip = overflowChip(first.wrapper);
 	assert.equal(chip.hidden, true);
 	focusOn(canvas);
-	sizeButton(canvas, "phone").dispatch("click");
+	chooseSize(canvas, "phone");
 	assert.equal(chip.hidden, true, "no chip before the page reports");
 
 	canvas.message(first.frame.contentWindow, report(390, 520));
@@ -1908,7 +2126,7 @@ test("S5: a size whose page is wider than its frame shows an Overflows chip titl
 	assert.equal(chip.hidden, false);
 
 	// Reports for another width are stale; strangers and malformed reports are ignored.
-	sizeButton(canvas, "tablet").dispatch("click");
+	chooseSize(canvas, "tablet");
 	assert.equal(chip.hidden, true, "a new size clears the chip until the page reports again");
 	canvas.message(first.frame.contentWindow, report(390, 520));
 	assert.equal(chip.hidden, true, "a late report for the previous width is ignored");
@@ -1926,7 +2144,7 @@ test("S5: a size whose page is wider than its frame shows an Overflows chip titl
 test("S5: in All sizes each size frame has its own chip", async () => {
 	const canvas = await loadRail(300, wideAlpha);
 	focusOn(canvas);
-	sizeButton(canvas, "all").dispatch("click");
+	chooseSize(canvas, "all");
 	const sections = sizeSections(canvas);
 	const [phone, tablet, desktop] = sections.map(iframeOf);
 	assert.deepEqual(sections.map((section) => overflowChip(section).hidden), [true, true, true]);
@@ -1948,21 +2166,19 @@ test("S5: the artboard's own chip shows only while focused at a single size, and
 	assert.equal(chip.hidden, true, "not on the canvas overview");
 	focusOn(canvas);
 	assert.equal(chip.hidden, false, "Desktop is 400 px wide: the earlier report applies");
-	sizeButton(canvas, "all").dispatch("click");
+	chooseSize(canvas, "all");
 	assert.equal(chip.hidden, true, "All sizes has a chip per frame instead");
 	canvas.document.getElementById("gd-back").dispatch("click");
 	assert.equal(chip.hidden, true);
 });
 
-test("S1-S5: the chrome is in index.html and canvas.css: icons, focus ring, hidden outside focus, no inline script or style", () => {
+test("S1-S5: the chrome is in index.html and canvas.css: icons, focus ring, no inline script or style", () => {
 	const html = read("index.html");
-	for (const id of ["i-phone", "i-tablet", "i-monitor"]) assert.match(html, new RegExp(`<symbol id="${id}"`));
+	for (const id of ["i-phone", "i-tablet", "i-monitor", "i-devices", "i-width"]) assert.match(html, new RegExp(`<symbol id="${id}"`));
 	const css = read("canvas.css");
-	assert.match(css, /\.gd-sizebar\s*{[^}]*display:\s*none/);
-	assert.match(css, /\.gd-focus-board \.gd-sizebar\s*{[^}]*display:\s*flex/);
-	for (const selector of [".gd-size-button", ".gd-size-input", ".gd-size-frame", ".gd-sizes-all", ".gd-overflow-flag", ".gd-size-scaled", ".gd-size-stage"]) assert.ok(css.includes(`${selector} {`) || css.includes(`${selector},`), `${selector} is styled`);
-	assert.match(css, /\.gd-size-button\[aria-pressed="true"\]/);
-	assert.match(css, /\.gd-size-input:focus-visible|:focus-visible\s*{/);
+	for (const selector of [".gd-device-button", ".gd-device-menu", ".gd-device-item", ".gd-device-input", ".gd-device-error", ".gd-size-frame", ".gd-sizes-all", ".gd-overflow-flag", ".gd-size-scaled", ".gd-size-stage"]) assert.ok(css.includes(`${selector} {`) || css.includes(`${selector},`), `${selector} is styled`);
+	assert.match(css, /\.gd-device-item\[aria-checked="true"\]/);
+	assert.match(css, /\.gd-device-input:focus-visible|:focus-visible\s*{/);
 	const js = read("canvas.js");
 	assert.ok(!/setAttribute\("style"|\.cssText/.test(js), "the CSP forbids inline style attributes: size styles go through the CSSOM");
 	const sandboxes = [...js.matchAll(/setAttribute\("sandbox", ([^)]+)\)/g)].map((match) => match[1]);
@@ -2018,8 +2234,7 @@ test("S7: a comment made at the manifest size, unfocused or at Desktop, carries 
 	canvas.message(first.frame.contentWindow, PICK);
 	assert.ok(!("viewport" in await submitComment(canvas)), "Desktop");
 	// A custom width equal to the manifest width is the manifest size too.
-	customInput(canvas).value = "400";
-	customInput(canvas).dispatch("change");
+	setCustom(canvas, "400");
 	canvas.message(first.frame.contentWindow, PICK);
 	assert.ok(!("viewport" in await submitComment(canvas)));
 });
@@ -2031,18 +2246,17 @@ test("S7: a comment at a preset or custom width carries the viewport of that siz
 	focusOn(canvas);
 	canvas.document.getElementById("gd-comment").dispatch("click");
 	first.frame.rect = { left: 0, top: 0, width: 390, height: 844 };
-	sizeButton(canvas, "phone").dispatch("click");
+	chooseSize(canvas, "phone");
 	canvas.message(first.frame.contentWindow, PICK);
 	assert.deepEqual((await submitComment(canvas)).viewport, { width: 390, height: 844 });
-	sizeButton(canvas, "tablet").dispatch("click");
+	chooseSize(canvas, "tablet");
 	canvas.message(first.frame.contentWindow, PICK);
 	assert.deepEqual((await submitComment(canvas)).viewport, { width: 820, height: 1180 });
-	customInput(canvas).value = "720";
-	customInput(canvas).dispatch("change");
+	setCustom(canvas, "720");
 	canvas.message(first.frame.contentWindow, PICK);
 	assert.deepEqual((await submitComment(canvas)).viewport, { width: 720, height: 300 });
 	// The size is the one at the pick: back at Desktop the next comment has none.
-	sizeButton(canvas, "desktop").dispatch("click");
+	chooseSize(canvas, "desktop");
 	canvas.message(first.frame.contentWindow, PICK);
 	assert.ok(!("viewport" in await submitComment(canvas)));
 });
@@ -2050,7 +2264,7 @@ test("S7: a comment at a preset or custom width carries the viewport of that siz
 test("S7: in All sizes the comment carries the size of the frame that was picked; the Desktop frame is the manifest size", async () => {
 	const canvas = await loadRail();
 	focusOn(canvas);
-	sizeButton(canvas, "all").dispatch("click");
+	chooseSize(canvas, "all");
 	canvas.document.getElementById("gd-comment").dispatch("click");
 	const [phone, tablet, desktop] = sizeSections(canvas).map(iframeOf);
 	for (const [frame, viewport] of [[phone, { width: 390, height: 844 }], [tablet, { width: 820, height: 1180 }], [desktop, undefined]] as const) {
@@ -2068,8 +2282,7 @@ test("S7: a viewport the server would refuse is left out of the request instead 
 	const [first] = canvas.boards;
 	focusOn(canvas);
 	canvas.document.getElementById("gd-comment").dispatch("click");
-	customInput(canvas).value = "600";
-	customInput(canvas).dispatch("change");
+	setCustom(canvas, "600");
 	first.frame.rect = { left: 0, top: 0, width: 600, height: 700 };
 	canvas.message(first.frame.contentWindow, PICK);
 	assert.ok(!("viewport" in await submitComment(canvas)), "30000 px is beyond the 20000 px the file accepts");
@@ -2581,7 +2794,7 @@ test("S2: the panel is placed against the frame the element is in: a scaled size
 	const canvas = await loadRail(300, { ...wideAlpha, [TOKENS_URL]: TOKEN_SET });
 	tallViewport(canvas);
 	focusOn(canvas);
-	sizeButton(canvas, "all").dispatch("click");
+	chooseSize(canvas, "all");
 	canvas.document.getElementById("gd-comment").dispatch("click");
 	canvas.document.getElementById("gd-technical").dispatch("click");
 	const [phone] = sizeSections(canvas).map(iframeOf);
@@ -2625,7 +2838,7 @@ test("S3: Send now sends the prefilled comment; at another size it records that 
 	const canvas = await inspecting();
 	const [first] = canvas.boards;
 	openDirection(canvas, 0);
-	sizeButton(canvas, "phone").dispatch("click");
+	chooseSize(canvas, "phone");
 	first.frame.rect = { left: 100, top: 120, width: 390, height: 600 };
 	inspect(canvas, first.frame, { ...MEASURE, color: { r: 119, g: 97, b: 107, a: 1 } });
 	canvas.document.getElementById("gd-inspector-fix").dispatch("click");
@@ -3031,7 +3244,7 @@ test("S4: size frames do not report checks; the artboard's own frame does, whate
 	const canvas = await loadRail(300, wideAlpha);
 	const [first] = canvas.boards;
 	focusOn(canvas);
-	sizeButton(canvas, "all").dispatch("click");
+	chooseSize(canvas, "all");
 	for (const frame of sizeSections(canvas).map(iframeOf)) report_(canvas, frame, [finding()]);
 	assert.equal(canvas.document.getElementById("gd-count-checks").textContent, "0", "size frames are not the artboard");
 	report_(canvas, first.frame, [finding()]);
@@ -3089,7 +3302,7 @@ test("S4: Show works in focus mode (no pan) and across artboards (leaves focus o
 	assert.deepEqual(second.frame.contentWindow!.posted.at(-1), { type: "gd:highlight", selector: "#second" });
 	// In All sizes the highlight reaches each size frame.
 	openDirection(canvas, 0);
-	sizeButton(canvas, "all").dispatch("click");
+	chooseSize(canvas, "all");
 	withClass(checkCards(canvas)[0], "gd-check-show")[0].dispatch("click");
 	for (const frame of sizeSections(canvas).map(iframeOf)) assert.deepEqual(frame.contentWindow!.posted.at(-1), { type: "gd:highlight", selector: "main > p.or" });
 });
@@ -4979,7 +5192,7 @@ test("S2: empty states and status lines are Spanish, and the status follows a sw
 	assert.equal(broken.document.getElementById("gd-empty").textContent, 'Design "alpha" cannot be shown: boom');
 });
 
-test("S2: the focused artboard's size control, the artboard header and the mode chip are Spanish", async () => {
+test("S2: the top bar's device selector, the artboard header and the mode chip are Spanish (canvas-layout S6)", async () => {
 	const canvas = await loadLang({ browser: "es" });
 	const [first] = canvas.boards;
 	assert.equal(withClass(first.wrapper, "gd-implement-start")[0].textContent, "Implementar esto");
@@ -4988,19 +5201,32 @@ test("S2: the focused artboard's size control, the artboard header and the mode 
 	assert.equal(withClass(first.wrapper, "gd-shield-hint")[0].textContent, "Haz clic para usar este diseño");
 	assert.equal(menuButtonOf(first.wrapper).getAttribute("aria-label"), "Más acciones de First");
 	assert.equal(first.frame.title, "Artboard First");
+	const devices = canvas as unknown as Canvas;
+	assert.equal(deviceButton(devices).title, "Abre una propuesta para elegir su tamaño de vista previa");
+	assert.equal(readout(devices), "Escritorio");
 	click(first.shield!, 200, 200);
-	assert.deepEqual(texts(first.wrapper, "gd-size-label"), ["Móvil", "Tablet", "Escritorio", "Todos los tamaños"]);
-	assert.equal(texts(first.wrapper, "gd-size-custom-label")[0], "Personalizado");
-	assert.equal(withClass(first.wrapper, "gd-size-readout")[0].textContent, "400 × 300");
-	const buttons = withClass(first.wrapper, "gd-size-button");
-	assert.equal(buttons[0].title, "Móvil 390 × 844");
-	buttons[3].dispatch("click");
-	assert.equal(withClass(first.wrapper, "gd-size-readout")[0].textContent, "Todos los tamaños");
+	assert.equal(deviceButton(devices).title, "Tamaño de la vista previa de la propuesta abierta");
+	assert.equal(deviceButton(devices).getAttribute("aria-label"), "Tamaño de la vista previa: Escritorio 400 × 300");
+	assert.equal(readout(devices), "Escritorio 400 × 300");
+	openDevices(devices);
+	assert.equal(deviceMenu(devices).getAttribute("aria-label"), "Tamaño de la vista previa");
+	assert.deepEqual(deviceItems(devices).map((item) => texts(item, "gd-menu-label")[0]), ["Móvil", "Tablet", "Escritorio", "Todos los tamaños"]);
+	assert.deepEqual(deviceItems(devices).map((item) => item.title), ["Móvil 390 × 844", "Tablet 820 × 1180", "Escritorio 400 × 300", "Todos los tamaños: móvil, tablet y escritorio, lado a lado"]);
+	assert.deepEqual(texts(deviceMenu(devices), "gd-device-custom-label"), ["Personalizado"]);
+	assert.equal(customInput(devices).getAttribute("aria-label"), "Ancho personalizado en píxeles");
+	setCustom(devices, "100");
+	assert.equal(sizeError(devices).textContent, "Introduce un número entero de 240 a 2560 (px).");
+	chooseSize(devices, "all");
+	assert.equal(readout(devices), "Todos los tamaños");
+	assert.equal(deviceButton(devices).getAttribute("aria-label"), "Tamaño de la vista previa: Todos los tamaños");
 	assert.equal(canvas.document.getElementById("gd-nav-mode").textContent, "Usando: First · Shift+Esc para salir");
 	chooseLang(canvas, "en");
-	assert.equal(withClass(first.wrapper, "gd-size-readout")[0].textContent, "All sizes");
+	assert.equal(readout(devices), "All sizes");
+	assert.equal(deviceButton(devices).getAttribute("aria-label"), "Preview size: All sizes");
+	assert.equal(deviceButton(devices).title, "Preview size of the open artboard");
 	assert.equal(first.frame.title, "First artboard");
-	assert.deepEqual(texts(first.wrapper, "gd-size-label"), ["Phone", "Tablet", "Desktop", "All sizes"]);
+	openDevices(devices);
+	assert.deepEqual(deviceItems(devices).map((item) => texts(item, "gd-menu-label")[0]), ["Phone", "Tablet", "Desktop", "All sizes"]);
 	assert.equal(first.shield!.getAttribute("aria-label"), "Use First");
 });
 
@@ -5436,6 +5662,44 @@ test("S5: the markup and styles of the language switch use tokens, a visible foc
 	assert.match(css, /\.gd-lang-button:focus-visible[^{]*{[^}]*outline:\s*2px solid var\(--accent\)|:focus-visible\s*{[^}]*outline:\s*2px solid var\(--accent\)/);
 });
 
+test("canvas-layout S6: the device selector's markup sits beside the language button and its styles use tokens, a focus ring and no motion", () => {
+	const html = read("index.html");
+	assert.match(html, /<button type="button" id="gd-device" class="gd-device-button"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"[^>]*aria-controls="gd-device-menu"[^>]*data-i18n-title="device.off"[^>]*disabled>/);
+	assert.match(html, /<svg class="gd-i gd-i-s" aria-hidden="true"><use id="gd-device-icon" href="#i-monitor"\/><\/svg><span id="gd-device-name" data-i18n="size.desktop">Desktop<\/span><span id="gd-device-size" class="gd-device-size"><\/span><\/button>/);
+	assert.match(html, /<div id="gd-device-menu" class="gd-menu gd-device-menu" role="menu" aria-label="Preview size" data-i18n-aria-label="size.group" hidden><\/div>/);
+	assert.ok(html.indexOf('id="gd-arrange-grid"') < html.indexOf('id="gd-device"') && html.indexOf('id="gd-device"') < html.indexOf('id="gd-lang"'), "after the arrangements, right before the language button");
+	for (const icon of ["i-phone", "i-tablet", "i-monitor", "i-devices", "i-width"]) assert.match(html, new RegExp(`<symbol id="${icon}"`));
+	const css = read("canvas.css");
+	const block = (selector: string) => {
+		const start = css.indexOf(`\n${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	for (const selector of [".gd-device-button", ".gd-device-menu", ".gd-device-item", ".gd-device-dim", ".gd-device-custom", ".gd-device-input", ".gd-device-error"]) {
+		const text = block(selector);
+		assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(text), `${selector}: tokens only`);
+		assert.ok(!/transition|animation/.test(text), `${selector}: no motion`);
+	}
+	assert.match(css, /\.gd-device-item\[aria-checked="true"\][^{]*{[^}]*background:\s*var\(--surface-2\)/);
+	assert.match(css, /\.gd-device-item\[aria-checked="true"\] \.gd-lang-check[^{]*{[^}]*visibility:\s*visible|\.gd-lang-item\[aria-checked="true"\] \.gd-lang-check, \.gd-device-item\[aria-checked="true"\] \.gd-lang-check/);
+	assert.match(css, /\.gd-device-button:focus-visible[^{]*{[^}]*outline:\s*2px solid var\(--accent\)/);
+	assert.match(css, /\.gd-device-input\[aria-invalid="true"\][^{]*{[^}]*border-color:\s*var\(--error-line\)/);
+	assert.match(css, /\.gd-bar > \.gd-device-button \{ flex: none; \}/, "it never shrinks under its text");
+	const narrow = css.slice(css.indexOf("@container gd-bar (max-width: 1500px) {"), css.indexOf("\n}", css.indexOf("@container gd-bar (max-width: 1500px) {")));
+	assert.match(narrow, /#gd-device-size \{ position: absolute;/, "a narrower bar keeps the icon and the name, the size stays in its name");
+});
+
+test("canvas-layout S6: the docs say the preview size is chosen in the top bar while an artboard is open", () => {
+	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
+	const section = docs.slice(docs.indexOf("### Gentle Design"));
+	const bar = section.slice(section.indexOf("- **Top bar**"), section.indexOf("\n", section.indexOf("- **Top bar**")));
+	assert.match(bar, /\*\*Preview size\*\* button/);
+	const sizes = section.slice(section.indexOf("- Screen sizes:"), section.indexOf("\n", section.indexOf("- Screen sizes:")));
+	assert.match(sizes, /top bar/);
+	assert.match(sizes, /disabled/);
+	assert.ok(!/its header has a \*\*Preview size\*\* control/.test(sizes), "the header control is gone from the docs");
+});
+
 test("S5: the docs describe the language switch and what is not translated", () => {
 	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
 	const section = docs.slice(docs.indexOf("### Gentle Design"));
@@ -5522,7 +5786,7 @@ test("S2: after a switch nothing of the old language is left in focus mode with 
 		const [first] = canvas.boards;
 		tallViewport(canvas as unknown as Canvas);
 		click(first.shield!, 200, 200);
-		withClass(first.wrapper, "gd-size-button")[3].dispatch("click");
+		chooseSize(canvas as unknown as Canvas, "all");
 		canvas.message(first.frame.contentWindow, { type: "gd:overflow", overflow: true, width: 400, scrollWidth: 900 });
 		for (const surface of sizeSections(canvas as unknown as Canvas)) {
 			const frame = iframeOf(surface);
@@ -6010,7 +6274,7 @@ test("check-highlight S2: in focus mode Show keeps the artboard where it is and 
 	assert.equal(marks(canvas).length, 1);
 	assert.equal(marks(canvas)[0].parentElement, first.frame.parentElement);
 	// Picking a size changes the frame the ring was measured in: it goes.
-	sizeButton(canvas, "all").dispatch("click");
+	chooseSize(canvas, "all");
 	assert.deepEqual(marks(canvas), []);
 	showCard(canvas, 0);
 	const desktop = sizeSections(canvas).at(-1)!;
@@ -7142,7 +7406,7 @@ test("canvas-progressive fix: the tabs shrink instead of scrolling out of view",
 
 // ---- Board spacing: a long tradeoff never widens a direction (fix/canvas-board-spacing)
 
-test("board spacing: the header text never widens a direction, and a long tradeoff shows two lines with the rest in its tooltip", async () => {
+test("board spacing: the header text never widens a direction, and a long tradeoff shows two lines (one inside a direction) with the rest in its tooltip", async () => {
 	const css = read("canvas.css");
 	const rule = (selector: string) => {
 		const start = css.indexOf(`\n${selector} {`);
@@ -7152,7 +7416,8 @@ test("board spacing: the header text never widens a direction, and a long tradeo
 	assert.match(rule(".gd-artboard-label"), /contain:\s*inline-size/, "the label takes the artboard's width instead of its text's");
 	assert.match(rule(".gd-artboard-tradeoff"), /-webkit-line-clamp:\s*2/, "two lines in the overview");
 	assert.match(rule(".gd-artboard-tradeoff"), /overflow:\s*hidden/);
-	assert.match(rule(".gd-focus-board .gd-artboard-tradeoff"), /-webkit-line-clamp:\s*unset/, "the whole tradeoff inside a direction");
+	// canvas-layout S5: inside a direction the tradeoff is one line of the compact header now (it showed whole before).
+	assert.match(rule(".gd-focus-board .gd-artboard-tradeoff"), /white-space:\s*nowrap/, "one line inside a direction, the rest in its tooltip");
 	assert.match(rule(".gd-artboard-label"), /padding-right:\s*min\(calc\(88px \* var\(--gd-inv-zoom, 1\)\), 45%\)/, "room on the right for Open, at screen size, so it never covers the text");
 	assert.match(rule(".gd-focus-board .gd-artboard-label, .gd-system-board .gd-artboard-label"), /padding-right:\s*0/, "no room needed inside a direction or on the system board");
 	const long = "Shows what if: sliders per model and per agent change the forecast at once; wins on decisions and exploration, but needs interaction to see the day's real numbers.";
@@ -7206,7 +7471,10 @@ test("polish F3/F6/F7/F8: the opened direction is never dimmed, the mode chip el
 
 test("polish: the custom width field has a name, so the browser does not flag an anonymous form field", async () => {
 	const canvas = await loadRail();
-	const inputs = findAll(canvas.document.getElementById("gd-world"), (element) => element.localName === "input");
+	// canvas-layout S6: the field is in the top bar's device menu now, not in each artboard's header.
+	focusOn(canvas);
+	openDevices(canvas);
+	const inputs = findAll(deviceMenu(canvas), (element) => element.localName === "input");
 	assert.ok(inputs.length > 0);
 	for (const input of inputs) assert.equal((input as FakeElement & { name?: string }).name, "gd-custom-width");
 });

@@ -238,6 +238,7 @@ body {
    in the accessible name and the tooltip. A warning (Not connected) always keeps its words. */
 .gd-bar { container: gd-bar / inline-size; }
 .gd-bar > .gd-lang-button, .gd-bar > .gd-zoom, .gd-bar > .gd-connection, .gd-bar > .gd-secondary, .gd-bar > .gd-toggle { flex: none; }
+.gd-bar > .gd-device-button { flex: none; }
 .gd-crumbs { flex: none; }
 .gd-field select { width: clamp(16ch, 15vw, 28ch); text-overflow: ellipsis; }
 /* The status shrinks (title, then state, cut with an ellipsis); Show never does. */
@@ -261,6 +262,7 @@ body {
 @container gd-bar (max-width: 1500px) {
 	.gd-work-state { display: none; }
 	#gd-lang-code { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+	#gd-device-size { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 
 @container gd-bar (max-width: 1400px) {
@@ -271,6 +273,7 @@ body {
 	.gd-title, .gd-field > .gd-crumb-sep { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 	.gd-work-title { display: none; }
 	.gd-work { min-width: 0; }
+	#gd-device-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 
 /* Breadcrumb: Gentle Design / design / feature document */
@@ -592,9 +595,11 @@ select {
 	.gd-minimap:not([hidden]) ~ .gd-nav-mode { left: 16px; transform: none; max-width: calc(100% - 270px); }
 }
 
-/* In focus mode the Back to canvas button owns the bottom center. */
+/* In focus mode the Back to canvas button owns the bottom center; the chip sits beside it, in the same 48 px band. */
 .gd-focused .gd-nav-mode {
-	left: 16px;
+	left: 8px;
+	bottom: 8px;
+	padding: 5px 12px;
 	transform: none;
 	max-width: calc(50% - 100px);
 }
@@ -615,6 +620,11 @@ select {
 	flex-direction: column;
 	gap: 8px;
 	flex: none;
+}
+
+/* Inside a direction the header is one line close above the frame (canvas-layout S5). */
+.gd-focus-board {
+	gap: 4px;
 }
 
 .gd-world .gd-artboard { position: absolute; top: 0; left: 0; }
@@ -640,6 +650,19 @@ select {
 }
 
 .gd-focus-board .gd-artboard-label, .gd-system-board .gd-artboard-label { padding-right: 0; }
+
+/* Inside a direction: number, title, the tradeoff cut to one line (whole in its tooltip) and the actions, on one line. A
+   frame too narrow for the title and the actions moves the actions to a second line instead of overlapping them. */
+.gd-focus-board .gd-artboard-label {
+	flex-direction: row;
+	flex-wrap: wrap;
+	align-items: center;
+	column-gap: 12px;
+	row-gap: 4px;
+}
+
+.gd-focus-board .gd-artboard-head { flex: 0 1 auto; min-width: 0; }
+.gd-focus-board .gd-artboard-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* The handoff row above Implement this: anchored to the label's bottom right, kept at screen
    size like the pins, and wrapped within the artboard's on-screen width. */
@@ -720,9 +743,12 @@ select {
 }
 
 .gd-focus-board .gd-artboard-tradeoff {
-	-webkit-line-clamp: unset;
-	line-clamp: none;
-	overflow: visible;
+	display: block;
+	flex: 1 1 0;
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 /* Handoff row (S15): Chosen or Alternative, the handoff state, its feature document, note and Compare. */
@@ -863,10 +889,12 @@ select {
 .gd-focused .gd-artboard:not(.gd-focus-board) { opacity: 0.25; }
 .gd-focused .gd-focus-board .gd-artboard-frame { box-shadow: 0 0 0 2px var(--accent), var(--shadow-frame); }
 
-/* Floats in the band canvas.js keeps free below the focused artboard. */
+/* Floats in the 48 px band canvas.js keeps free below the focused artboard (BACK_SPACE). */
 .gd-back {
 	position: absolute;
-	bottom: 16px;
+	bottom: 8px;
+	min-height: 32px;
+	padding: 2px 14px;
 	left: 50%;
 	transform: translateX(-50%);
 	z-index: 5;
@@ -947,29 +975,24 @@ select {
 	box-shadow: var(--shadow-frame);
 }
 
-/* Screen sizes (focus mode): the control in the artboard header, the All sizes view, the Overflows chip. */
-.gd-sizebar {
-	display: none;
-	align-items: center;
-	gap: 10px;
-	width: max-content;
-	margin-top: 4px;
-}
+/* Screen sizes (focus mode): the All sizes view and the Overflows chip; the size is chosen in the top bar (.gd-device-button). */
 
-.gd-focus-board .gd-sizebar { display: flex; }
-
-/* The header grows to hold the control, so the handoff row and Implement this follow it instead of overlaying it. */
+/* The handoff row and Implement this sit on the focus header's line, at the end. */
 .gd-focus-board .gd-board-actions {
 	position: static;
-	align-self: flex-end;
+	flex: none;
+	flex-direction: row;
+	align-items: center;
+	margin-left: auto;
 	max-width: none;
 	transform: none;
 }
 
-.gd-focus-board.gd-has-handoff .gd-artboard-label { padding-top: 0; }
+.gd-focus-board.gd-has-handoff .gd-artboard-label, .gd-focus-board.gd-has-stepper .gd-artboard-label { padding-top: 0; }
 
 .gd-i-s { width: 15px; height: 15px; }
 
+/* A segmented control (the comment filter, the Compare modes). */
 .gd-devices {
 	display: inline-flex;
 	padding: 3px;
@@ -988,40 +1011,6 @@ select {
 }
 
 .gd-size-button[aria-pressed="true"] { background: var(--surface-2); color: var(--text); }
-
-.gd-size-custom {
-	display: inline-flex;
-	align-items: center;
-	gap: 6px;
-	color: var(--text-muted);
-	font-size: 13px;
-}
-
-.gd-size-input {
-	width: 9ch;
-	min-height: 30px;
-	padding: 2px 8px;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-sm);
-	background: var(--bg);
-	color: var(--text);
-	font: 12px var(--font-mono);
-}
-
-.gd-size-input[aria-invalid="true"] { border-color: var(--error-line); }
-.gd-size-custom.gd-selected .gd-size-input { border-color: var(--accent-line); }
-
-.gd-size-readout {
-	padding: 1px 6px;
-	border: 1px solid var(--border-soft);
-	border-radius: 6px;
-	background: var(--wash);
-	color: var(--accent-soft);
-	font: 12px var(--font-mono);
-	white-space: nowrap;
-}
-
-.gd-size-error { color: var(--error); font-size: 12px; }
 
 /* All sizes: the artboard's own frame stays loaded but hidden; three scaled frames take its place. */
 .gd-all-sizes .gd-frame-box { visibility: hidden; }
@@ -2237,7 +2226,7 @@ kbd {
 	visibility: hidden;
 }
 
-.gd-lang-item[aria-checked="true"] .gd-lang-check { visibility: visible; }
+.gd-lang-item[aria-checked="true"] .gd-lang-check, .gd-device-item[aria-checked="true"] .gd-lang-check { visibility: visible; }
 
 .gd-menu-check {
 	margin-left: auto;
@@ -2250,6 +2239,82 @@ kbd {
 .gd-lang-note {
 	margin: 6px 10px 4px;
 	color: var(--text-muted);
+	font-size: 12px;
+}
+
+/* ---- device selector (canvas-layout S6) ---- */
+
+/* The size of the open artboard in the top bar: its icon, its short name and width × height; off outside focus mode. */
+.gd-device-button {
+	gap: 6px;
+	color: var(--text-muted);
+}
+
+.gd-device-button[aria-expanded="true"] { background: var(--surface-2); color: var(--text); }
+.gd-device-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.gd-device-size {
+	color: var(--accent-soft);
+	font: 12px var(--font-mono);
+}
+
+.gd-device-size:empty { display: none; }
+
+/* The language menu's box, under its button: the sizes as radio items, then the custom width. */
+.gd-device-menu {
+	width: 300px;
+	padding: 6px;
+}
+
+.gd-device-item {
+	flex-wrap: nowrap;
+	min-height: 38px;
+}
+
+.gd-device-item[aria-checked="true"] {
+	background: var(--surface-2);
+	color: var(--text);
+}
+
+.gd-device-dim {
+	margin-left: auto;
+	color: var(--text-muted);
+	font: 12px var(--font-mono);
+}
+
+.gd-device-dim + .gd-lang-check { margin-left: 8px; }
+
+.gd-device-custom {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 38px;
+	padding: 0 12px;
+	color: var(--text-muted);
+	font-size: 13px;
+}
+
+.gd-device-custom.gd-selected { color: var(--text); }
+
+.gd-device-input {
+	width: 9ch;
+	min-height: 30px;
+	margin-left: auto;
+	padding: 2px 8px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	background: var(--bg);
+	color: var(--text);
+	font: 12px var(--font-mono);
+}
+
+.gd-device-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gd-device-input[aria-invalid="true"] { border-color: var(--error-line); }
+.gd-device-custom.gd-selected .gd-device-input { border-color: var(--accent-line); }
+
+.gd-device-error {
+	margin: 0 12px 6px;
+	color: var(--error);
 	font-size: 12px;
 }
 

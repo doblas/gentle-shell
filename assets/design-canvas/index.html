@@ -24,6 +24,8 @@
 		<symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></symbol>
 		<symbol id="i-tablet" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M11 18h2"/></symbol>
 		<symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+		<symbol id="i-devices" viewBox="0 0 24 24"><rect x="2" y="4" width="13" height="10" rx="1.5"/><path d="M5 18h7"/><rect x="17" y="8" width="5" height="12" rx="1"/></symbol>
+		<symbol id="i-width" viewBox="0 0 24 24"><path d="M3 12h18M7 8l-4 4 4 4M17 8l4 4-4 4"/></symbol>
 		<symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
 		<symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/></symbol>
 		<symbol id="i-palette" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="8" cy="10" r="1"/><circle cx="12" cy="7" r="1"/><circle cx="16" cy="10" r="1"/><path d="M12 21a3 3 0 0 1 0-6h2"/></symbol>
@@ -65,6 +67,7 @@
 			<button type="button" id="gd-arrange-column" aria-pressed="false" aria-label="Column" title="Arrange in a column" data-i18n-aria-label="layout.column" data-i18n-title="layout.column.title"><svg class="gd-i" aria-hidden="true"><use href="#i-column"/></svg></button>
 			<button type="button" id="gd-arrange-grid" aria-pressed="false" aria-label="Grid" title="Arrange in a grid" data-i18n-aria-label="layout.grid" data-i18n-title="layout.grid.title"><svg class="gd-i" aria-hidden="true"><use href="#i-grid"/></svg></button>
 		</div>
+		<button type="button" id="gd-device" class="gd-device-button" aria-haspopup="menu" aria-expanded="false" aria-controls="gd-device-menu" title="Open an artboard to choose its preview size" data-i18n-title="device.off" disabled><svg class="gd-i gd-i-s" aria-hidden="true"><use id="gd-device-icon" href="#i-monitor"/></svg><span id="gd-device-name" data-i18n="size.desktop">Desktop</span><span id="gd-device-size" class="gd-device-size"></span></button>
 		<button type="button" id="gd-lang" class="gd-lang-button" aria-haspopup="menu" aria-expanded="false" aria-controls="gd-lang-menu" aria-label="Language (EN)" title="Language / Idioma" data-i18n-aria-label="lang.button" data-i18n-title="lang.title"><svg class="gd-i gd-i-s" aria-hidden="true"><use href="#i-globe"/></svg><span id="gd-lang-code">EN</span></button>
 		<div class="gd-group gd-zoom" role="group" aria-label="Zoom" data-i18n-aria-label="zoom.group">
 			<button type="button" id="gd-zoom-out" aria-label="Zoom out" title="Zoom out (-)" data-i18n-aria-label="zoom.out" data-i18n-title="zoom.out.title"><svg class="gd-i"><use href="#i-minus"/></svg></button>
@@ -187,6 +190,7 @@
 	<div id="gd-toast" class="gd-toast" role="status" aria-live="polite" hidden></div>
 	<div id="gd-menu" class="gd-menu" role="menu" hidden></div>
 	<div id="gd-lang-menu" class="gd-menu gd-lang-menu" role="menu" aria-label="Language" data-i18n-aria-label="lang.menu" hidden></div>
+	<div id="gd-device-menu" class="gd-menu gd-device-menu" role="menu" aria-label="Preview size" data-i18n-aria-label="size.group" hidden></div>
 	<div id="gd-popover" class="gd-popover" role="dialog" aria-modal="false" aria-labelledby="gd-popover-title" hidden>
 		<form id="gd-popover-form">
 			<p class="gd-popover-title" id="gd-popover-title"><span data-i18n="popover.title">Comment on</span> <code id="gd-popover-target"></code></p>

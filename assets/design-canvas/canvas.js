@@ -27,9 +27,10 @@
 	const MIN_ZOOM = 0.05;
 	const MAX_ZOOM = 4;
 	const FIT_PADDING = 48;
-	const FOCUS_MARGIN = 16;
-	// Room below a focused artboard for the floating "Back to canvas" button.
-	const BACK_SPACE = 64;
+	// canvas-layout S5: an open artboard keeps 8 px from the viewport's edges, and 48 px below it for the floating
+	// "Back to canvas" button (32 px high, 8 px from the bottom) and the mode chip beside it.
+	const FOCUS_MARGIN = 8;
+	const BACK_SPACE = 48;
 	const CLICK_SLOP = 4;
 	// canvas-layout: the room between boards in every arrangement (today's row), and the key of the system board in
 	// design/<slug>/layout.json, where every artboard is keyed by its file (which ends in .html, so the two never meet).
@@ -69,6 +70,8 @@
 		{ kind: "desktop", name: "size.desktop", icon: "i-monitor", manifest: true },
 	];
 	const CUSTOM_WIDTH = { min: 240, max: 2560 };
+	// The top bar's device button wears the icon of the size it shows (canvas-layout S6).
+	const SIZE_ICONS = { phone: "i-phone", tablet: "i-tablet", desktop: "i-monitor", all: "i-devices", custom: "i-width" };
 	// What comments.json accepts for the size a comment was made at (lib/design-comments.ts).
 	const VIEWPORT_LIMITS = { minWidth: 240, maxWidth: 4096, minHeight: 1, maxHeight: 20000 };
 	const SIZES_GAP = 20;
@@ -260,10 +263,12 @@
 			"size.all.title": "All sizes: Phone, Tablet and Desktop side by side",
 			"size.custom": "Custom",
 			"size.customAria": "Custom width in pixels",
-			"size.current": "Current size",
 			"size.error": "Enter a whole number from {min} to {max} (px).",
 			"size.frameAria": "{name} {width} by {height}",
 			"size.frameTitle": "{title} artboard at {name} {width} × {height}",
+			"device.button": "Preview size: {size}",
+			"device.title": "Preview size of the open artboard",
+			"device.off": "Open an artboard to choose its preview size",
 			"implement.start": "Implement this",
 			"implement.startAria": "Implement {title} in the project",
 			"implement.confirmAria": "Confirm implementing {title}",
@@ -658,10 +663,12 @@
 			"size.all.title": "Todos los tamaños: móvil, tablet y escritorio, lado a lado",
 			"size.custom": "Personalizado",
 			"size.customAria": "Ancho personalizado en píxeles",
-			"size.current": "Tamaño actual",
 			"size.error": "Introduce un número entero de {min} a {max} (px).",
 			"size.frameAria": "{name} {width} por {height}",
 			"size.frameTitle": "Artboard {title} en {name} {width} × {height}",
+			"device.button": "Tamaño de la vista previa: {size}",
+			"device.title": "Tamaño de la vista previa de la propuesta abierta",
+			"device.off": "Abre una propuesta para elegir su tamaño de vista previa",
 			"implement.start": "Implementar esto",
 			"implement.startAria": "Implementar {title} en el proyecto",
 			"implement.confirmAria": "Confirmar la implementación de {title}",
@@ -1100,6 +1107,11 @@
 		arrange: Object.fromEntries(ARRANGEMENTS.map((kind) => [kind, $(`gd-arrange-${kind}`)])),
 		langCode: $("gd-lang-code"),
 		langMenu: $("gd-lang-menu"),
+		device: $("gd-device"),
+		deviceIcon: $("gd-device-icon"),
+		deviceName: $("gd-device-name"),
+		deviceSize: $("gd-device-size"),
+		deviceMenu: $("gd-device-menu"),
 		variantDialog: $("gd-variant"),
 		variantForm: $("gd-variant-form"),
 		variantSource: $("gd-variant-source"),
@@ -1168,6 +1180,8 @@
 		menu: null,
 		// The open language menu: { items }, or null.
 		langMenu: null,
+		// The open device menu: { items, input, error }, or null.
+		deviceMenu: null,
 		// The open "another direction" dialog: { board, button, sending }, or null.
 		variant: null,
 		// The "<NN> · New direction" board shown until the manifest changes, or null.
@@ -1721,7 +1735,9 @@
 			renderOverflow(board);
 			surfacesOf(board).forEach(sendFocus);
 		}
-		if (focused) renderSizeControl(focused);
+		// The device menu belongs to the artboard it opened on.
+		closeDeviceMenu(false);
+		renderDevice();
 		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit]) control.disabled = Boolean(focused);
 		renderArrange();
 		els.design.disabled = Boolean(focused) || state.designCount === 0;
@@ -1753,7 +1769,7 @@
 		state.focus = board;
 		// Every focus session starts at Desktop.
 		state.size = { kind: "desktop" };
-		// The state first: the header's size control takes room above the frame that centering counts.
+		// The state first: the focus header's layout is the room above the frame that centering counts.
 		applyFocusState();
 		centerFocus();
 		board.frame.focus();
@@ -1863,13 +1879,11 @@
 			}
 			label.append(tradeoff);
 		}
-		const sizeControl = system ? null : createSizeControl(artboard);
 		// The handoff state, the chosen badge and Compare (rendered by renderHandoff) stack above
 		// Implement this, at screen size, so neither covers the other at any zoom.
 		const handoff = document.createElement("div");
 		handoff.className = "gd-handoff";
 		handoff.hidden = true;
-		if (sizeControl) label.append(sizeControl.root);
 		let implement = null;
 		let openButton = null;
 		if (!system) {
@@ -1918,7 +1932,7 @@
 		// rects: null until the artboard reports where each commented element is.
 		const flag = createOverflowFlag();
 		wrapper.layoutSize = { width: artboard.width, height: artboard.height };
-		const board = { slug, artboard, number, frame, wrapper, shield, hint, pins, handoff, stateChip, rects: null, system, viewWidth: artboard.width, viewHeight: artboard.height, flag, overflow: null, sizeControl, sizeFrames: [], sizesView: null, checks: null, menuButton, implement, openButton };
+		const board = { slug, artboard, number, frame, wrapper, shield, hint, pins, handoff, stateChip, rects: null, system, viewWidth: artboard.width, viewHeight: artboard.height, flag, overflow: null, sizeFrames: [], sizesView: null, checks: null, menuButton, implement, openButton };
 		setFrameSize(board, artboard.width, artboard.height);
 		renderShield(board);
 		renderHandoff(board);
@@ -1983,91 +1997,159 @@
 		loc(surface.flag.children[1], "text", "overflow.note", { width: surface.viewWidth }, true);
 	}
 
-	/** The size control in an artboard's header: presets, All sizes, a custom width and the current size. */
-	function createSizeControl(artboard) {
-		const root = document.createElement("div");
-		root.className = "gd-sizebar";
-		const group = document.createElement("div");
-		group.className = "gd-devices";
-		group.setAttribute("role", "group");
-		loc(group, "aria-label", "size.group");
-		const buttons = {};
-		const addButton = (kind, labelKey, iconName, titleKey, titleParams) => {
-			const button = document.createElement("button");
-			button.type = "button";
-			button.className = "gd-size-button";
-			button.dataset.size = kind;
-			loc(button, "title", titleKey, titleParams);
-			button.setAttribute("aria-pressed", "false");
-			if (iconName) button.append(icon(iconName, "gd-i gd-i-s"));
-			const label = chip("gd-size-label", "");
-			loc(label, "text", labelKey);
-			button.append(label);
-			button.addEventListener("click", () => setSize({ kind }));
-			buttons[kind] = button;
-			group.append(button);
-		};
-		for (const preset of SIZE_PRESETS) {
-			const { width, height } = presetSize({ artboard }, preset);
-			addButton(preset.kind, preset.name, preset.icon, "size.preset.title", { name: ref(preset.name), width, height });
+	/**
+	 * The top bar's device button: the icon and short name of the focused size, and its width × height at one size.
+	 * Outside focus mode it is off: the sizes act on an open artboard only (canvas-layout S6).
+	 */
+	function renderDevice() {
+		const board = state.focus;
+		const kind = board ? state.size.kind : "desktop";
+		const preset = SIZE_PRESETS.find((candidate) => candidate.kind === kind);
+		const name = kind === "all" ? "size.all" : kind === "custom" ? "size.custom" : preset.name;
+		els.deviceIcon.setAttribute("href", `#${SIZE_ICONS[kind]}`);
+		loc(els.deviceName, "text", name);
+		let size = "";
+		if (board && kind !== "all") {
+			const { width, height } = focusSize(board);
+			size = `${width} × ${height}`;
 		}
-		addButton("all", "size.all", null, "size.all.title");
+		els.deviceSize.textContent = size;
+		els.device.disabled = !board;
+		loc(els.device, "title", board ? "device.title" : "device.off");
+		loc(els.device, "aria-label", "device.button", { size: size ? `${t(name)} ${size}` : t(name) });
+	}
+
+	/** One radio item of the device menu: icon, name and, for a preset, its size for the focused artboard. */
+	function deviceItem(kind, name, titleKey, titleParams, size) {
+		const item = document.createElement("button");
+		item.type = "button";
+		item.className = "gd-menu-item gd-device-item";
+		item.setAttribute("role", "menuitemradio");
+		item.setAttribute("aria-checked", String(state.size.kind === kind));
+		item.setAttribute("tabindex", "-1");
+		item.dataset.size = kind;
+		loc(item, "title", titleKey, titleParams);
+		item.append(icon(SIZE_ICONS[kind], "gd-i gd-i-s"), chip("gd-menu-label", t(name)));
+		if (size) item.append(chip("gd-device-dim", size));
+		item.append(icon("i-check", "gd-i gd-i-s gd-lang-check"));
+		item.addEventListener("click", () => chooseDeviceItem(item));
+		return item;
+	}
+
+	/**
+	 * The device menu, built when it opens like the language menu: Phone, Tablet, Desktop and All sizes as radio items, then
+	 * the custom width field. The arrows reach the field as the last entry; inside it the other keys stay with the field.
+	 */
+	function openDeviceMenu(last) {
+		const board = state.focus;
+		if (!board) return;
+		closeMenu(false);
+		closeLangMenu(false);
+		closeDeviceMenu(false);
+		const items = SIZE_PRESETS.map((preset) => {
+			const { width, height } = presetSize(board, preset);
+			return deviceItem(preset.kind, preset.name, "size.preset.title", { name: ref(preset.name), width, height }, `${width} × ${height}`);
+		});
+		items.push(deviceItem("all", "size.all", "size.all.title"));
+		const separator = document.createElement("div");
+		separator.className = "gd-menu-separator";
+		separator.setAttribute("role", "separator");
 		const custom = document.createElement("label");
-		custom.className = "gd-size-custom";
+		custom.className = "gd-device-custom";
+		custom.classList.toggle("gd-selected", state.size.kind === "custom");
 		const input = document.createElement("input");
 		input.type = "number";
-		// A name keeps the browser from flagging an anonymous form field (one per artboard).
+		// A name keeps the browser from flagging an anonymous form field.
 		input.name = "gd-custom-width";
-		input.className = "gd-size-input";
+		input.className = "gd-device-input";
 		loc(input, "aria-label", "size.customAria");
 		input.setAttribute("min", String(CUSTOM_WIDTH.min));
 		input.setAttribute("max", String(CUSTOM_WIDTH.max));
 		input.setAttribute("step", "1");
 		input.setAttribute("inputmode", "numeric");
-		const unit = chip("gd-size-unit", "px");
+		input.value = state.size.kind === "custom" ? String(state.size.width) : "";
+		const unit = chip("gd-device-unit", "px");
 		unit.setAttribute("aria-hidden", "true");
-		const customLabel = chip("gd-size-custom-label", "");
-		loc(customLabel, "text", "size.custom");
-		custom.append(customLabel, input, unit);
-		const readout = document.createElement("output");
-		readout.className = "gd-size-readout";
-		loc(readout, "aria-label", "size.current");
-		readout.setAttribute("aria-live", "polite");
-		const error = chip("gd-size-error", "");
+		custom.append(icon(SIZE_ICONS.custom, "gd-i gd-i-s"), chip("gd-device-custom-label", t("size.custom")), input, unit);
+		const error = document.createElement("p");
+		error.className = "gd-device-error";
 		error.setAttribute("role", "alert");
 		error.hidden = true;
-		const apply = () => {
-			const text = input.value.trim();
-			const width = Number(text);
-			if (!/^\d+$/.test(text) || width < CUSTOM_WIDTH.min || width > CUSTOM_WIDTH.max) {
-				input.setAttribute("aria-invalid", "true");
-				loc(error, "text", "size.error", { min: CUSTOM_WIDTH.min, max: CUSTOM_WIDTH.max });
-				error.hidden = false;
-				return;
-			}
-			setSize({ kind: "custom", width });
-		};
-		input.addEventListener("change", apply);
+		input.addEventListener("change", applyCustomWidth);
 		input.addEventListener("keydown", (event) => {
 			if (event.key !== "Enter") return;
 			event.preventDefault();
-			apply();
+			applyCustomWidth();
 		});
-		root.append(group, custom, readout, error);
-		return { root, buttons, custom, input, readout, error };
+		loc(els.deviceMenu, "aria-label", "size.group");
+		els.deviceMenu.replaceChildren(...items, separator, custom, error);
+		els.deviceMenu.hidden = false;
+		els.device.setAttribute("aria-expanded", "true");
+		state.deviceMenu = { items: [...items, input], input, error };
+		placeMenu(els.device, els.deviceMenu);
+		(last ? input : items[0]).focus();
+		renderGuide(false);
 	}
 
-	function renderSizeControl(board) {
-		const control = board.sizeControl;
-		if (!control) return;
-		const size = state.size;
-		for (const [kind, button] of Object.entries(control.buttons)) button.setAttribute("aria-pressed", String(size.kind === kind));
-		control.custom.classList.toggle("gd-selected", size.kind === "custom");
-		if (size.kind === "custom") control.input.value = String(size.width);
-		else if (document.activeElement !== control.input) control.input.value = "";
-		const { width, height } = focusSize(board);
-		control.readout.textContent = size.kind === "all" ? t("size.all") : `${width} × ${height}`;
+	/** Closes the device menu; focus goes back to its button when it was inside the menu (or `refocus`). */
+	function closeDeviceMenu(refocus) {
+		const open = state.deviceMenu;
+		if (!open) return;
+		state.deviceMenu = null;
+		const inside = els.deviceMenu.contains(document.activeElement);
+		els.deviceMenu.hidden = true;
+		els.deviceMenu.replaceChildren();
+		els.device.setAttribute("aria-expanded", "false");
+		if (refocus || inside) els.device.focus();
+		renderGuide(false);
 	}
+
+	function chooseDeviceItem(item) {
+		// The field is an entry of the arrow keys, not a choice: Enter in it applies the width.
+		if (!item.dataset.size) return;
+		closeDeviceMenu(true);
+		setSize({ kind: item.dataset.size });
+	}
+
+	/** The custom width: whole px from 240 to 2560; anything else keeps the menu open with the error under the field. */
+	function applyCustomWidth() {
+		const open = state.deviceMenu;
+		if (!open) return;
+		const text = open.input.value.trim();
+		const width = Number(text);
+		if (!/^\d+$/.test(text) || width < CUSTOM_WIDTH.min || width > CUSTOM_WIDTH.max) {
+			open.input.setAttribute("aria-invalid", "true");
+			loc(open.error, "text", "size.error", { min: CUSTOM_WIDTH.min, max: CUSTOM_WIDTH.max });
+			open.error.hidden = false;
+			return;
+		}
+		open.input.removeAttribute("aria-invalid");
+		open.error.hidden = true;
+		closeDeviceMenu(true);
+		setSize({ kind: "custom", width });
+	}
+
+	els.device.addEventListener("click", () => {
+		if (state.deviceMenu) closeDeviceMenu(true);
+		else openDeviceMenu(false);
+	});
+	els.device.addEventListener("keydown", (event) => {
+		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+			event.preventDefault();
+			openDeviceMenu(event.key === "ArrowUp");
+		} else if (event.key === "Escape" && state.deviceMenu) {
+			event.preventDefault();
+			event.stopPropagation();
+			closeDeviceMenu(true);
+		}
+	});
+	els.deviceMenu.addEventListener("keydown", (event) => {
+		const open = state.deviceMenu;
+		if (!open) return;
+		// In the width field typing, Home, End and Space stay with it, and Enter is its own (applyCustomWidth).
+		if (event.target === open.input && !["ArrowDown", "ArrowUp", "Escape", "Tab"].includes(event.key)) return;
+		menuKeydown(event, open.items, closeDeviceMenu, chooseDeviceItem);
+	});
 
 	/**
 	 * The size a pick was made at, for the comment: the focused single size, or the picked size frame of
@@ -2099,14 +2181,11 @@
 		closePopover();
 		// Another size is another layout: the ring would be measured in the wrong one.
 		clearMark();
-		const control = board.sizeControl;
-		control.input.removeAttribute("aria-invalid");
-		control.error.hidden = true;
 		state.size = size;
 		applySize();
 	}
 
-	/** Brings the focused artboard's frames, centering, control and chip in line with state.size. */
+	/** Brings the focused artboard's frames, centering, the device button and the chip in line with state.size. */
 	function applySize() {
 		const board = state.focus;
 		if (!board) return;
@@ -2115,7 +2194,7 @@
 		if (all && !board.sizesView) createSizeFrames(board);
 		else if (!all) removeSizeFrames(board);
 		centerFocus();
-		renderSizeControl(board);
+		renderDevice();
 		renderOverflow(board);
 	}
 
@@ -2567,6 +2646,7 @@
 	function showMenu(button, actions, label, last, beside = false) {
 		closeMenu(false);
 		closeLangMenu(false);
+		closeDeviceMenu(false);
 		const nodes = [];
 		const items = [];
 		const byItem = new Map();
@@ -2637,7 +2717,7 @@
 		});
 	}
 
-	/** The keys both menus share: arrows, Home and End move; Escape closes with focus back on the button; Tab closes; Enter and Space choose. */
+	/** The keys the menus share: arrows, Home and End move; Escape closes with focus back on the button; Tab closes; Enter and Space choose. */
 	function menuKeydown(event, items, close, choose) {
 		const current = items.findIndex((item) => item.contains(event.target));
 		const move = (index) => {
@@ -2667,6 +2747,7 @@
 		const open = state.menu;
 		if (open && !els.menu.contains(event.target) && !open.button.contains(event.target)) closeMenu(false);
 		if (state.langMenu && !els.langMenu.contains(event.target) && !els.lang.contains(event.target)) closeLangMenu(false);
+		if (state.deviceMenu && !els.deviceMenu.contains(event.target) && !els.device.contains(event.target)) closeDeviceMenu(false);
 	});
 
 	// ---- language switch -------------------------------------------------------------
@@ -2676,6 +2757,7 @@
 	function openLangMenu(last) {
 		closeMenu(false);
 		closeLangMenu(false);
+		closeDeviceMenu(false);
 		const nodes = [];
 		const items = [];
 		for (const choice of LANG_CHOICES) {
@@ -2780,7 +2862,7 @@
 		renderComments();
 		renderHandoffs();
 		for (const board of state.boards) board.implement.refresh();
-		if (state.focus) renderSizeControl(state.focus);
+		renderDevice();
 		renderCompareText();
 		renderMark();
 		renderGuide(false);
@@ -3237,7 +3319,7 @@
 	}
 
 	function guideBlocked() {
-		return Boolean(state.compare || state.menu || state.langMenu || !els.popover.hidden || els.shortcuts.hasAttribute("open") || els.variantDialog.hasAttribute("open"));
+		return Boolean(state.compare || state.menu || state.langMenu || state.deviceMenu || !els.popover.hidden || els.shortcuts.hasAttribute("open") || els.variantDialog.hasAttribute("open"));
 	}
 
 	/** Turns the help on (its card for the current step takes focus, coming back to `returnFocus`) or off, and saves it. */
@@ -5319,7 +5401,7 @@
 			}
 			return;
 		}
-		if (!els.popover.hidden || state.focus || state.compare || state.menu || state.langMenu || els.variantDialog.hasAttribute("open")) return;
+		if (!els.popover.hidden || state.focus || state.compare || state.menu || state.langMenu || state.deviceMenu || els.variantDialog.hasAttribute("open")) return;
 		const actions = {
 			v: () => setCommenting(false),
 			c: () => setCommenting(true),
@@ -5622,6 +5704,7 @@
 	window.addEventListener("resize", closePopover);
 	window.addEventListener("resize", () => closeMenu(false));
 	window.addEventListener("resize", () => closeLangMenu(false));
+	window.addEventListener("resize", () => closeDeviceMenu(false));
 	window.addEventListener("resize", layoutCompare);
 	window.addEventListener("resize", renderMinimap);
 	window.addEventListener("resize", updateTabFades);
@@ -5632,9 +5715,10 @@
 	if (typeof ResizeObserver === "function") new ResizeObserver(updateTabFades).observe(els.tabs);
 	else window.addEventListener("resize", () => centerFocus());
 
-	// index.html starts both hidden; the menus are built when they open. The guide too, until it opens.
+	// index.html starts them hidden; the menus are built when they open. The guide too, until it opens.
 	els.menu.hidden = true;
 	els.langMenu.hidden = true;
+	els.deviceMenu.hidden = true;
 	els.guide.hidden = true;
 	els.guideSpot.hidden = true;
 	setMode(state.mode);
