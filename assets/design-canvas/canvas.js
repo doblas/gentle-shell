@@ -48,6 +48,8 @@
 	const TECHNICAL_KEY = "gentle-design:technical";
 	// "on" while the step-by-step help is turned on in this browser (from the rail's More); anything else (or nothing) is off.
 	const HELP_KEY = "gentle-design:help";
+	// The keys a person gave the single-key shortcuts in this browser, for every design: a JSON object, action id -> key (canvas-layout S11).
+	const SHORTCUTS_KEY = "gentle-design:shortcuts";
 	const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 	const MAX_PREVIEW_URL = 2048;
 	// The running app is another loopback origin (previewTarget refuses this server's own
@@ -108,11 +110,11 @@
 			"lang.note": "Saved in this browser. Comments you write stay in the language you type; messages to the agent stay in English.",
 			"rail.label": "Tools",
 			"rail.navigate": "Move",
-			"rail.navigate.title": "Move around the canvas (V)",
+			"rail.navigate.title": "Move around the canvas ({key})",
 			"rail.comment": "Comment",
-			"rail.comment.title": "Comment on an element (C)",
+			"rail.comment.title": "Comment on an element ({key})",
 			"rail.overview": "Overview",
-			"rail.overview.title": "See all the directions (F)",
+			"rail.overview.title": "See all the directions ({key})",
 			"rail.more": "More",
 			"rail.more.title": "More: design system, keyboard shortcuts and step-by-step help",
 			"rail.system": "Design system board",
@@ -173,7 +175,7 @@
 			"minimap.aria.one": "Position of the visible area among {count} direction. Click or drag to move the view; with the keyboard, use the Open button on each direction.",
 			"minimap.aria.other": "Position of the visible area among {count} directions. Click or drag to move the view; with the keyboard, use the Open button on each direction.",
 			"panel.label": "Review",
-			"panel.toggleTitle": "Review panel (])",
+			"panel.toggleTitle": "Review panel ({key})",
 			"tab.comments": "Comments",
 			"tab.checks": "Quality",
 			"tabs.prev": "Earlier tabs",
@@ -451,7 +453,6 @@
 			"check.heading.detail.other": "h{level} \"{text}\" follows h{previous}: {missing} are missing.",
 			"keys.navigate": "Move around the canvas",
 			"keys.comment": "Comment on an element",
-			"keys.or": "or",
 			"keys.fit": "Fit all directions",
 			"keys.zoom": "Zoom in and out",
 			"keys.pan": "Pan (Shift for larger steps)",
@@ -464,6 +465,22 @@
 			"keys.shiftEsc": "Back to canvas from an artboard or Compare",
 			"keys.help": "This list",
 			"keys.note": "Single keys are off while you type, while the comment box is open and while an artboard is in use.",
+			"keys.customLabel": "Shortcuts you can change",
+			"keys.customNote": "Change gives an action another single key; your keys are saved in this browser, for every design.",
+			"keys.change": "Change",
+			"keys.changeAria": "Change the key for “{action}” ({key})",
+			"keys.reset": "Reset",
+			"keys.resetAria": "Reset “{action}” to {key}",
+			"keys.restore": "Restore defaults",
+			"keys.waiting": "Press a key…",
+			"keys.waitingMessage": "Press the new key for “{action}”, or Esc to cancel.",
+			"keys.assigned": "“{action}” is now {key}.",
+			"keys.kept": "“{action}” keeps {key}.",
+			"keys.taken": "{key} is already used by “{action}”. Nothing changed.",
+			"keys.fixed": "{key} is a fixed key and can’t be assigned. Nothing changed.",
+			"keys.invalid": "Use a single letter, digit or punctuation key, without Ctrl, Alt or Cmd. Nothing changed.",
+			"keys.resetDone": "“{action}” is back to {key}.",
+			"keys.restored": "All shortcuts are back to their defaults.",
 			"reason.batch-delivery-unavailable": "This canvas is not connected to a Pi session, so comments cannot be sent. They stay saved; open the canvas from your session with /gentle:design open, then use Send all.",
 			"reason.implement-unavailable": "This canvas is not connected to a Pi session, so it cannot hand the artboard off. Open the canvas from your session with /gentle:design open.",
 			"reason.variant-unavailable": "This canvas is not connected to a Pi session, so it cannot ask for another direction. Open the canvas from your session with /gentle:design open.",
@@ -511,11 +528,11 @@
 			"lang.note": "Se guarda en este navegador. Los comentarios se quedan en el idioma en que los escribes; los mensajes al agente siguen en inglés.",
 			"rail.label": "Herramientas",
 			"rail.navigate": "Mover",
-			"rail.navigate.title": "Mover por el lienzo (V)",
+			"rail.navigate.title": "Mover por el lienzo ({key})",
 			"rail.comment": "Comentar",
-			"rail.comment.title": "Comentar un elemento (C)",
+			"rail.comment.title": "Comentar un elemento ({key})",
 			"rail.overview": "Ver todo",
-			"rail.overview.title": "Ver todas las propuestas (F)",
+			"rail.overview.title": "Ver todas las propuestas ({key})",
 			"rail.more": "Más",
 			"rail.more.title": "Más: sistema de diseño, atajos de teclado y ayuda paso a paso",
 			"rail.system": "Sistema de diseño",
@@ -576,7 +593,7 @@
 			"minimap.aria.one": "Posición del área visible entre {count} propuesta. Haz clic o arrastra para mover la vista; con el teclado, usa el botón Abrir de cada propuesta.",
 			"minimap.aria.other": "Posición del área visible entre {count} propuestas. Haz clic o arrastra para mover la vista; con el teclado, usa el botón Abrir de cada propuesta.",
 			"panel.label": "Revisión",
-			"panel.toggleTitle": "Panel de revisión (])",
+			"panel.toggleTitle": "Panel de revisión ({key})",
 			"tab.comments": "Comentarios",
 			"tab.checks": "Calidad",
 			"tabs.prev": "Pestañas anteriores",
@@ -854,7 +871,6 @@
 			"check.heading.detail.other": "h{level} \"{text}\" sigue a h{previous}: faltan {missing}.",
 			"keys.navigate": "Moverte por el lienzo",
 			"keys.comment": "Comentar un elemento",
-			"keys.or": "o",
 			"keys.fit": "Ajustar todas las propuestas",
 			"keys.zoom": "Acercar y alejar",
 			"keys.pan": "Desplazar (Shift para pasos más grandes)",
@@ -867,6 +883,22 @@
 			"keys.shiftEsc": "Volver al canvas desde un artboard o Comparar",
 			"keys.help": "Esta lista",
 			"keys.note": "Las teclas sueltas se desactivan mientras escribes, mientras el cuadro de comentario está abierto y mientras usas un artboard.",
+			"keys.customLabel": "Atajos que puedes cambiar",
+			"keys.customNote": "Cambiar da a una acción otra tecla; tus teclas se guardan en este navegador, para todos los diseños.",
+			"keys.change": "Cambiar",
+			"keys.changeAria": "Cambiar la tecla de «{action}» ({key})",
+			"keys.reset": "Restablecer",
+			"keys.resetAria": "Restablecer «{action}» a {key}",
+			"keys.restore": "Restaurar los predeterminados",
+			"keys.waiting": "Pulsa una tecla…",
+			"keys.waitingMessage": "Pulsa la nueva tecla de «{action}», o Esc para cancelar.",
+			"keys.assigned": "«{action}» ahora es {key}.",
+			"keys.kept": "«{action}» sigue con {key}.",
+			"keys.taken": "La {key} ya la usa «{action}». No ha cambiado nada.",
+			"keys.fixed": "{key} es una tecla fija y no se puede asignar. No ha cambiado nada.",
+			"keys.invalid": "Usa una sola letra, cifra o signo, sin Ctrl, Alt ni Cmd. No ha cambiado nada.",
+			"keys.resetDone": "«{action}» vuelve a {key}.",
+			"keys.restored": "Todos los atajos vuelven a sus valores predeterminados.",
 			"reason.batch-delivery-unavailable": "Este canvas no está conectado a una sesión de Pi, así que no se pueden enviar los comentarios. Se quedan guardados; abre el canvas desde tu sesión con /gentle:design open y usa Enviar todo.",
 			"reason.implement-unavailable": "Este canvas no está conectado a una sesión de Pi, así que no puede entregar el artboard. Abre el canvas desde tu sesión con /gentle:design open.",
 			"reason.variant-unavailable": "Este canvas no está conectado a una sesión de Pi, así que no puede pedir otra dirección. Abre el canvas desde tu sesión con /gentle:design open.",
@@ -1031,6 +1063,10 @@
 		guideNextLabel: $("gd-guide-next-label"),
 		shortcuts: $("gd-shortcuts"),
 		shortcutsClose: $("gd-shortcuts-close"),
+		keysCustom: $("gd-keys-custom"),
+		keysMessage: $("gd-keys-message"),
+		keysRestore: $("gd-keys-restore"),
+		minimapKey: $("gd-minimap-key"),
 		featureSep: $("gd-feature-sep"),
 		compareApp: $("gd-compare-app"),
 		technical: $("gd-technical"),
@@ -5387,7 +5423,7 @@
 	function moreActions() {
 		return [
 			{ label: "rail.system", icon: "i-palette", disabled: !state.systemBoard || Boolean(state.compare), run: () => enterFocus(state.systemBoard) },
-			{ label: "rail.keys", icon: "i-keys", shortcut: "?", run: openShortcuts },
+			{ label: "rail.keys", icon: "i-keys", shortcut: keyText(shortcutKey(shortcutById("help"))), run: openShortcuts },
 			{ label: "rail.help", icon: "i-help", checked: state.help.on, run: () => setHelp(!state.help.on, els.railMore) },
 		];
 	}
@@ -5395,20 +5431,25 @@
 	wireMenu(els.railMore, (last) => showMenu(els.railMore, moreActions(), t("rail.more"), last, true));
 
 	function openShortcuts() {
+		showKeysMessage(null);
 		if (typeof els.shortcuts.showModal === "function") els.shortcuts.showModal();
 		else els.shortcuts.setAttribute("open", "");
 		renderGuide(false);
 	}
 
 	function closeShortcuts() {
+		stopKeyWait();
 		if (typeof els.shortcuts.close === "function") els.shortcuts.close();
 		else els.shortcuts.removeAttribute("open");
 		renderGuide(false);
 		els.railMore.focus();
 	}
 
-	// The browser closes the modal list on Esc too.
-	els.shortcuts.addEventListener("close", () => renderGuide(false));
+	// The browser closes the modal list on Esc too (not while a Change waits: that Esc only cancels the wait).
+	els.shortcuts.addEventListener("close", () => {
+		stopKeyWait();
+		renderGuide(false);
+	});
 
 	els.shortcutsClose.addEventListener("click", closeShortcuts);
 
@@ -5445,34 +5486,214 @@
 	els.comment.addEventListener("click", () => setCommenting(!state.commenting));
 	els.toolNavigate.addEventListener("click", () => setCommenting(false));
 
-	// Single-key shortcuts. They never fire while typing, with a browser chord, while the comment
-	// box or the shortcuts list is open, in Compare, or in focus mode (the artboard owns the keyboard
-	// there; Shift+Esc is handled apart).
+	// ---- single-key shortcuts (canvas-layout S11) ------------------------------------
+	// The tool and panel actions, each with its default key. The shortcuts list gives any of them another single key,
+	// saved in this browser for every design (SHORTCUTS_KEY); keys match without letter case, so they are kept lower case.
+	// Esc, Shift+Esc, the arrows, Space, Enter, Tab and the zoom keys stay as they are and are never assigned.
+	const SHORTCUTS = [
+		{ id: "navigate", key: "v", label: "keys.navigate", run: () => setCommenting(false) },
+		{ id: "comment", key: "c", label: "keys.comment", run: () => setCommenting(true) },
+		{ id: "fit", key: "f", label: "keys.fit", run: fit },
+		{ id: "minimap", key: "m", label: "keys.minimap", run: () => setMinimap(!state.minimap) },
+		{ id: "panel", key: "]", label: "keys.panel", run: () => setPanel(els.panel.hidden) },
+		{ id: "help", key: "?", label: "keys.help", run: openShortcuts },
+	];
+	const FIXED_KEYS = ["Escape", "Enter", "Tab", " ", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "+", "=", "-", "0"];
+	const ARROW_KEYS = { ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: "↓" };
+	// Pressed alone while a Change waits, these keep it waiting: Shift (and AltGr) are how many keyboards type ? or ].
+	const MODIFIER_KEYS = ["Shift", "Control", "Alt", "AltGraph", "Meta", "OS", "CapsLock", "NumLock", "ScrollLock", "Fn", "FnLock", "Hyper", "Super", "Symbol", "SymbolLock"];
+
+	/** The key a shortcut can take from `key`: one printable character (a letter, a digit or punctuation), lower case; otherwise "". */
+	const singleKey = (key) => (typeof key === "string" && [...key].length === 1 && /^\S$/u.test(key) ? key.toLowerCase() : "");
+	/** How a key is written: a letter upper case, as on the keyboard. */
+	const keyText = (key) => (key.toUpperCase().length === key.length ? key.toUpperCase() : key);
+	const shortcutById = (id) => SHORTCUTS.find((shortcut) => shortcut.id === id);
+
+	/** The custom keys saved in this browser; an entry that is no usable key, names no action or takes another action's key is left out. */
+	function storedShortcuts() {
+		let stored = null;
+		try {
+			stored = JSON.parse(localStorage.getItem(SHORTCUTS_KEY) ?? "null");
+		} catch {
+			stored = null;
+		}
+		const custom = {};
+		if (!stored || typeof stored !== "object" || Array.isArray(stored)) return custom;
+		for (const shortcut of SHORTCUTS) {
+			if (!Object.prototype.hasOwnProperty.call(stored, shortcut.id)) continue;
+			const key = singleKey(stored[shortcut.id]);
+			if (key && !FIXED_KEYS.includes(key) && key !== shortcut.key) custom[shortcut.id] = key;
+		}
+		// A key two actions would share is neither's custom key: those fall back to their defaults, until no two share one.
+		for (;;) {
+			const keyOf = (shortcut) => custom[shortcut.id] ?? shortcut.key;
+			const shared = SHORTCUTS.filter((shortcut) => shortcut.id in custom && SHORTCUTS.some((other) => other !== shortcut && keyOf(other) === custom[shortcut.id]));
+			if (shared.length === 0) return custom;
+			for (const shortcut of shared) delete custom[shortcut.id];
+		}
+	}
+
+	let customKeys = storedShortcuts();
+	// The shortcut whose Change waits for the next key, or null.
+	let keyWait = null;
+	const shortcutRows = new Map();
+	const shortcutKey = (shortcut) => customKeys[shortcut.id] ?? shortcut.key;
+
+	function saveShortcuts() {
+		try { localStorage.setItem(SHORTCUTS_KEY, JSON.stringify(customKeys)); } catch { /* storage may be unavailable: the keys hold for this page only */ }
+	}
+
+	/** The line under the list that says what a Change did; a refusal reads as an error. No key clears it. */
+	function showKeysMessage(key, params, refused = false) {
+		loc(els.keysMessage, "text", key, params);
+		els.keysMessage.classList.toggle("gd-error", refused);
+	}
+
+	// Where the rail and the top bar name a key: in the tooltip, and in aria-keyshortcuts for screen readers.
+	const SHORTCUT_HINTS = [["navigate", els.toolNavigate, "rail.navigate.title"], ["comment", els.comment, "rail.comment.title"], ["fit", els.railFit, "rail.overview.title"], ["panel", els.panelToggle, "panel.toggleTitle"]];
+
+	/** Every place that shows a key shows the current one: the rail, the review panel button, the minimap's title and the list. */
+	function renderShortcuts() {
+		for (const [id, element, title] of SHORTCUT_HINTS) {
+			const key = keyText(shortcutKey(shortcutById(id)));
+			element.setAttribute("aria-keyshortcuts", key);
+			loc(element, "title", title, { key });
+		}
+		const minimap = keyText(shortcutKey(shortcutById("minimap")));
+		els.minimapKey.textContent = minimap;
+		for (const shortcut of SHORTCUTS) renderShortcutRow(shortcut);
+	}
+
+	/** A row of the list: the action, its key, Change and Reset. Built once and kept, so a change never takes the focus away. */
+	function renderShortcutRow(shortcut) {
+		let row = shortcutRows.get(shortcut.id);
+		if (!row) {
+			const root = document.createElement("li");
+			root.className = "gd-key-row";
+			root.dataset.shortcut = shortcut.id;
+			const action = chip("gd-key-action", "");
+			loc(action, "text", shortcut.label);
+			const key = document.createElement("kbd");
+			key.className = "gd-key-current";
+			const change = document.createElement("button");
+			change.type = "button";
+			change.className = "gd-key-change gd-small";
+			const reset = document.createElement("button");
+			reset.type = "button";
+			reset.className = "gd-key-reset gd-small";
+			loc(reset, "text", "keys.reset");
+			change.addEventListener("click", () => {
+				if (keyWait !== shortcut) startKeyWait(shortcut);
+				else {
+					stopKeyWait();
+					showKeysMessage("keys.kept", { action: ref(shortcut.label), key: keyText(shortcutKey(shortcut)) });
+				}
+			});
+			// Leaving the button (a click elsewhere, Restore defaults) ends its wait.
+			change.addEventListener("blur", () => {
+				if (keyWait !== shortcut) return;
+				stopKeyWait();
+				showKeysMessage(null);
+			});
+			reset.addEventListener("click", () => {
+				stopKeyWait();
+				assignKey(shortcut, shortcut.key, "keys.resetDone");
+			});
+			root.append(action, key, change, reset);
+			els.keysCustom.append(root);
+			row = { root, key, change, reset };
+			shortcutRows.set(shortcut.id, row);
+		}
+		const key = keyText(shortcutKey(shortcut));
+		const waiting = keyWait === shortcut;
+		row.root.classList.toggle("gd-key-waiting", waiting);
+		row.key.textContent = key;
+		loc(row.change, "text", waiting ? "keys.waiting" : "keys.change");
+		// While it waits, its visible text is its name.
+		if (waiting) loc(row.change, "aria-label", null);
+		else loc(row.change, "aria-label", "keys.changeAria", { action: ref(shortcut.label), key });
+		loc(row.reset, "aria-label", "keys.resetAria", { action: ref(shortcut.label), key: keyText(shortcut.key) });
+	}
+
+	function startKeyWait(shortcut) {
+		const previous = keyWait;
+		keyWait = shortcut;
+		if (previous) renderShortcutRow(previous);
+		renderShortcutRow(shortcut);
+		showKeysMessage("keys.waitingMessage", { action: ref(shortcut.label) });
+		shortcutRows.get(shortcut.id).change.focus();
+	}
+
+	function stopKeyWait() {
+		const shortcut = keyWait;
+		if (!shortcut) return;
+		keyWait = null;
+		renderShortcutRow(shortcut);
+	}
+
+	/** Gives `shortcut` the key, unless another action has it; `done` is the message that says it was given. */
+	function assignKey(shortcut, key, done) {
+		const owner = SHORTCUTS.find((other) => other !== shortcut && shortcutKey(other) === key);
+		if (owner) {
+			showKeysMessage("keys.taken", { key: keyText(key), action: ref(owner.label) }, true);
+			return;
+		}
+		if (key === shortcut.key) delete customKeys[shortcut.id];
+		else customKeys[shortcut.id] = key;
+		saveShortcuts();
+		renderShortcuts();
+		showKeysMessage(done, { action: ref(shortcut.label), key: keyText(key) });
+	}
+
+	els.keysRestore.addEventListener("click", () => {
+		stopKeyWait();
+		customKeys = {};
+		saveShortcuts();
+		renderShortcuts();
+		showKeysMessage("keys.restored");
+	});
+
+	// While a Change waits, the next key is the new one and nothing else gets it; Esc cancels the wait (in the capture
+	// phase, ahead of every other key handler, and without closing the list).
+	document.addEventListener("keydown", (event) => {
+		const shortcut = keyWait;
+		if (!shortcut || MODIFIER_KEYS.includes(event.key)) return;
+		event.preventDefault();
+		stopKeyWait();
+		if (event.key === "Escape" && !event.shiftKey) {
+			showKeysMessage("keys.kept", { action: ref(shortcut.label), key: keyText(shortcutKey(shortcut)) });
+			return;
+		}
+		if (FIXED_KEYS.includes(event.key)) {
+			const name = event.key === "Escape" ? "Shift+Esc" : event.key === " " ? ref("keys.spaceKey") : ARROW_KEYS[event.key] ?? event.key;
+			showKeysMessage("keys.fixed", { key: name }, true);
+			return;
+		}
+		const key = event.ctrlKey || event.metaKey || event.altKey ? "" : singleKey(event.key);
+		if (key) assignKey(shortcut, key, "keys.assigned");
+		else showKeysMessage("keys.invalid", undefined, true);
+	}, true);
+
+	// The shortcuts never fire while typing, with a browser chord, while the comment box or the shortcuts list is open
+	// (where the help key closes it), in Compare, or in focus mode (the artboard owns the keyboard there; Shift+Esc is handled apart).
 	const TYPING_TAGS = ["input", "textarea", "select"];
 	document.addEventListener("keydown", (event) => {
 		if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
 		const target = event.target;
 		if (target && (TYPING_TAGS.includes(target.localName) || target.isContentEditable)) return;
+		const key = singleKey(event.key);
+		const shortcut = key ? SHORTCUTS.find((entry) => shortcutKey(entry) === key) : null;
 		if (els.shortcuts.hasAttribute("open")) {
-			if (event.key === "?") {
+			if (shortcut && shortcut.id === "help") {
 				event.preventDefault();
 				closeShortcuts();
 			}
 			return;
 		}
 		if (!els.popover.hidden || state.focus || state.compare || state.menu || state.langMenu || state.deviceMenu || els.variantDialog.hasAttribute("open")) return;
-		const actions = {
-			v: () => setCommenting(false),
-			c: () => setCommenting(true),
-			f: fit,
-			m: () => setMinimap(!state.minimap),
-			"]": () => setPanel(els.panel.hidden),
-			"?": openShortcuts,
-		};
-		const action = actions[event.key.length === 1 ? event.key.toLowerCase() : ""];
-		if (!action) return;
+		if (!shortcut) return;
 		event.preventDefault();
-		action();
+		shortcut.run();
 	});
 
 	function isFiniteNumber(value) {
@@ -5786,6 +6007,7 @@
 	els.guideSpot.hidden = true;
 	setMode(state.mode);
 	renderTools();
+	renderShortcuts();
 	renderTechnical();
 	if (!DELIVERY.batch) {
 		const info = explain({ status: 501, body: { error: "batch-delivery-unavailable" } });

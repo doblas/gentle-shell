@@ -86,7 +86,7 @@
 			<p id="gd-empty" class="gd-empty" hidden></p>
 			<button type="button" id="gd-back" class="gd-back" aria-keyshortcuts="Shift+Escape" title="Back to canvas (Shift+Esc)" data-i18n="back" data-i18n-title="back.title" hidden>Back to canvas</button>
 			<section id="gd-minimap" class="gd-minimap" aria-labelledby="gd-minimap-title">
-				<h2 id="gd-minimap-title" class="gd-minimap-title"><span data-i18n="minimap.title">Minimap</span><kbd aria-hidden="true">M</kbd></h2>
+				<h2 id="gd-minimap-title" class="gd-minimap-title"><span data-i18n="minimap.title">Minimap</span><kbd id="gd-minimap-key" aria-hidden="true">M</kbd></h2>
 				<div id="gd-minimap-map" class="gd-minimap-map" role="img" aria-label="Position of the visible area among the directions. Click or drag to move the view; with the keyboard, use the Open button on each direction." data-i18n-aria-label="minimap.aria"><b id="gd-minimap-view" class="gd-minimap-view"></b></div>
 			</section>
 			<p id="gd-nav-mode" class="gd-nav-mode" role="status" aria-live="polite" data-i18n="mode.navigating">Moving around the canvas · wheel to zoom</p>
@@ -231,21 +231,19 @@
 	</dialog>
 	<dialog id="gd-shortcuts" class="gd-dialog" aria-labelledby="gd-shortcuts-title">
 		<h2 id="gd-shortcuts-title" class="gd-dialog-title" data-i18n="rail.keys">Keyboard shortcuts</h2>
+		<ul id="gd-keys-custom" class="gd-keys-custom" aria-label="Shortcuts you can change" data-i18n-aria-label="keys.customLabel"></ul>
+		<p id="gd-keys-message" class="gd-keys-message" role="status" aria-live="polite"></p>
 		<dl class="gd-keys">
-			<dt><kbd>V</kbd></dt><dd data-i18n="keys.navigate">Move around the canvas</dd>
-			<dt><kbd>C</kbd></dt><dd data-i18n="keys.comment">Comment on an element</dd>
-			<dt><kbd>F</kbd> <span data-i18n="keys.or">or</span> <kbd>0</kbd></dt><dd data-i18n="keys.fit">Fit all directions</dd>
+			<dt><kbd>0</kbd></dt><dd data-i18n="keys.fit">Fit all directions</dd>
 			<dt><kbd>+</kbd> <kbd>-</kbd></dt><dd data-i18n="keys.zoom">Zoom in and out</dd>
 			<dt><kbd>&larr;</kbd> <kbd>&rarr;</kbd> <kbd>&uarr;</kbd> <kbd>&darr;</kbd></dt><dd data-i18n="keys.pan">Pan (Shift for larger steps)</dd>
 			<dt><kbd data-i18n="keys.spaceKey">Space</kbd> + <span data-i18n="keys.drag">drag</span></dt><dd data-i18n="keys.space">Pan from anywhere, even over an artboard</dd>
-			<dt><kbd>M</kbd></dt><dd data-i18n="keys.minimap">Show or hide the minimap</dd>
-			<dt><kbd>]</kbd></dt><dd data-i18n="keys.panel">Show or hide the review panel</dd>
 			<dt><kbd>Esc</kbd></dt><dd data-i18n="keys.esc">Leave Comment mode or close the comment box</dd>
 			<dt><kbd>Shift</kbd> + <kbd>Esc</kbd></dt><dd data-i18n="keys.shiftEsc">Back to canvas from an artboard or Compare</dd>
-			<dt><kbd>?</kbd></dt><dd data-i18n="keys.help">This list</dd>
 		</dl>
+		<p class="gd-dialog-note" data-i18n="keys.customNote">Change gives an action another single key; your keys are saved in this browser, for every design.</p>
 		<p class="gd-dialog-note" data-i18n="keys.note">Single keys are off while you type, while the comment box is open and while an artboard is in use.</p>
-		<div class="gd-dialog-actions"><button type="button" id="gd-shortcuts-close" class="gd-primary" data-i18n="common.close">Close</button></div>
+		<div class="gd-dialog-actions"><button type="button" id="gd-keys-restore" class="gd-keys-restore" data-i18n="keys.restore">Restore defaults</button><button type="button" id="gd-shortcuts-close" class="gd-primary" data-i18n="common.close">Close</button></div>
 	</dialog>
 </body>
 </html>

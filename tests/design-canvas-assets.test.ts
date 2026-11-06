@@ -4142,9 +4142,12 @@ test("T1/S1: a ResizeObserver on the viewport redraws the minimap too", async ()
 	assert.equal(miniBlocks(canvas).length, 3);
 });
 
-test("T1/S1: the shortcuts dialog lists M, and the markup carries the minimap", () => {
+test("T1/S1: the shortcuts dialog lists M, and the markup carries the minimap", async () => {
+	// canvas-layout S11: the canvas builds the rows of the shortcuts a person can change.
+	const canvas = await loadRail();
+	const row = withClass(canvas.document.getElementById("gd-keys-custom"), "gd-key-row").find((entry) => entry.dataset.shortcut === "minimap")!;
+	assert.deepEqual([texts(row, "gd-key-current")[0], texts(row, "gd-key-action")[0]], ["M", "Show or hide the minimap"]);
 	const html = read("index.html");
-	assert.match(html, /<dt><kbd>M<\/kbd><\/dt><dd data-i18n="keys.minimap">Show or hide the minimap<\/dd>/);
 	const section = html.match(/<section id="gd-minimap"[^>]*>[^]*?<\/section>/)![0];
 	assert.match(section, /^<section id="gd-minimap" class="gd-minimap" aria-labelledby="gd-minimap-title">/);
 	assert.match(section, /<h2 id="gd-minimap-title" class="gd-minimap-title"><span data-i18n="minimap.title">Minimap<\/span><kbd[^>]*>M<\/kbd><\/h2>/);
@@ -7916,7 +7919,7 @@ test("canvas-layout S10: pressing an artboard outlines all of it as selected unt
 test("canvas-layout S9: the shortcuts list names Space + drag, in English and Spanish, and the docs describe the gestures", () => {
 	const html = read("index.html");
 	assert.match(html, /<dt><kbd data-i18n="keys\.spaceKey">Space<\/kbd> \+ <span data-i18n="keys\.drag">drag<\/span><\/dt><dd data-i18n="keys\.space">Pan from anywhere, even over an artboard<\/dd>/);
-	assert.ok(html.indexOf('data-i18n="keys.pan"') < html.indexOf('data-i18n="keys.space"') && html.indexOf('data-i18n="keys.space"') < html.indexOf('data-i18n="keys.minimap"'), "after the arrow keys");
+	assert.ok(html.indexOf('data-i18n="keys.pan"') < html.indexOf('data-i18n="keys.space"') && html.indexOf('data-i18n="keys.space"') < html.indexOf('data-i18n="keys.esc"'), "after the arrow keys");
 	const { en, es } = loadCatalog();
 	assert.deepEqual(["keys.spaceKey", "keys.drag", "keys.space"].map((key) => en[key]), ["Space", "drag", "Pan from anywhere, even over an artboard"]);
 	assert.deepEqual(["keys.spaceKey", "keys.drag", "keys.space"].map((key) => es[key]), ["Espacio", "arrastrar", "Desplázate desde cualquier punto, también sobre una propuesta"]);
@@ -8069,4 +8072,321 @@ test("canvas-layout S2: the arrangement control sits in the top bar before the l
 	const pressed = /\.gd-arrange button\[aria-pressed="true"\]\s*{([^}]*)}/.exec(css);
 	assert.ok(pressed && /var\(--/.test(pressed[1]) && !/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(pressed[1]), "the chosen arrangement shows, in tokens");
 	assert.match(css, /\.gd-world \.gd-artboard\s*{[^}]*position:\s*absolute/, "artboards sit where the layout puts them");
+});
+
+// ---- canvas-layout S11: the tool and panel shortcuts can take other single keys, saved in this browser ----
+
+const SHORTCUTS_KEY = "gentle-design:shortcuts";
+const SHORTCUT_IDS = ["navigate", "comment", "fit", "minimap", "panel", "help"];
+
+/** index.html hydrated, an in-memory (or a throwing) localStorage; `stored` seeds the shortcuts entry (a string goes in as is). */
+async function loadKeys(options: { stored?: unknown; broken?: boolean; browser?: string } = {}) {
+	const data = new Map<string, string>();
+	if (options.stored !== undefined) data.set(SHORTCUTS_KEY, typeof options.stored === "string" ? options.stored : JSON.stringify(options.stored));
+	const writes: string[] = [];
+	const localStorage = options.broken
+		? { getItem() { throw new Error("denied"); }, setItem() { throw new Error("denied"); } }
+		: { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, String(value)); if (key === SHORTCUTS_KEY) writes.push(String(value)); } };
+	const navigator = options.browser ? { language: options.browser, languages: [options.browser] } : undefined;
+	const canvas = await loadCanvas(300, {}, {}, { localStorage, ...(navigator ? { navigator } : {}) }, { hydrate: true });
+	canvas.document.getElementById("gd-popover").hidden = true;
+	const dialog = canvas.document.getElementById("gd-shortcuts");
+	(dialog as any).showModal = () => dialog.setAttribute("open", "");
+	(dialog as any).close = () => dialog.removeAttribute("open");
+	return { ...canvas, data, writes, stored: () => (data.has(SHORTCUTS_KEY) ? JSON.parse(data.get(SHORTCUTS_KEY)!) : undefined) };
+}
+type KeysCanvas = Awaited<ReturnType<typeof loadKeys>>;
+
+const keyRows = (canvas: KeysCanvas) => withClass(canvas.document.getElementById("gd-keys-custom"), "gd-key-row");
+const keyRow = (canvas: KeysCanvas, id: string) => keyRows(canvas).find((row) => row.dataset.shortcut === id)!;
+const rowKey = (canvas: KeysCanvas, id: string) => texts(keyRow(canvas, id), "gd-key-current")[0];
+const rowChange = (canvas: KeysCanvas, id: string) => withClass(keyRow(canvas, id), "gd-key-change")[0];
+const rowReset = (canvas: KeysCanvas, id: string) => withClass(keyRow(canvas, id), "gd-key-reset")[0];
+const keysMessage = (canvas: KeysCanvas) => canvas.document.getElementById("gd-keys-message").textContent;
+const shortcutsOpen = (canvas: KeysCanvas) => canvas.document.getElementById("gd-shortcuts").hasAttribute("open");
+const closeList = (canvas: KeysCanvas) => canvas.document.getElementById("gd-shortcuts-close").dispatch("click");
+/** Opens the list (as More's Keyboard shortcuts does), presses Change on `id`'s row and then `key`; returns the key's event. */
+function changeKey(canvas: KeysCanvas, id: string, key: string, init: Record<string, unknown> = {}) {
+	if (!shortcutsOpen(canvas)) {
+		openMore(canvas as unknown as Canvas);
+		menuItems(canvas as unknown as Canvas)[1].dispatch("click");
+	}
+	rowChange(canvas, id).dispatch("click");
+	return press(canvas as unknown as Canvas, key, init, rowChange(canvas, id));
+}
+const keyPress = (canvas: KeysCanvas, key: string, init: Record<string, unknown> = {}) => press(canvas as unknown as Canvas, key, init);
+const keyPressed = (canvas: KeysCanvas, id: string) => pressed(canvas as unknown as Canvas, id);
+
+test("canvas-layout S11: the shortcuts list shows each tool and panel action with its key, Change and Reset, and one Restore defaults", async () => {
+	const canvas = await loadKeys();
+	assert.deepEqual(keyRows(canvas).map((row) => row.dataset.shortcut), SHORTCUT_IDS, "the six single-key actions, in this order");
+	assert.deepEqual(SHORTCUT_IDS.map((id) => texts(keyRow(canvas, id), "gd-key-action")[0]), ["Move around the canvas", "Comment on an element", "Fit all directions", "Show or hide the minimap", "Show or hide the review panel", "This list"]);
+	assert.deepEqual(SHORTCUT_IDS.map((id) => rowKey(canvas, id)), ["V", "C", "F", "M", "]", "?"], "the defaults render as before");
+	assert.equal(rowChange(canvas, "navigate").textContent, "Change");
+	assert.equal(rowChange(canvas, "navigate").getAttribute("aria-label"), "Change the key for “Move around the canvas” (V)");
+	assert.equal(rowReset(canvas, "comment").textContent, "Reset");
+	assert.equal(rowReset(canvas, "comment").getAttribute("aria-label"), "Reset “Comment on an element” to C");
+	assert.equal(canvas.document.getElementById("gd-keys-restore").textContent, "Restore defaults");
+	assert.equal(keysMessage(canvas), "");
+	assert.deepEqual(canvas.writes, [], "reading the defaults writes nothing");
+	// Every place that names a key names the current one.
+	for (const [id, key, title] of [["gd-tool-navigate", "V", "Move around the canvas (V)"], ["gd-comment", "C", "Comment on an element (C)"], ["gd-rail-fit", "F", "See all the directions (F)"], ["gd-panel-toggle", "]", "Review panel (])"]]) {
+		assert.equal(canvas.document.getElementById(id).title, title);
+		assert.equal(canvas.document.getElementById(id).getAttribute("aria-keyshortcuts"), key);
+	}
+	assert.equal(canvas.document.getElementById("gd-minimap-key").textContent, "M");
+	const items = openMore(canvas as unknown as Canvas);
+	assert.equal(items[1].getAttribute("aria-keyshortcuts"), "?");
+	assert.deepEqual(texts(items[1], "gd-menu-kbd"), ["?"]);
+
+	const html = read("index.html");
+	const dialog = html.slice(html.indexOf('<dialog id="gd-shortcuts"'), html.indexOf("</dialog>", html.indexOf('<dialog id="gd-shortcuts"')));
+	assert.match(dialog, /<ul id="gd-keys-custom" class="gd-keys-custom" aria-label="[^"]+" data-i18n-aria-label="keys\.customLabel"><\/ul>/);
+	assert.match(dialog, /<p id="gd-keys-message" class="gd-keys-message" role="status" aria-live="polite"><\/p>/);
+	assert.match(dialog, /<button type="button" id="gd-keys-restore"[^>]*data-i18n="keys\.restore">Restore defaults<\/button>/);
+	// The fixed keys stay listed as they were.
+	for (const fixed of [/<dt><kbd>0<\/kbd><\/dt><dd data-i18n="keys\.fit">/, /<dt><kbd>\+<\/kbd> <kbd>-<\/kbd><\/dt>/, /<kbd>&larr;<\/kbd>/, /<kbd data-i18n="keys\.spaceKey">Space<\/kbd>/, /<dt><kbd>Esc<\/kbd><\/dt>/, /<dt><kbd>Shift<\/kbd> \+ <kbd>Esc<\/kbd><\/dt>/]) assert.match(dialog, fixed);
+	assert.match(html, /<kbd id="gd-minimap-key" aria-hidden="true">M<\/kbd>/);
+});
+
+test("canvas-layout S11: a new key triggers its action, the old one does not, and the rail, the list, the minimap and More show it", async () => {
+	const canvas = await loadKeys();
+	assert.equal(changeKey(canvas, "comment", "k").defaultPrevented, true, "the key is taken by the list");
+	assert.equal(keyPressed(canvas, "gd-comment"), "false", "assigning does not run the action");
+	assert.equal(rowKey(canvas, "comment"), "K");
+	assert.equal(keysMessage(canvas), "“Comment on an element” is now K.");
+	assert.deepEqual(canvas.stored(), { comment: "k" });
+	closeList(canvas);
+	assert.equal(keyPress(canvas, "c").defaultPrevented, false, "the old key is free");
+	assert.equal(keyPressed(canvas, "gd-comment"), "false");
+	assert.equal(keyPress(canvas, "K").defaultPrevented, true, "case does not matter");
+	assert.equal(keyPressed(canvas, "gd-comment"), "true");
+	assert.equal(canvas.document.getElementById("gd-comment").title, "Comment on an element (K)");
+	assert.equal(canvas.document.getElementById("gd-comment").getAttribute("aria-keyshortcuts"), "K");
+	assert.equal(rowChange(canvas, "comment").getAttribute("aria-label"), "Change the key for “Comment on an element” (K)");
+	assert.equal(rowReset(canvas, "comment").getAttribute("aria-label"), "Reset “Comment on an element” to C", "reset names the default");
+
+	changeKey(canvas, "navigate", "x");
+	changeKey(canvas, "fit", "g");
+	changeKey(canvas, "minimap", "n");
+	changeKey(canvas, "panel", "p");
+	changeKey(canvas, "help", "/");
+	assert.deepEqual(canvas.stored(), { navigate: "x", comment: "k", fit: "g", minimap: "n", panel: "p", help: "/" });
+	closeList(canvas);
+	assert.equal(canvas.document.getElementById("gd-tool-navigate").title, "Move around the canvas (X)");
+	assert.equal(canvas.document.getElementById("gd-rail-fit").title, "See all the directions (G)");
+	assert.equal(canvas.document.getElementById("gd-panel-toggle").title, "Review panel (P)");
+	assert.equal(canvas.document.getElementById("gd-panel-toggle").getAttribute("aria-keyshortcuts"), "P");
+	assert.equal(canvas.document.getElementById("gd-minimap-key").textContent, "N");
+	keyPress(canvas, "x");
+	assert.equal(keyPressed(canvas, "gd-comment"), "false", "X moves around the canvas");
+	keyPress(canvas, "v");
+	keyPress(canvas, "k");
+	assert.equal(keyPressed(canvas, "gd-comment"), "true", "V no longer does");
+	assert.equal(miniPanel(canvas as unknown as Canvas).hidden, false);
+	keyPress(canvas, "m");
+	assert.equal(miniPanel(canvas as unknown as Canvas).hidden, false, "M is free");
+	keyPress(canvas, "n");
+	assert.equal(miniPanel(canvas as unknown as Canvas).hidden, true, "N toggles the minimap");
+	keyPress(canvas, "]");
+	assert.equal(canvas.document.getElementById("gd-panel").hidden, false);
+	keyPress(canvas, "p");
+	assert.equal(canvas.document.getElementById("gd-panel").hidden, true, "P toggles the review panel");
+	const items = openMore(canvas as unknown as Canvas);
+	assert.equal(items[1].getAttribute("aria-keyshortcuts"), "/");
+	assert.deepEqual(texts(items[1], "gd-menu-kbd"), ["/"]);
+	keyOn(items[1], "Escape");
+	keyPress(canvas, "?", { shiftKey: true });
+	assert.equal(shortcutsOpen(canvas), false, "? is free");
+	keyPress(canvas, "/");
+	assert.equal(shortcutsOpen(canvas), true, "/ opens the list");
+	keyPress(canvas, "?", { shiftKey: true });
+	assert.equal(shortcutsOpen(canvas), true);
+	keyPress(canvas, "/");
+	assert.equal(shortcutsOpen(canvas), false, "and closes it");
+});
+
+test("canvas-layout S11: custom keys are restored on load, and a stored entry that is unusable, unknown or taken is ignored", async () => {
+	const restored = await loadKeys({ stored: { navigate: "x", help: "/" } });
+	assert.deepEqual(SHORTCUT_IDS.map((id) => rowKey(restored, id)), ["X", "C", "F", "M", "]", "/"]);
+	assert.equal(restored.document.getElementById("gd-tool-navigate").title, "Move around the canvas (X)");
+	keyPress(restored, "/");
+	assert.equal(shortcutsOpen(restored), true);
+	assert.deepEqual(restored.writes, [], "loading writes nothing");
+
+	for (const stored of ["not json", "[1, 2]", "\"x\"", "null", "42", JSON.stringify({ navigate: "vv", comment: "Enter", fit: " ", minimap: "c", panel: 7, help: "0", bogus: "z" })]) {
+		const canvas = await loadKeys({ stored });
+		assert.deepEqual(SHORTCUT_IDS.map((id) => rowKey(canvas, id)), ["V", "C", "F", "M", "]", "?"], stored);
+		keyPress(canvas, "c");
+		assert.equal(keyPressed(canvas, "gd-comment"), "true", `${stored}: the canvas still works`);
+		keyPress(canvas, "z");
+		keyPress(canvas, "v");
+		assert.equal(keyPressed(canvas, "gd-comment"), "false");
+	}
+	// Two actions stored on one key: neither takes it.
+	const twice = await loadKeys({ stored: { navigate: "q", comment: "q", fit: "w" } });
+	assert.deepEqual(SHORTCUT_IDS.map((id) => rowKey(twice, id)), ["V", "C", "W", "M", "]", "?"]);
+	// Keys swapped between two actions are both kept.
+	const swapped = await loadKeys({ stored: { navigate: "c", comment: "v" } });
+	assert.deepEqual(SHORTCUT_IDS.map((id) => rowKey(swapped, id)), ["C", "V", "F", "M", "]", "?"]);
+
+	const broken = await loadKeys({ broken: true, stored: { navigate: "x" } });
+	assert.deepEqual(SHORTCUT_IDS.map((id) => rowKey(broken, id)), ["V", "C", "F", "M", "]", "?"], "unreadable storage keeps the defaults");
+	changeKey(broken, "comment", "k");
+	assert.equal(rowKey(broken, "comment"), "K", "and a change still applies for this page");
+	closeList(broken);
+	keyPress(broken, "k");
+	assert.equal(keyPressed(broken, "gd-comment"), "true");
+});
+
+test("canvas-layout S11: a key another action uses is refused with a message naming it, and nothing changes", async () => {
+	const canvas = await loadKeys();
+	assert.equal(changeKey(canvas, "navigate", "C", { shiftKey: true }).defaultPrevented, true);
+	assert.equal(keysMessage(canvas), "C is already used by “Comment on an element”. Nothing changed.");
+	assert.equal(rowKey(canvas, "navigate"), "V");
+	assert.equal(rowKey(canvas, "comment"), "C");
+	assert.deepEqual(canvas.writes, [], "nothing stored");
+	assert.equal(rowChange(canvas, "navigate").textContent, "Change", "the wait is over");
+	changeKey(canvas, "minimap", "?", { shiftKey: true });
+	assert.equal(keysMessage(canvas), "? is already used by “This list”. Nothing changed.");
+	assert.equal(shortcutsOpen(canvas), true, "? did not close the list while it waited");
+	// A custom key is taken too.
+	changeKey(canvas, "fit", "g");
+	changeKey(canvas, "panel", "g");
+	assert.equal(keysMessage(canvas), "G is already used by “Fit all directions”. Nothing changed.");
+	assert.deepEqual(canvas.stored(), { fit: "g" });
+	closeList(canvas);
+	keyPress(canvas, "]");
+	assert.equal(canvas.document.getElementById("gd-panel").hidden, true, "] still toggles the panel");
+});
+
+test("canvas-layout S11: fixed keys and keys that are not one printable key are refused; Esc cancels the wait; nothing fires while it waits", async () => {
+	const canvas = await loadKeys();
+	const fixed: Array<[string, Record<string, unknown>, string]> = [
+		["Escape", { shiftKey: true }, "Shift+Esc"], ["Enter", {}, "Enter"], ["Tab", {}, "Tab"], [" ", {}, "Space"], ["ArrowLeft", {}, "←"], ["ArrowDown", {}, "↓"], ["0", {}, "0"], ["+", { shiftKey: true }, "+"], ["-", {}, "-"], ["=", {}, "="],
+	];
+	for (const [key, init, name] of fixed) {
+		assert.equal(changeKey(canvas, "navigate", key, init).defaultPrevented, true, key);
+		assert.equal(keysMessage(canvas), `${name} is a fixed key and can’t be assigned. Nothing changed.`);
+		assert.equal(rowKey(canvas, "navigate"), "V");
+	}
+	for (const [key, init] of [["F5", {}], ["k", { ctrlKey: true }], ["k", { altKey: true }], ["k", { metaKey: true }], ["Dead", {}]] as const) {
+		changeKey(canvas, "navigate", key, init);
+		assert.equal(keysMessage(canvas), "Use a single letter, digit or punctuation key, without Ctrl, Alt or Cmd. Nothing changed.", `${key} ${JSON.stringify(init)}`);
+	}
+	assert.equal(rowKey(canvas, "navigate"), "V");
+	assert.deepEqual(canvas.writes, []);
+
+	// Waiting: the button says so; a modifier alone keeps it waiting; Esc cancels and keeps the list open.
+	rowChange(canvas, "navigate").dispatch("click");
+	assert.equal(rowChange(canvas, "navigate").textContent, "Press a key…");
+	assert.ok(keyRow(canvas, "navigate").classes.has("gd-key-waiting"));
+	assert.equal(keysMessage(canvas), "Press the new key for “Move around the canvas”, or Esc to cancel.");
+	assert.equal(keyPress(canvas, "Shift", { shiftKey: true }).defaultPrevented, false);
+	assert.equal(rowChange(canvas, "navigate").textContent, "Press a key…", "still waiting");
+	assert.equal(keyPress(canvas, "Escape").defaultPrevented, true, "the list does not close on this Esc");
+	assert.equal(rowChange(canvas, "navigate").textContent, "Change");
+	assert.ok(!keyRow(canvas, "navigate").classes.has("gd-key-waiting"));
+	assert.equal(keysMessage(canvas), "“Move around the canvas” keeps V.");
+	assert.equal(rowKey(canvas, "navigate"), "V");
+	assert.deepEqual(canvas.writes, []);
+	keyPress(canvas, "x");
+	assert.equal(rowKey(canvas, "navigate"), "V", "after the wait a key changes nothing");
+
+	// Nothing fires while it waits: the next key is the new one.
+	rowChange(canvas, "minimap").dispatch("click");
+	assert.equal(keyPress(canvas, "c").defaultPrevented, true);
+	assert.equal(keyPressed(canvas, "gd-comment"), "false", "C did not switch to Comment");
+	assert.equal(keysMessage(canvas), "C is already used by “Comment on an element”. Nothing changed.");
+	rowChange(canvas, "minimap").dispatch("click");
+	keyPress(canvas, "n");
+	assert.equal(miniPanel(canvas as unknown as Canvas).hidden, false, "assigning N did not toggle the minimap");
+	// Closing the list ends a wait.
+	changeKey(canvas, "navigate", "Shift", { shiftKey: true });
+	closeList(canvas);
+	keyPress(canvas, "x");
+	assert.equal(rowKey(canvas, "navigate"), "V");
+});
+
+test("canvas-layout S11: Reset puts one action back on its default and Restore defaults puts them all back", async () => {
+	const canvas = await loadKeys({ stored: { navigate: "x", comment: "k", help: "/" } });
+	rowReset(canvas, "comment").dispatch("click");
+	assert.equal(rowKey(canvas, "comment"), "C");
+	assert.equal(keysMessage(canvas), "“Comment on an element” is back to C.");
+	assert.deepEqual(canvas.stored(), { navigate: "x", help: "/" });
+	assert.equal(canvas.document.getElementById("gd-comment").title, "Comment on an element (C)");
+	keyPress(canvas, "c");
+	assert.equal(keyPressed(canvas, "gd-comment"), "true");
+	canvas.document.getElementById("gd-keys-restore").dispatch("click");
+	assert.deepEqual(SHORTCUT_IDS.map((id) => rowKey(canvas, id)), ["V", "C", "F", "M", "]", "?"]);
+	assert.equal(keysMessage(canvas), "All shortcuts are back to their defaults.");
+	assert.deepEqual(canvas.stored(), {});
+	assert.equal(canvas.document.getElementById("gd-tool-navigate").title, "Move around the canvas (V)");
+	keyPress(canvas, "v");
+	assert.equal(keyPressed(canvas, "gd-comment"), "false");
+	// A Reset taken by another action's custom key is refused like a change.
+	changeKey(canvas, "navigate", "q");
+	changeKey(canvas, "comment", "v");
+	rowReset(canvas, "navigate").dispatch("click");
+	assert.equal(keysMessage(canvas), "V is already used by “Comment on an element”. Nothing changed.");
+	assert.equal(rowKey(canvas, "navigate"), "Q");
+	// A press of Change on another row while one waits moves the wait there.
+	rowChange(canvas, "fit").dispatch("click");
+	rowChange(canvas, "panel").dispatch("click");
+	assert.equal(rowChange(canvas, "fit").textContent, "Change");
+	keyPress(canvas, "b");
+	assert.equal(rowKey(canvas, "panel"), "B");
+	assert.equal(rowKey(canvas, "fit"), "F");
+});
+
+test("canvas-layout S11: the list, its messages and the hints are in Spanish too", async () => {
+	const canvas = await loadKeys({ browser: "es-ES" });
+	assert.deepEqual(SHORTCUT_IDS.map((id) => texts(keyRow(canvas, id), "gd-key-action")[0]), ["Moverte por el lienzo", "Comentar un elemento", "Ajustar todas las propuestas", "Mostrar u ocultar el minimapa", "Mostrar u ocultar el panel de revisión", "Esta lista"]);
+	assert.equal(rowChange(canvas, "navigate").textContent, "Cambiar");
+	assert.equal(rowChange(canvas, "navigate").getAttribute("aria-label"), "Cambiar la tecla de «Moverte por el lienzo» (V)");
+	assert.equal(rowReset(canvas, "navigate").textContent, "Restablecer");
+	assert.equal(rowReset(canvas, "navigate").getAttribute("aria-label"), "Restablecer «Moverte por el lienzo» a V");
+	assert.equal(canvas.document.getElementById("gd-keys-restore").textContent, "Restaurar los predeterminados");
+	rowChange(canvas, "navigate").dispatch("click");
+	assert.equal(rowChange(canvas, "navigate").textContent, "Pulsa una tecla…");
+	assert.equal(keysMessage(canvas), "Pulsa la nueva tecla de «Moverte por el lienzo», o Esc para cancelar.");
+	keyPress(canvas, "Escape");
+	assert.equal(keysMessage(canvas), "«Moverte por el lienzo» sigue con V.");
+	changeKey(canvas, "navigate", "c");
+	assert.equal(keysMessage(canvas), "La C ya la usa «Comentar un elemento». No ha cambiado nada.");
+	changeKey(canvas, "navigate", " ");
+	assert.equal(keysMessage(canvas), "Espacio es una tecla fija y no se puede asignar. No ha cambiado nada.");
+	changeKey(canvas, "navigate", "F5");
+	assert.equal(keysMessage(canvas), "Usa una sola letra, cifra o signo, sin Ctrl, Alt ni Cmd. No ha cambiado nada.");
+	changeKey(canvas, "comment", "k");
+	assert.equal(keysMessage(canvas), "«Comentar un elemento» ahora es K.");
+	assert.equal(canvas.document.getElementById("gd-comment").title, "Comentar un elemento (K)");
+	rowReset(canvas, "comment").dispatch("click");
+	assert.equal(keysMessage(canvas), "«Comentar un elemento» vuelve a C.");
+	canvas.document.getElementById("gd-keys-restore").dispatch("click");
+	assert.equal(keysMessage(canvas), "Todos los atajos vuelven a sus valores predeterminados.");
+	// A switch of language rewrites the list and the message in place.
+	chooseLang(canvas as unknown as LangCanvas, "en");
+	assert.equal(rowChange(canvas, "navigate").textContent, "Change");
+	assert.equal(keysMessage(canvas), "All shortcuts are back to their defaults.");
+	assert.equal(canvas.document.getElementById("gd-comment").title, "Comment on an element (C)");
+});
+
+test("canvas-layout S11: canvas.css styles the list with tokens and no motion; the docs say the keys can be changed and are saved in the browser", () => {
+	const css = read("canvas.css");
+	for (const selector of [".gd-keys-custom", ".gd-key-row", ".gd-key-waiting", ".gd-keys-message"]) {
+		const start = css.indexOf(`${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		const text = css.slice(start, css.indexOf("}", start) + 1);
+		assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(text), `${selector}: tokens only`);
+		assert.ok(!/transition|animation/.test(text), `${selector}: no motion`);
+	}
+	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
+	const section = docs.slice(docs.indexOf("### Gentle Design"));
+	const rail = section.slice(section.indexOf("- **Tool rail**"), section.indexOf("\n", section.indexOf("- **Tool rail**")));
+	assert.match(rail, /\*\*Change\*\*/);
+	assert.match(rail, /\*\*Restore defaults\*\*/);
+	assert.match(rail, /`gentle-design:shortcuts`/);
+	assert.match(rail, /saved in this browser/);
+	assert.match(rail, /`Esc`, `Shift\+Esc`, the arrows, `Space`, `Enter`/);
 });

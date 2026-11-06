@@ -1947,6 +1947,44 @@ kbd {
 .gd-dialog-note { margin: 12px 0 0; color: var(--text-muted); font-size: 12px; }
 .gd-dialog-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
 
+/* The shortcuts a person can change (canvas-layout S11): one row per action, its key, Change and Reset. */
+.gd-keys-custom {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.gd-key-row {
+	display: grid;
+	grid-template-columns: 1fr 3em auto auto;
+	align-items: center;
+	gap: 8px;
+	padding: 3px 6px;
+	border-radius: var(--radius-sm);
+}
+
+.gd-key-current { justify-self: start; }
+
+.gd-key-waiting {
+	background: var(--accent-wash);
+	box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+.gd-key-waiting .gd-key-current { color: var(--accent); border-color: var(--accent-line); }
+
+.gd-keys-message {
+	min-height: 18px;
+	margin: 6px 0 12px;
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
+.gd-keys-message.gd-error { color: var(--error); }
+.gd-keys-restore { margin-right: auto; }
+
 /* ---- the split line of Compare's Slider mode ---- */
 
 /* The shield takes the drag over the frames; the handle shows the position and takes the keyboard. */
