@@ -968,8 +968,8 @@ test("shortcuts with a modifier, and the buttons of the rail, reach the same too
 	press(canvas, "c", { altKey: true });
 	assert.equal(pressed(canvas, "gd-comment"), "false", "browser chords are left alone");
 
-	// canvas-progressive S1: Keyboard shortcuts moved from the rail into More.
-	canvas.document.getElementById("gd-rail-more").dispatch("click");
+	// canvas-progressive S1: Keyboard shortcuts moved from the rail into More, now Settings (canvas-layout S15).
+	canvas.document.getElementById("gd-rail-settings").dispatch("click");
 	findAll(canvas.document.getElementById("gd-menu"), (element) => element.getAttribute("aria-keyshortcuts") === "?")[0].dispatch("click");
 	assert.ok(dialog.hasAttribute("open"));
 	// Single keys do nothing while the dialog is open, except ? which closes it.
@@ -1010,10 +1010,10 @@ test("single-key shortcuts are ignored while typing, with the popover open, and 
 	assert.equal(pressed(canvas, "gd-comment"), "true", "shortcuts work again outside focus mode");
 });
 
-// canvas-progressive S1: the Design system tool is now the first item of the rail's More menu.
+// canvas-progressive S1: the Design system tool is an item of the rail's More menu, now Settings, right after Appearance (canvas-layout S15).
 const moreSystemItem = (canvas: Canvas) => {
-	canvas.document.getElementById("gd-rail-more").dispatch("click");
-	return findAll(canvas.document.getElementById("gd-menu"), (element) => element.getAttribute("role") === "menuitem")[0];
+	canvas.document.getElementById("gd-rail-settings").dispatch("click");
+	return findAll(canvas.document.getElementById("gd-menu"), (element) => element.getAttribute("role") === "menuitem")[1];
 };
 
 test("the Design system tool is disabled without a system board and focuses it when there is one", async () => {
@@ -1083,15 +1083,16 @@ test("canvas-trim S1/S2: no direction list, no list button, no step breadcrumb, 
 	assert.equal(canvas.navMode.textContent, NAV_CHIP);
 });
 
-test("canvas.css takes its colors from the brand tokens: no raw hex outside :root, except the artboard's white", () => {
+test("canvas.css takes its colors from the brand tokens: no raw hex outside :root and the Neutral theme's tokens, except the artboard's white", () => {
 	const css = read("canvas.css");
 	const root = css.match(/:root\s*{[^}]*}/)![0];
+	const neutral = css.match(/:root\[data-theme="neutral"\]\s*{[^}]*}/)![0];
 	for (const [token, value] of [["--bg", "#1a1218"], ["--bg-deep", "#000000"], ["--surface", "#20161e"], ["--surface-1", "#241822"], ["--surface-2", "#342230"], ["--border", "#342230"], ["--border-soft", "#ffffff17"], ["--text", "#f6eff3"], ["--text-muted", "#a78e9b"], ["--text-faint", "#76616b"], ["--accent", "#f095c8"], ["--accent-strong", "#ff76c3"], ["--accent-soft", "#ffb1dd"], ["--success", "#b4e7c7"], ["--warning", "#e0c27a"], ["--error", "#ff718f"], ["--info", "#a9c7ee"]] as const) {
 		assert.ok(root.includes(`${token}: ${value}`), `${token} is ${value}`);
 	}
 	assert.match(root, /--font-sans: Inter,/);
 	assert.match(root, /--font-mono: "IosevkaTerm NF"/);
-	const outside = css.replace(root, "");
+	const outside = css.replace(root, "").replace(neutral, "");
 	assert.deepEqual([...outside.matchAll(/#[0-9a-fA-F]{3,8}\b(?![\w-])/g)].map((match) => match[0]).filter((value) => value !== "#fff"), []);
 	assert.match(css, /prefers-reduced-motion: no-preference/);
 	assert.match(css, /outline: 2px solid var\(--accent\)/);
@@ -1748,17 +1749,18 @@ test("canvas-layout S6: the device menu keeps the language menu's keys, and the 
 	assert.equal(readout(canvas), "Desktop 984 × 300", "closing chose nothing");
 });
 
-test("canvas-layout S6: the device, language and artboard menus close each other, and leaving the artboard closes the device menu", async () => {
+test("canvas-layout S6: the device, Settings and artboard menus close each other, and leaving the artboard closes the device menu", async () => {
 	const canvas = await loadRail();
 	focusOn(canvas);
-	const langMenuEl = canvas.document.getElementById("gd-lang-menu");
+	const settings = canvas.document.getElementById("gd-rail-settings");
 	deviceButton(canvas).dispatch("click");
-	canvas.document.getElementById("gd-lang").dispatch("click");
+	settings.dispatch("click");
 	assert.equal(deviceMenu(canvas).hidden, true);
 	assert.equal(deviceButton(canvas).getAttribute("aria-expanded"), "false");
-	assert.equal(langMenuEl.hidden, false);
+	assert.equal(menuEl(canvas).hidden, false);
 	deviceButton(canvas).dispatch("click");
-	assert.equal(langMenuEl.hidden, true);
+	assert.equal(menuEl(canvas).hidden, true);
+	assert.equal(settings.getAttribute("aria-expanded"), "false");
 	assert.equal(deviceMenu(canvas).hidden, false);
 	menuButtonOf(canvas.boards[0].wrapper).dispatch("click");
 	assert.equal(deviceMenu(canvas).hidden, true);
@@ -4908,7 +4910,7 @@ test("T2/S2/S3: canvas.css styles the menu, the dialog and the placeholder with 
 	assert.match(block(".gd-placeholder-frame"), /dashed var\(--accent\)|1px solid var\(--accent-line\)/);
 });
 
-// ---- Language (canvas-language T1): one catalog, English and Spanish, a switch in the top bar ----
+// ---- Language (canvas-language T1): one catalog, English and Spanish, a choice in Settings > Appearance (canvas-layout S15) ----
 
 const LANG_KEY = "gentle-design:language";
 
@@ -4931,13 +4933,27 @@ async function loadLang(options: LangOptions = {}) {
 }
 type LangCanvas = Awaited<ReturnType<typeof loadLang>>;
 
-const langButton = (canvas: LangCanvas) => canvas.document.getElementById("gd-lang");
-const langMenu = (canvas: LangCanvas) => canvas.document.getElementById("gd-lang-menu");
-const langItems = (canvas: LangCanvas) => findAll(langMenu(canvas), (element) => element.getAttribute("role") === "menuitemradio");
-const langItem = (canvas: LangCanvas, code: string) => langItems(canvas).find((item) => item.dataset.lang === code)!;
-const chooseLang = (canvas: LangCanvas, code: string) => {
-	langButton(canvas).dispatch("click");
-	langItem(canvas, code).dispatch("click");
+const LANG_CODES = ["es", "en", "auto"];
+const appearanceDialog = (canvas: Canvas) => canvas.document.getElementById("gd-appearance");
+const appearanceOpen = (canvas: Canvas) => appearanceDialog(canvas).hasAttribute("open");
+/** Opens Appearance as a person does: Settings in the rail, then its first item. */
+const openAppearance = (canvas: Canvas) => {
+	canvas.document.getElementById("gd-rail-settings").dispatch("click");
+	menuItems(canvas)[0].dispatch("click");
+};
+const closeAppearance = (canvas: Canvas) => canvas.document.getElementById("gd-appearance-close").dispatch("click");
+const langRadio = (canvas: Canvas, code: string) => canvas.document.getElementById(`gd-language-${code}`);
+const langChecked = (canvas: Canvas) => LANG_CODES.map((code) => [code, langRadio(canvas, code).checked]);
+/** Checks a radio as the browser does, then sends its change. */
+const checkRadio = (radio: FakeElement) => {
+	radio.checked = true;
+	return radio.dispatch("change");
+};
+/** Chooses a language in Settings > Appearance (canvas-layout S15), then closes the dialog. */
+const chooseLang = (canvas: Canvas, code: string) => {
+	openAppearance(canvas);
+	checkRadio(langRadio(canvas, code));
+	closeAppearance(canvas);
 };
 const htmlLang = (canvas: LangCanvas) => (canvas.document.documentElement as unknown as { lang: string }).lang;
 const staticText = (canvas: LangCanvas) => canvas.document.querySelectorAll("[data-i18n]").map((element) => element.textContent);
@@ -4952,7 +4968,6 @@ test("S1: the language starts from the browser: es* is Spanish, anything else (o
 		const canvas = await loadLang({ browser });
 		assert.equal(htmlLang(canvas), lang, JSON.stringify(browser));
 		assert.equal(modeChip(canvas), chip, JSON.stringify(browser));
-		assert.equal(canvas.document.getElementById("gd-lang-code").textContent, lang.toUpperCase());
 		assert.deepEqual(canvas.saved(), [], "reading the default never writes the choice");
 	}
 });
@@ -4969,27 +4984,28 @@ test("S1: a stored choice beats the browser; auto, an unknown value and unreadab
 	assert.equal(htmlLang(broken), "en", "and the choice still applies for this page");
 });
 
-test("S1: the top bar has a globe button with the code that opens a menu of three radio items, the current choice checked", async () => {
+test("S1 (canvas-layout S15): Appearance lists Español, English and Match the browser as radios, the current choice checked, with the note", async () => {
+	const html = read("index.html");
+	const dialog = html.match(/<dialog id="gd-appearance"[^>]*>[^]*?<\/dialog>/)![0];
+	const group = dialog.slice(dialog.indexOf('data-i18n="appearance.language"'));
+	const radios = [...group.matchAll(/<input type="radio" name="gd-language" id="gd-language-([a-z]+)"[^>]*>\s*<span[^>]*data-i18n="([^"]+)"/g)].map((match) => [match[1], match[2]]);
+	assert.deepEqual(radios, [["es", "lang.es"], ["en", "lang.en"], ["auto", "lang.auto"]], "one radio group, in the order of the old menu");
+	assert.match(group, /data-i18n="lang\.note"/, "with its note");
+
 	const english = await loadLang({ browser: "en-US" });
-	const button = langButton(english);
-	assert.equal(button.getAttribute("aria-haspopup"), "menu");
-	assert.equal(button.getAttribute("aria-expanded"), "false");
-	assert.equal(button.getAttribute("aria-controls"), "gd-lang-menu");
-	assert.equal(button.title, "Language / Idioma");
-	assert.match(button.getAttribute("aria-label")!, /EN/);
-	assert.equal(langMenu(english).hidden, true);
-	assert.equal(langMenu(english).getAttribute("role"), "menu");
-	button.dispatch("click");
-	assert.equal(langMenu(english).hidden, false);
-	assert.equal(button.getAttribute("aria-expanded"), "true");
-	assert.deepEqual(langItems(english).map((item) => [item.dataset.lang, texts(item, "gd-menu-label")[0], item.getAttribute("aria-checked")]), [["es", "Español", "false"], ["en", "English", "false"], ["auto", "Match the browser", "true"]]);
-	assert.match(allText(langMenu(english)), /messages to the agent stay in English/);
+	openAppearance(english);
+	assert.equal(appearanceOpen(english), true);
+	assert.deepEqual(langChecked(english), [["es", false], ["en", false], ["auto", true]]);
+	const shown = staticText(english);
+	for (const text of ["Language", "Español", "English", "Match the browser"]) assert.ok(shown.includes(text), text);
+	assert.ok(shown.some((text) => /messages to the agent stay in English/.test(text)), "the note says what is never translated");
 
 	const spanish = await loadLang({ browser: "es-ES", stored: "es" });
-	langButton(spanish).dispatch("click");
-	assert.deepEqual(langItems(spanish).map((item) => [texts(item, "gd-menu-label")[0], item.getAttribute("aria-checked")]), [["Español", "true"], ["English", "false"], ["Igual que el navegador", "false"]]);
-	assert.match(allText(langMenu(spanish)), /mensajes al agente siguen en inglés/);
-	assert.match(langButton(spanish).getAttribute("aria-label")!, /ES/);
+	openAppearance(spanish);
+	assert.deepEqual(langChecked(spanish), [["es", true], ["en", false], ["auto", false]]);
+	const words = staticText(spanish);
+	for (const text of ["Idioma", "Español", "English", "Igual que el navegador"]) assert.ok(words.includes(text), text);
+	assert.ok(words.some((text) => /mensajes al agente siguen en inglés/.test(text)));
 });
 
 test("S1/S2: choosing a language applies at once, saves the choice and leaves the artboards loaded as they were", async () => {
@@ -4997,123 +5013,60 @@ test("S1/S2: choosing a language applies at once, saves the choice and leaves th
 	const frames = canvas.frames();
 	const sources = frames.map((frame) => frame.src);
 	assert.equal(canvas.document.getElementById("gd-back").textContent, "Back to canvas");
-	chooseLang(canvas, "es");
+	openAppearance(canvas);
+	checkRadio(langRadio(canvas, "es"));
 	assert.equal(htmlLang(canvas), "es");
 	assert.equal(modeChip(canvas), NAV_CHIP_ES);
-	assert.equal(canvas.document.getElementById("gd-lang-code").textContent, "ES");
 	assert.equal(canvas.document.getElementById("gd-back").textContent, "Volver al canvas");
 	assert.equal(canvas.document.getElementById("gd-back").title, "Volver al canvas (Shift+Esc)");
 	assert.equal(canvas.document.getElementById("gd-panel-toggle").title, "Panel de revisión (])");
 	assert.equal(canvas.document.getElementById("gd-zoom-out").getAttribute("aria-label"), "Alejar");
 	assert.equal(canvas.document.getElementById("gd-send-all").textContent, "Enviar todo (0)");
 	assert.ok(staticText(canvas).includes("Mostrar u ocultar el minimapa"), "the shortcuts dialog follows");
+	assert.ok(staticText(canvas).includes("Apariencia"), "and so does the open Appearance dialog");
 	assert.deepEqual(canvas.saved(), [[LANG_KEY, "es"]]);
 	assert.deepEqual(canvas.frames(), frames, "the same iframes");
 	assert.deepEqual(canvas.frames().map((frame) => frame.src), sources, "none of them reloaded");
-	assert.equal(langMenu(canvas).hidden, true, "choosing closes the menu");
-	assert.ok(canvas.document.activeElement === langButton(canvas), "and returns focus to the button");
+	assert.equal(appearanceOpen(canvas), true, "choosing keeps the dialog open");
+	assert.deepEqual(langChecked(canvas), [["es", true], ["en", false], ["auto", false]]);
 
-	chooseLang(canvas, "en");
+	checkRadio(langRadio(canvas, "en"));
 	assert.equal(htmlLang(canvas), "en");
 	assert.equal(modeChip(canvas), NAV_CHIP);
 	assert.equal(canvas.document.getElementById("gd-back").textContent, "Back to canvas");
-	assert.equal(canvas.document.getElementById("gd-lang-code").textContent, "EN");
 	assert.deepEqual(canvas.saved(), [[LANG_KEY, "es"], [LANG_KEY, "en"]]);
+	closeAppearance(canvas);
+	assert.equal(appearanceOpen(canvas), false);
+	assert.ok(canvas.document.activeElement === canvas.document.getElementById("gd-rail-settings"), "Close returns focus to Settings");
 });
 
 test("S1: Match the browser saves auto and resolves the browser's language again", async () => {
 	const canvas = await loadLang({ browser: "es-ES", stored: "en" });
 	assert.equal(htmlLang(canvas), "en");
-	langButton(canvas).dispatch("click");
-	assert.equal(langItem(canvas, "en").getAttribute("aria-checked"), "true");
-	langItem(canvas, "auto").dispatch("click");
+	openAppearance(canvas);
+	assert.equal(langRadio(canvas, "en").checked, true);
+	checkRadio(langRadio(canvas, "auto"));
 	assert.equal(htmlLang(canvas), "es");
 	assert.deepEqual(canvas.saved(), [[LANG_KEY, "auto"]]);
-	langButton(canvas).dispatch("click");
-	assert.equal(langItem(canvas, "auto").getAttribute("aria-checked"), "true");
-	assert.equal(langItem(canvas, "es").getAttribute("aria-checked"), "false", "the choice is auto, not the language it resolved to");
+	closeAppearance(canvas);
+	openAppearance(canvas);
+	assert.deepEqual(langChecked(canvas), [["es", false], ["en", false], ["auto", true]], "the choice is auto, not the language it resolved to");
 });
 
-test("S1: the language menu opens with the arrows, moves with the arrows, Home and End, and closes with Escape, Tab or a click outside", async () => {
+test("S1 (canvas-layout S15): the top bar has no language button or menu, and nothing is left of them", async () => {
+	const html = read("index.html");
+	const bar = html.slice(html.indexOf('<header class="gd-bar"'), html.indexOf("</header>", html.indexOf('<header class="gd-bar"')));
+	for (const id of ["gd-lang", "gd-lang-code", "gd-lang-menu"]) assert.ok(!html.includes(`id="${id}"`), `${id} is gone`);
+	assert.ok(!/data-i18n[^=]*="lang\./.test(bar), "the bar names no language string");
+	assert.ok(!html.includes('<symbol id="i-globe"'), "the globe went with the button");
+	const css = read("canvas.css");
+	for (const selector of [".gd-lang-button", ".gd-lang-menu", ".gd-lang-item", ".gd-lang-note", ".gd-lang-check", "#gd-lang-code"]) assert.ok(!css.includes(selector), `${selector} is not styled`);
+	const { en, es } = loadCatalog();
+	for (const key of ["lang.button", "lang.title", "lang.menu"]) assert.ok(!(key in en) && !(key in es), `${key} is gone`);
+	const code = codeOutsideCatalog();
+	for (const name of ["openLangMenu", "closeLangMenu", "chooseLangItem", "langMenu", "langCode"]) assert.ok(!code.includes(name), `${name} is gone`);
 	const canvas = await loadLang({ browser: "en-US" });
-	const button = langButton(canvas);
-	const down = keyOn(button, "ArrowDown");
-	assert.equal(down.defaultPrevented, true);
-	assert.equal(langMenu(canvas).hidden, false);
-	const items = langItems(canvas);
-	assert.ok(canvas.document.activeElement === items[0], "ArrowDown opens on the first item");
-	assert.equal(keyOn(button, "Escape").defaultPrevented, true);
-	assert.equal(langMenu(canvas).hidden, true);
-	assert.equal(button.getAttribute("aria-expanded"), "false");
-	keyOn(button, "ArrowUp");
-	const last = langItems(canvas);
-	assert.ok(canvas.document.activeElement === last[last.length - 1], "ArrowUp opens on the last item");
-
-	const at = () => last.findIndex((item) => item === canvas.document.activeElement);
-	keyOn(last[at()], "ArrowDown");
-	assert.equal(at(), 0, "ArrowDown wraps to the first");
-	keyOn(last[at()], "ArrowUp");
-	assert.equal(at(), 2, "ArrowUp wraps to the last");
-	keyOn(last[at()], "Home");
-	assert.equal(at(), 0);
-	keyOn(last[at()], "End");
-	assert.equal(at(), 2);
-	assert.equal(langMenu(canvas).hidden, false, "moving never closes it");
-
-	const escape = keyOn(last[1], "Escape");
-	assert.equal(escape.defaultPrevented, true);
-	assert.equal(langMenu(canvas).hidden, true);
-	assert.ok(canvas.document.activeElement === button, "Esc returns focus to the button");
-
-	button.dispatch("click");
-	const tab = keyOn(langItems(canvas)[0], "Tab");
-	assert.equal(tab.defaultPrevented, false, "Tab keeps its move");
-	assert.equal(langMenu(canvas).hidden, true);
-
-	button.dispatch("click");
-	const pointerdown = (target: FakeElement) => (canvas.document.listeners.get("pointerdown") ?? []).forEach((listener) => listener({ target, button: 0 }));
-	pointerdown(langMenu(canvas));
-	pointerdown(langItems(canvas)[0]);
-	assert.equal(langMenu(canvas).hidden, false, "a press inside does not close it");
-	pointerdown(button);
-	assert.equal(langMenu(canvas).hidden, false, "the button toggles on its own click");
-	pointerdown(canvas.viewport);
-	assert.equal(langMenu(canvas).hidden, true, "a press outside closes it");
-	button.dispatch("click");
-	button.dispatch("click");
-	assert.equal(langMenu(canvas).hidden, true, "the button closes it again");
-});
-
-test("S1: Enter and Space choose the focused item; single-key shortcuts stay off while the menu is open", async () => {
-	for (const key of ["Enter", " "]) {
-		const canvas = await loadLang({ browser: "en-US" });
-		langButton(canvas).dispatch("click");
-		const chosen = keyOn(langItem(canvas, "es"), key);
-		assert.equal(chosen.defaultPrevented, true, key);
-		assert.equal(htmlLang(canvas), "es", key);
-		assert.equal(langMenu(canvas).hidden, true, key);
-		assert.deepEqual(canvas.saved(), [[LANG_KEY, "es"]], key);
-	}
-	const canvas = await loadLang({ browser: "en-US" });
-	langButton(canvas).dispatch("click");
-	const before = pressed(canvas as unknown as Canvas, "gd-comment");
-	press(canvas as unknown as Canvas, "c", {}, langItems(canvas)[0]);
-	assert.equal(pressed(canvas as unknown as Canvas, "gd-comment"), before, "C did nothing");
-	keyOn(langItems(canvas)[0], "Escape");
-	press(canvas as unknown as Canvas, "c");
-	assert.equal(pressed(canvas as unknown as Canvas, "gd-comment"), "true", "back to normal after it closes");
-});
-
-test("S1: opening the artboard menu closes the language menu, and the other way around", async () => {
-	const canvas = await loadLang({ browser: "en-US" });
-	langButton(canvas).dispatch("click");
-	menuButtonOf(boardsOf(canvas)[0]).dispatch("click");
-	assert.equal(langMenu(canvas).hidden, true);
-	assert.equal(langButton(canvas).getAttribute("aria-expanded"), "false");
-	assert.equal(menuEl(canvas as unknown as Canvas).hidden, false);
-	langButton(canvas).dispatch("click");
-	assert.equal(menuEl(canvas as unknown as Canvas).hidden, true);
-	assert.equal(langMenu(canvas).hidden, false);
+	assert.equal(canvas.document.getElementById("gd-lang").listeners.size, 0, "nothing listens on a language button");
 });
 
 const withOpen = (id: string, extra: Record<string, unknown> = {}) => comment(id, "01-a.html", "open", extra);
@@ -5375,10 +5328,10 @@ test("S3: the messages the canvas sends and what the user wrote are never transl
 
 test("S4: a Spanish key that is missing falls back to the English text", async () => {
 	const source = read("canvas.js");
-	const line = '"rail.more.title": "Más: sistema de diseño, atajos de teclado y ayuda paso a paso",';
+	const line = '"rail.settings.title": "Configuración: apariencia, sistema de diseño, atajos de teclado y ayuda paso a paso",';
 	assert.ok(source.includes(line), "the Spanish entry is on its own line");
 	const canvas = await loadLang({ browser: "es", script: source.replace(line, "") });
-	assert.equal(canvas.document.getElementById("gd-rail-more").title, "More: design system, keyboard shortcuts and step-by-step help");
+	assert.equal(canvas.document.getElementById("gd-rail-settings").title, "Settings: appearance, design system, keyboard shortcuts and step-by-step help");
 	assert.equal(canvas.document.getElementById("gd-back").textContent, "Volver al canvas", "the other keys stay Spanish");
 });
 
@@ -5533,7 +5486,7 @@ test("S4: the English and Spanish dictionaries have the same keys, the same plac
 	}
 	const same = Object.keys(en).filter((key) => en[key] === es[key] && /[a-z]{4,}/i.test(en[key]));
 	assert.ok(same.length < Object.keys(en).length * 0.15, `too many keys left in English in the Spanish dictionary: ${same.join(", ")}`);
-	assert.notEqual(es["rail.more.title"], en["rail.more.title"]);
+	assert.notEqual(es["rail.settings.title"], en["rail.settings.title"]);
 });
 
 test("S4: plural keys come in pairs, one and other, in both languages", () => {
@@ -5667,36 +5620,36 @@ test("S4/S5: every language-bearing element keeps the English text in index.html
 	}
 });
 
-test("S5: the markup and styles of the language switch use tokens, a visible focus ring and no motion", () => {
+test("S5 (canvas-layout S15): the Appearance dialog's markup is the shortcuts dialog's, and its styles use tokens, a visible focus ring and no motion", () => {
 	const html = read("index.html");
-	assert.match(html, /<button type="button" id="gd-lang" class="gd-lang-button"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"[^>]*aria-controls="gd-lang-menu"/);
-	assert.match(html, /<span id="gd-lang-code"/);
-	assert.match(html, /<div id="gd-lang-menu" class="gd-menu gd-lang-menu" role="menu"[^>]*hidden><\/div>/);
-	for (const icon of ["i-globe", "i-check"]) assert.match(html, new RegExp(`<symbol id="${icon}"`));
-	assert.ok(html.indexOf('id="gd-lang"') > html.indexOf('class="gd-spacer"') && html.indexOf('id="gd-lang"') < html.indexOf('id="gd-zoom-out"'), "between the spacer and the zoom, as in the artboard");
+	const dialog = html.match(/<dialog id="gd-appearance"[^>]*>[^]*?<\/dialog>/)![0];
+	assert.match(dialog, /^<dialog id="gd-appearance" class="gd-dialog" aria-labelledby="gd-appearance-title">/, "the shortcuts dialog's box");
+	assert.match(dialog, /<h2 id="gd-appearance-title" class="gd-dialog-title" data-i18n="rail.appearance">Appearance<\/h2>/);
+	for (const [key, english] of [["appearance.theme", "Theme"], ["appearance.language", "Language"]]) assert.match(dialog, new RegExp(`<fieldset class="gd-setting-group"><legend class="gd-setting-title" data-i18n="${key.replace(".", "\\.")}">${english}</legend>`), `${english}: a named radio group`);
+	assert.match(dialog, /<div class="gd-dialog-actions"><button type="button" id="gd-appearance-close" class="gd-primary" data-i18n="common.close">Close<\/button><\/div>\s*<\/dialog>$/);
+	assert.ok(html.indexOf('id="gd-appearance"') > html.indexOf('id="gd-shortcuts"'), "beside the shortcuts dialog");
 	const css = read("canvas.css");
 	const block = (selector: string) => {
-		const start = css.indexOf(`${selector} {`);
+		const start = css.indexOf(`\n${selector} {`);
 		assert.ok(start >= 0, `${selector} is styled`);
 		return css.slice(start, css.indexOf("}", start) + 1);
 	};
-	for (const selector of [".gd-lang-menu", ".gd-lang-item", ".gd-lang-check", ".gd-lang-note"]) {
+	for (const selector of [".gd-setting-group", ".gd-setting-title", ".gd-setting", ".gd-setting-hint"]) {
 		const text = block(selector);
 		assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(text), `${selector}: tokens only`);
 		assert.ok(!/transition|animation/.test(text), `${selector}: no motion`);
 	}
-	assert.match(block(".gd-lang-menu"), /width:\s*300px/);
-	assert.match(css, /\.gd-lang-item\[aria-checked="true"\][^{]*{[^}]*background:\s*var\(--surface-2\)/);
-	assert.match(css, /\.gd-lang-item\[aria-checked="true"\] \.gd-lang-check[^{]*{[^}]*visibility:\s*visible/);
-	assert.match(css, /\.gd-lang-button:focus-visible[^{]*{[^}]*outline:\s*2px solid var\(--accent\)|:focus-visible\s*{[^}]*outline:\s*2px solid var\(--accent\)/);
+	assert.match(css, /\.gd-setting:has\(input:checked\)[^{]*{[^}]*background:\s*var\(--surface-2\)/, "the current choice shows");
+	assert.match(css, /\.gd-setting input:focus-visible[^{]*{[^}]*outline:\s*2px solid var\(--accent\)/);
+	assert.match(block(".gd-setting"), /min-height:\s*(3[4-9]|[4-9]\d)px/, "a comfortable target");
 });
 
-test("canvas-layout S6: the device selector's markup sits beside the language button and its styles use tokens, a focus ring and no motion", () => {
+test("canvas-layout S6: the device selector's markup sits between the arrangements and the zoom, and its styles use tokens, a focus ring and no motion", () => {
 	const html = read("index.html");
 	assert.match(html, /<button type="button" id="gd-device" class="gd-device-button"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"[^>]*aria-controls="gd-device-menu"[^>]*data-i18n-title="device.off"[^>]*disabled>/);
 	assert.match(html, /<svg class="gd-i gd-i-s" aria-hidden="true"><use id="gd-device-icon" href="#i-monitor"\/><\/svg><span id="gd-device-name" data-i18n="size.desktop">Desktop<\/span><span id="gd-device-size" class="gd-device-size"><\/span><\/button>/);
 	assert.match(html, /<div id="gd-device-menu" class="gd-menu gd-device-menu" role="menu" aria-label="Preview size" data-i18n-aria-label="size.group" hidden><\/div>/);
-	assert.ok(html.indexOf('id="gd-arrange-grid"') < html.indexOf('id="gd-device"') && html.indexOf('id="gd-device"') < html.indexOf('id="gd-lang"'), "after the arrangements, right before the language button");
+	assert.ok(html.indexOf('id="gd-arrange-grid"') < html.indexOf('id="gd-device"') && html.indexOf('id="gd-device"') < html.indexOf('id="gd-zoom-out"'), "after the arrangements, right before the zoom (the language button is gone, canvas-layout S15)");
 	for (const icon of ["i-phone", "i-tablet", "i-monitor", "i-devices", "i-width"]) assert.match(html, new RegExp(`<symbol id="${icon}"`));
 	const css = read("canvas.css");
 	const block = (selector: string) => {
@@ -5710,7 +5663,7 @@ test("canvas-layout S6: the device selector's markup sits beside the language bu
 		assert.ok(!/transition|animation/.test(text), `${selector}: no motion`);
 	}
 	assert.match(css, /\.gd-device-item\[aria-checked="true"\][^{]*{[^}]*background:\s*var\(--surface-2\)/);
-	assert.match(css, /\.gd-device-item\[aria-checked="true"\] \.gd-lang-check[^{]*{[^}]*visibility:\s*visible|\.gd-lang-item\[aria-checked="true"\] \.gd-lang-check, \.gd-device-item\[aria-checked="true"\] \.gd-lang-check/);
+	assert.match(css, /\.gd-device-item\[aria-checked="true"\] \.gd-device-check[^{]*{[^}]*visibility:\s*visible/);
 	assert.match(css, /\.gd-device-button:focus-visible[^{]*{[^}]*outline:\s*2px solid var\(--accent\)/);
 	assert.match(css, /\.gd-device-input\[aria-invalid="true"\][^{]*{[^}]*border-color:\s*var\(--error-line\)/);
 	assert.match(css, /\.gd-bar > \.gd-device-button \{ flex: none; \}/, "it never shrinks under its text");
@@ -6721,20 +6674,20 @@ test("canvas-ux S5: the docs and the README use the plain words, the footer sent
 	for (const old of ["Original request", "History"]) assert.ok(!row.includes(old), `the README row no longer mentions ${old}`);
 });
 
-// ---- canvas-progressive T1: labeled rail and More (S1), connection chip (S3) ----
+// ---- canvas-progressive T1: labeled rail and More (S1), now Settings (canvas-layout S15), connection chip (S3) ----
 
-const moreButton = (canvas: Canvas) => canvas.document.getElementById("gd-rail-more");
-const openMore = (canvas: Canvas) => {
-	moreButton(canvas).dispatch("click");
+const settingsButton = (canvas: Canvas) => canvas.document.getElementById("gd-rail-settings");
+const openSettings = (canvas: Canvas) => {
+	settingsButton(canvas).dispatch("click");
 	return menuItems(canvas);
 };
 const connection = (canvas: Canvas) => canvas.document.getElementById("gd-connection");
 const OFFLINE = { delivery: { comment: true, batch: false, implement: false, variant: false } };
 
-test("progressive S1: the rail shows Move, Comment, Overview and More, each an icon with a visible label that names it", async () => {
+test("progressive S1: the rail shows Move, Comment, Overview and Settings, each an icon with a visible label that names it", async () => {
 	const html = read("index.html");
 	const rail = html.slice(html.indexOf('<nav class="gd-rail"'), html.indexOf("</nav>", html.indexOf('<nav class="gd-rail"')));
-	const tools: Array<[string, string, string]> = [["gd-tool-navigate", "rail.navigate", "Move"], ["gd-comment", "rail.comment", "Comment"], ["gd-rail-fit", "rail.overview", "Overview"], ["gd-rail-more", "rail.more", "More"]];
+	const tools: Array<[string, string, string]> = [["gd-tool-navigate", "rail.navigate", "Move"], ["gd-comment", "rail.comment", "Comment"], ["gd-rail-fit", "rail.overview", "Overview"], ["gd-rail-settings", "rail.settings", "Settings"]];
 	const buttons = [...rail.matchAll(/<button type="button" id="([^"]+)"([^>]*)>([^]*?)<\/button>/g)];
 	assert.deepEqual(buttons.map((match) => match[1]), tools.map(([id]) => id), "four tools, in this order, and nothing else");
 	for (const [id, key, english] of tools) {
@@ -6743,37 +6696,37 @@ test("progressive S1: the rail shows Move, Comment, Overview and More, each an i
 		assert.ok(!/aria-label=/.test(attributes), `${id}: the visible label is its name`);
 		assert.match(attributes, /title="[^"]+" data-i18n-title="[^"]+"/, `${id}: a tooltip from the catalog`);
 	}
-	const more = buttons.find((match) => match[1] === "gd-rail-more")![2];
-	assert.match(more, /class="gd-tool gd-bottom"/, "More sits at the bottom");
-	assert.match(more, /aria-haspopup="menu" aria-expanded="false" aria-controls="gd-menu"/);
-	for (const gone of ["gd-rail-system", "gd-shortcuts-open"]) assert.ok(!html.includes(`id="${gone}"`), `${gone} moved into More`);
+	const settings = buttons.find((match) => match[1] === "gd-rail-settings")![2];
+	assert.match(settings, /class="gd-tool gd-bottom"/, "Settings sits at the bottom");
+	assert.match(settings, /aria-haspopup="menu" aria-expanded="false" aria-controls="gd-menu"/);
+	for (const gone of ["gd-rail-system", "gd-shortcuts-open", "gd-rail-more"]) assert.ok(!html.includes(`id="${gone}"`), `${gone} moved into Settings`);
 
 	const { en, es } = loadCatalog();
-	assert.deepEqual(tools.map(([, key]) => en[key]), ["Move", "Comment", "Overview", "More"]);
-	assert.deepEqual(tools.map(([, key]) => es[key]), ["Mover", "Comentar", "Ver todo", "Más"]);
+	assert.deepEqual(tools.map(([, key]) => en[key]), ["Move", "Comment", "Overview", "Settings"]);
+	assert.deepEqual(tools.map(([, key]) => es[key]), ["Mover", "Comentar", "Ver todo", "Ajustes"]);
 	const canvas = await loadLang({ browser: "es" });
 	const shown = staticText(canvas);
-	for (const label of ["Mover", "Comentar", "Ver todo", "Más"]) assert.ok(shown.includes(label), `the rail reads ${label}`);
+	for (const label of ["Mover", "Comentar", "Ver todo", "Ajustes"]) assert.ok(shown.includes(label), `the rail reads ${label}`);
 	assert.equal(canvas.document.getElementById("gd-tool-navigate").title, "Mover por el lienzo (V)");
 	assert.match(read("canvas.css"), /\.gd-tool-label\s*{[^}]*font-size:\s*11px/);
 });
 
-test("progressive S1: More opens a menu with Design system, Keyboard shortcuts and Step-by-step help, with the artboard menu's keyboard behavior", async () => {
+test("progressive S1: Settings opens a menu with Appearance, Design system, Keyboard shortcuts and Step-by-step help, with the artboard menu's keyboard behavior", async () => {
 	const canvas = await loadRail();
-	const more = moreButton(canvas);
+	const settings = settingsButton(canvas);
 	const dialog = canvas.document.getElementById("gd-shortcuts");
 	(dialog as any).showModal = () => dialog.setAttribute("open", "");
 	(dialog as any).close = () => dialog.removeAttribute("open");
 	assert.equal(menuEl(canvas).hidden, true);
-	const items = openMore(canvas);
+	const items = openSettings(canvas);
 	assert.equal(menuEl(canvas).hidden, false);
-	assert.equal(more.getAttribute("aria-expanded"), "true");
-	assert.equal(menuEl(canvas).getAttribute("aria-label"), "More");
-	assert.deepEqual(itemLabels(canvas), ["Design system board", "Keyboard shortcuts", "Step-by-step help"]);
+	assert.equal(settings.getAttribute("aria-expanded"), "true");
+	assert.equal(menuEl(canvas).getAttribute("aria-label"), "Settings");
+	assert.deepEqual(itemLabels(canvas), ["Appearance", "Design system board", "Keyboard shortcuts", "Step-by-step help"]);
 	assert.equal(canvas.document.activeElement, items[0], "focus moves to the first item");
-	assert.equal(items[0].getAttribute("aria-disabled"), "true", "no design system board, nothing to show");
-	assert.equal(items[1].getAttribute("aria-keyshortcuts"), "?");
-	items[0].dispatch("click");
+	assert.equal(items[1].getAttribute("aria-disabled"), "true", "no design system board, nothing to show");
+	assert.equal(items[2].getAttribute("aria-keyshortcuts"), "?");
+	items[1].dispatch("click");
 	assert.equal(menuEl(canvas).hidden, false, "a disabled item does nothing");
 	assert.equal(canvas.navMode.textContent, "Moving around the canvas · wheel to zoom");
 
@@ -6782,44 +6735,44 @@ test("progressive S1: More opens a menu with Design system, Keyboard shortcuts a
 	keyOn(items[1], "Home");
 	assert.equal(canvas.document.activeElement, items[0]);
 	keyOn(items[0], "End");
-	assert.equal(canvas.document.activeElement, items[2]);
-	assert.equal(press(canvas, "c", {}, items[2]).defaultPrevented, false, "single keys stay off while it is open");
-	assert.equal(keyOn(items[2], "Escape").defaultPrevented, true);
+	assert.equal(canvas.document.activeElement, items[3]);
+	assert.equal(press(canvas, "c", {}, items[3]).defaultPrevented, false, "single keys stay off while it is open");
+	assert.equal(keyOn(items[3], "Escape").defaultPrevented, true);
 	assert.equal(menuEl(canvas).hidden, true);
-	assert.equal(more.getAttribute("aria-expanded"), "false");
-	assert.equal(canvas.document.activeElement, more, "Escape returns focus to More");
+	assert.equal(settings.getAttribute("aria-expanded"), "false");
+	assert.equal(canvas.document.activeElement, settings, "Escape returns focus to Settings");
 
-	keyOn(more, "ArrowUp");
+	keyOn(settings, "ArrowUp");
 	const again = menuItems(canvas);
 	assert.equal(canvas.document.activeElement, again[again.length - 1], "ArrowUp opens on the last item");
-	keyOn(again[1], "Enter");
+	keyOn(again[2], "Enter");
 	assert.equal(menuEl(canvas).hidden, true);
 	assert.ok(dialog.hasAttribute("open"), "Keyboard shortcuts opens the list");
 	canvas.document.getElementById("gd-shortcuts-close").dispatch("click");
-	assert.equal(canvas.document.activeElement, more, "closing the list returns focus to More");
+	assert.equal(canvas.document.activeElement, settings, "closing the list returns focus to Settings");
 
 	const pointerdown = (target: FakeElement) => (canvas.document.listeners.get("pointerdown") ?? []).forEach((listener) => listener({ target, button: 0 }));
-	openMore(canvas);
+	openSettings(canvas);
 	pointerdown(canvas.viewport);
 	assert.equal(menuEl(canvas).hidden, true, "a click outside closes it");
-	openMore(canvas);
-	more.dispatch("click");
-	assert.equal(menuEl(canvas).hidden, true, "More toggles it");
+	openSettings(canvas);
+	settings.dispatch("click");
+	assert.equal(menuEl(canvas).hidden, true, "Settings toggles it");
 
 	const system = await loadRail(300, SYSTEM_REPLY);
-	const [board] = openMore(system);
+	const [, board] = openSettings(system);
 	assert.equal(board.getAttribute("aria-disabled"), null);
 	board.dispatch("click");
 	assert.equal(menuEl(system).hidden, true);
 	assert.equal(system.navMode.textContent, "Using: Design system · Shift+Esc to exit", "it shows the design system board");
 });
 
-test("progressive S1: More and its items speak Spanish; the shortcut keys V, C and F still work", async () => {
+test("progressive S1: Settings and its items speak Spanish; the shortcut keys V, C and F still work", async () => {
 	const canvas = await loadLang({ browser: "es", replies: SYSTEM_REPLY });
 	const c = canvas as unknown as Canvas;
-	openMore(c);
-	assert.equal(menuEl(c).getAttribute("aria-label"), "Más");
-	assert.deepEqual(itemLabels(c), ["Sistema de diseño", "Atajos de teclado", "Ayuda paso a paso"]);
+	openSettings(c);
+	assert.equal(menuEl(c).getAttribute("aria-label"), "Ajustes");
+	assert.deepEqual(itemLabels(c), ["Apariencia", "Sistema de diseño", "Atajos de teclado", "Ayuda paso a paso"]);
 	keyOn(menuItems(c)[0], "Escape");
 	Object.defineProperty(c.world, "offsetWidth", { value: 2000 });
 	Object.defineProperty(c.world, "offsetHeight", { value: 400 });
@@ -6872,10 +6825,10 @@ test("progressive S3: the top bar says Connected, or Not connected with what to 
 	assert.match(css, /\.gd-connection\[data-state="off"\]\s*{[^}]*var\(--warning-line\)/);
 });
 
-test("progressive S7 (T1): the docs describe the labeled rail, More and the connection chip", () => {
+test("progressive S7 (T1): the docs describe the labeled rail, Settings and the connection chip", () => {
 	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
 	const section = docs.slice(docs.indexOf("### Gentle Design"));
-	for (const part of ["**Move**", "**Comment**", "**Overview**", "**More**", "**Keyboard shortcuts**", "**Connected**", "**Not connected**", "**Moving around the canvas · wheel to zoom**"]) assert.ok(section.includes(part), `docs mention ${part}`);
+	for (const part of ["**Move**", "**Comment**", "**Overview**", "**Settings**", "**Appearance**", "**Keyboard shortcuts**", "**Connected**", "**Not connected**", "**Moving around the canvas · wheel to zoom**"]) assert.ok(section.includes(part), `docs mention ${part}`);
 	assert.ok(!section.includes("**Navigating**"), "the old chip text is gone");
 	// canvas-trim S1/S2: the direction list and the step breadcrumb are gone, from the docs and the README too.
 	for (const old of ["**List**", "**Direction list**", "**Directions · N**", "**Hide discarded (N)**", "**1 Compare · 2 Review · 3 Choose · 4 Implement**", "step breadcrumb", "(`[`)"]) assert.ok(!section.includes(old), `docs no longer mention ${old}`);
@@ -6990,10 +6943,10 @@ test("canvas-trim S3, S5: the page has no History, version comparison or Origina
 	assert.deepEqual(canvas.fetched.filter((url) => url.includes("history")), [], "the canvas never asks for a history");
 	assert.equal(canvas.document.getElementById("gd-feature").textContent, "odd/tasks/checkout.md");
 	assert.ok(!allText(canvas.document.getElementById("gd-tabpanel")).includes("Make a checkout."), "the brief is shown nowhere in the panel");
-	canvas.document.getElementById("gd-rail-more").dispatch("click");
+	canvas.document.getElementById("gd-rail-settings").dispatch("click");
 	const labels = itemLabels(canvas);
-	assert.ok(labels.length > 0, "the rail's More still opens");
-	for (const gone of ["History", "Original request"]) assert.ok(!labels.includes(gone), `More offers no ${gone}`);
+	assert.ok(labels.length > 0, "the rail's Settings still opens");
+	for (const gone of ["History", "Original request"]) assert.ok(!labels.includes(gone), `Settings offers no ${gone}`);
 	const before = canvas.fetched.length;
 	await canvas.serverEvent("history", { slug: "alpha", file: "01-a.html", n: 2 });
 	assert.equal(canvas.fetched.length, before, "an event named history is ignored");
@@ -7096,7 +7049,7 @@ test("progressive S7 (T2): the docs describe Open, the review panel's tabs, the 
 });
 
 // ---- step-by-step help (replaces the first-run guide of canvas-progressive S6) ----
-// Off by default. More turns it on (saved in this browser); while on, a card follows the step you are at.
+// Off by default. Settings turns it on (saved in this browser); while on, a card follows the step you are at.
 
 const HELP_KEY = "gentle-design:help";
 const guideEl = (canvas: Canvas) => canvas.document.getElementById("gd-guide");
@@ -7120,13 +7073,13 @@ const REVIEW_TEXT = "Press “Comment” and click whatever you want to change. 
 const BUILDING_TEXT = "Its header shows how it is going. You can keep commenting meanwhile.";
 const DONE_TEXT = "If your app is running, “Compare with app” at the top shows the design next to it.";
 
-/** Turns the help on from the rail's More. */
+/** Turns the help on from the rail's Settings. */
 const turnOnHelp = (canvas: Canvas) => {
-	openMore(canvas);
+	openSettings(canvas);
 	helpItem(canvas).dispatch("click");
 };
 
-test("help S1: the help is off by default: no card on the canvas or inside a direction, and More offers Step-by-step help unchecked", async () => {
+test("help S1: the help is off by default: no card on the canvas or inside a direction, and Settings offers Step-by-step help unchecked", async () => {
 	const canvas = await loadUx();
 	const c = canvas as unknown as Canvas;
 	assert.equal(guideEl(c).hidden, true, "nothing opens by itself on a first visit");
@@ -7134,8 +7087,8 @@ test("help S1: the help is off by default: no card on the canvas or inside a dir
 	openButtonOf(boardsOf(c)[0]).dispatch("click");
 	assert.equal(guideEl(c).hidden, true, "nor inside a direction");
 	c.document.getElementById("gd-back").dispatch("click");
-	openMore(c);
-	assert.deepEqual(itemLabels(c), ["Design system board", "Keyboard shortcuts", "Step-by-step help"]);
+	openSettings(c);
+	assert.deepEqual(itemLabels(c), ["Appearance", "Design system board", "Keyboard shortcuts", "Step-by-step help"]);
 	assert.equal(helpItem(c).getAttribute("role"), "menuitemcheckbox", "a switch in the menu");
 	assert.equal(helpItem(c).getAttribute("aria-checked"), "false");
 	assert.equal(canvas.data.get(HELP_KEY), undefined, "nothing saved while it was never touched");
@@ -7147,8 +7100,8 @@ test("help S1: the help is off by default: no card on the canvas or inside a dir
 	assert.match(html, /<button type="button" id="gd-guide-skip" class="gd-guide-skip" data-i18n="guide.off">Turn off help<\/button>/);
 	assert.match(html, /<button type="button" id="gd-guide-next" class="gd-primary"><span id="gd-guide-next-label" data-i18n="guide.dismiss">Got it<\/span><\/button>/);
 	const { en, es } = loadCatalog();
-	assert.equal(en["rail.more.title"], "More: design system, keyboard shortcuts and step-by-step help");
-	assert.equal(es["rail.more.title"], "Más: sistema de diseño, atajos de teclado y ayuda paso a paso");
+	assert.equal(en["rail.settings.title"], "Settings: appearance, design system, keyboard shortcuts and step-by-step help");
+	assert.equal(es["rail.settings.title"], "Configuración: apariencia, sistema de diseño, atajos de teclado y ayuda paso a paso");
 });
 
 test("help S2: Step-by-step help turns it on: the card for the current step, the spotlight, focus on Got it, saved and checked; a later visit starts with it on", async () => {
@@ -7166,7 +7119,7 @@ test("help S2: Step-by-step help turns it on: the card for the current step, the
 	assert.deepEqual(spotBox(c), ["92px", "112px", "716px", "316px"], "the spotlight surrounds the directions");
 	assert.equal(c.document.activeElement, guideNext(c), "focus moves into the card when you turn it on");
 	assert.equal(canvas.data.get(HELP_KEY), "on");
-	openMore(c);
+	openSettings(c);
 	assert.equal(helpItem(c).getAttribute("aria-checked"), "true");
 	keyOn(menuItems(c)[0], "Escape");
 
@@ -7214,14 +7167,14 @@ test("help S3: the card follows the flow: Review inside a direction, Implement w
 	assert.equal(guideEl(s).hidden, true, "the design system board is not a step");
 });
 
-test("help S4: Got it and Esc hide the card until the step changes; Turn off help turns it off, saves it and gives focus back; More turns it off too", async () => {
+test("help S4: Got it and Esc hide the card until the step changes; Turn off help turns it off, saves it and gives focus back; Settings turns it off too", async () => {
 	const canvas = await loadUx();
 	const c = canvas as unknown as Canvas;
 	turnOnHelp(c);
 	guideNext(c).dispatch("click");
 	assert.equal(guideEl(c).hidden, true, "Got it hides this step's card");
 	assert.equal(guideSpot(c).hidden, true);
-	assert.equal(c.document.activeElement, moreButton(c), "focus returns where it was when the card took it");
+	assert.equal(c.document.activeElement, settingsButton(c), "focus returns where it was when the card took it");
 	assert.equal(canvas.data.get(HELP_KEY), "on", "the help stays on");
 	openButtonOf(boardsOf(c)[0]).dispatch("click");
 	assert.equal(guideView(c).target, "review", "the next step shows its card");
@@ -7237,15 +7190,15 @@ test("help S4: Got it and Esc hide the card until the step changes; Turn off hel
 	openButtonOf(boardsOf(c)[0]).dispatch("click");
 	assert.equal(guideEl(c).hidden, true, "off stays off on the next step");
 	c.document.getElementById("gd-back").dispatch("click");
-	openMore(c);
+	openSettings(c);
 	assert.equal(helpItem(c).getAttribute("aria-checked"), "false");
 	helpItem(c).dispatch("click");
 	assert.equal(guideEl(c).hidden, false);
-	openMore(c);
+	openSettings(c);
 	helpItem(c).dispatch("click");
 	assert.equal(guideEl(c).hidden, true, "choosing it again turns it off");
 	assert.equal(canvas.data.get(HELP_KEY), "off");
-	assert.equal(c.document.activeElement, moreButton(c));
+	assert.equal(c.document.activeElement, settingsButton(c));
 
 	const outside = await loadUx({ stored: { [HELP_KEY]: "on" } });
 	const o = outside as unknown as Canvas;
@@ -7271,7 +7224,7 @@ test("help S5: the card never shows over Compare, a dialog, the comment box or a
 	assert.equal(guideEl(c).hidden, true, "not over the shortcuts dialog");
 	c.document.getElementById("gd-shortcuts-close").dispatch("click");
 	assert.equal(guideEl(c).hidden, false);
-	moreButton(c).dispatch("click");
+	settingsButton(c).dispatch("click");
 	assert.equal(guideEl(c).hidden, true, "not over a menu");
 	keyOn(menuItems(c)[0], "Escape");
 	assert.equal(guideEl(c).hidden, false);
@@ -7307,8 +7260,8 @@ test("help S6: the help speaks Spanish, with tú forms, and follows a switch whi
 	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented", implementedAt: todayAt(10, 5) } }));
 	assert.equal(guideView(c).title, "Ya está implementada");
 	assert.equal(guideText(c), "Si tu app está en marcha, «Comparar con la app» arriba te enseña el diseño a su lado.");
-	openMore(c);
-	assert.deepEqual(itemLabels(c), ["Sistema de diseño", "Atajos de teclado", "Ayuda paso a paso"]);
+	openSettings(c);
+	assert.deepEqual(itemLabels(c), ["Apariencia", "Sistema de diseño", "Atajos de teclado", "Ayuda paso a paso"]);
 	keyOn(menuItems(c)[0], "Escape");
 	chooseLang(canvas, "en");
 	assert.deepEqual(guideView(c), { eyebrow: "Step-by-step help · 4 of 4", title: "It is implemented", steps: stepsAt(3), next: "Got it", target: "done" });
@@ -7396,7 +7349,7 @@ test("board spacing: the header text never widens a direction, and a long tradeo
 test("polish F1: the top bar keeps its controls whole and lets the design name give way, narrowing in steps", () => {
 	const css = read("canvas.css");
 	assert.match(css, /\.gd-bar \{ container: gd-bar \/ inline-size; \}/, "the bar is a size container");
-	assert.match(css, /\.gd-bar > \.gd-lang-button, \.gd-bar > \.gd-zoom, \.gd-bar > \.gd-connection, \.gd-bar > \.gd-secondary, \.gd-bar > \.gd-toggle \{ flex: none; \}/, "controls never shrink under their text");
+	assert.match(css, /\.gd-bar > \.gd-zoom, \.gd-bar > \.gd-connection, \.gd-bar > \.gd-secondary, \.gd-bar > \.gd-toggle \{ flex: none; \}/, "controls never shrink under their text");
 	assert.match(css, /\.gd-field select \{ width: clamp\(16ch, 15vw, 28ch\); text-overflow: ellipsis; \}/, "the design name is cut with an ellipsis");
 	const block = (width: number) => {
 		const start = css.indexOf(`@container gd-bar (max-width: ${width}px) {`);
@@ -7405,7 +7358,7 @@ test("polish F1: the top bar keeps its controls whole and lets the design name g
 	};
 	assert.match(block(1700), /#gd-compare-app > span \{ position: absolute;[^}]*clip-path: inset\(50%\)/, "Compare with app becomes an icon, still named (Connected is a dot at every width, canvas-layout S14)");
 	assert.ok(!/data-state="off"/.test(block(1700)), "Not connected keeps its words");
-	assert.match(block(1500), /#gd-lang-code \{ position: absolute;/, "the language button keeps its icon, still named");
+	assert.match(block(1500), /#gd-device-size \{ position: absolute;/, "the device button keeps its icon and name (the language button is gone, canvas-layout S15)");
 	assert.match(block(1400), /#gd-feature, #gd-feature-sep \{ display: none; \}/);
 	assert.match(block(1020), /\.gd-title, \.gd-field > \.gd-crumb-sep \{ position: absolute;/);
 	assert.match(read("index.html"), /<button type="button" id="gd-compare-app" class="gd-secondary" title="Compare with app" data-i18n-title="bar.compareApp" hidden>/, "as an icon, Compare with app keeps a tooltip");
@@ -7973,7 +7926,7 @@ test("canvas-layout S3: focus mode centers a moved artboard from where it sits",
 	assert.equal(canvas.world.style.transform, "translate(-592px, -720px) scale(1)");
 });
 
-test("canvas-layout S2: the arrangement control sits in the top bar before the language, named from the catalog, and styled with tokens", () => {
+test("canvas-layout S2: the arrangement control sits in the top bar before the device selector, named from the catalog, and styled with tokens", () => {
 	const html = read("index.html");
 	const group = /<div class="gd-group gd-arrange" role="group"[^>]*data-i18n-aria-label="layout\.group"[^>]*>([^]*?)<\/div>/.exec(html);
 	assert.ok(group, "a labelled group");
@@ -7981,7 +7934,7 @@ test("canvas-layout S2: the arrangement control sits in the top bar before the l
 		assert.match(group![1], new RegExp(`<button type="button" id="gd-arrange-${kind}" aria-pressed="${kind === "row"}"[^>]*data-i18n-aria-label="layout\\.${kind}" data-i18n-title="layout\\.${kind}\\.title"><svg class="gd-i" aria-hidden="true"><use href="#i-${kind}"/></svg></button>`));
 		assert.match(html, new RegExp(`<symbol id="i-${kind}"`));
 	}
-	assert.ok(html.indexOf('class="gd-spacer"') < html.indexOf('id="gd-arrange-row"') && html.indexOf('id="gd-arrange-row"') < html.indexOf('id="gd-lang"'));
+	assert.ok(html.indexOf('class="gd-spacer"') < html.indexOf('id="gd-arrange-row"') && html.indexOf('id="gd-arrange-row"') < html.indexOf('id="gd-device"'));
 	const { en, es } = loadCatalog();
 	assert.deepEqual(["layout.row", "layout.column", "layout.grid"].map((key) => en[key]), ["Row", "Column", "Grid"]);
 	assert.deepEqual(["layout.row", "layout.column", "layout.grid"].map((key) => es[key]), ["Fila", "Columna", "Cuadrícula"]);
@@ -8022,11 +7975,11 @@ const rowReset = (canvas: KeysCanvas, id: string) => withClass(keyRow(canvas, id
 const keysMessage = (canvas: KeysCanvas) => canvas.document.getElementById("gd-keys-message").textContent;
 const shortcutsOpen = (canvas: KeysCanvas) => canvas.document.getElementById("gd-shortcuts").hasAttribute("open");
 const closeList = (canvas: KeysCanvas) => canvas.document.getElementById("gd-shortcuts-close").dispatch("click");
-/** Opens the list (as More's Keyboard shortcuts does), presses Change on `id`'s row and then `key`; returns the key's event. */
+/** Opens the list (as Settings' Keyboard shortcuts does), presses Change on `id`'s row and then `key`; returns the key's event. */
 function changeKey(canvas: KeysCanvas, id: string, key: string, init: Record<string, unknown> = {}) {
 	if (!shortcutsOpen(canvas)) {
-		openMore(canvas as unknown as Canvas);
-		menuItems(canvas as unknown as Canvas)[1].dispatch("click");
+		openSettings(canvas as unknown as Canvas);
+		menuItems(canvas as unknown as Canvas)[2].dispatch("click");
 	}
 	rowChange(canvas, id).dispatch("click");
 	return press(canvas as unknown as Canvas, key, init, rowChange(canvas, id));
@@ -8052,9 +8005,9 @@ test("canvas-layout S11: the shortcuts list shows each tool and panel action wit
 		assert.equal(canvas.document.getElementById(id).getAttribute("aria-keyshortcuts"), key);
 	}
 	assert.equal(canvas.document.getElementById("gd-minimap-key").textContent, "M");
-	const items = openMore(canvas as unknown as Canvas);
-	assert.equal(items[1].getAttribute("aria-keyshortcuts"), "?");
-	assert.deepEqual(texts(items[1], "gd-menu-kbd"), ["?"]);
+	const items = openSettings(canvas as unknown as Canvas);
+	assert.equal(items[2].getAttribute("aria-keyshortcuts"), "?");
+	assert.deepEqual(texts(items[2], "gd-menu-kbd"), ["?"]);
 
 	const html = read("index.html");
 	const dialog = html.slice(html.indexOf('<dialog id="gd-shortcuts"'), html.indexOf("</dialog>", html.indexOf('<dialog id="gd-shortcuts"')));
@@ -8066,7 +8019,7 @@ test("canvas-layout S11: the shortcuts list shows each tool and panel action wit
 	assert.match(html, /<kbd id="gd-minimap-key" aria-hidden="true">M<\/kbd>/);
 });
 
-test("canvas-layout S11: a new key triggers its action, the old one does not, and the rail, the list, the minimap and More show it", async () => {
+test("canvas-layout S11: a new key triggers its action, the old one does not, and the rail, the list, the minimap and Settings show it", async () => {
 	const canvas = await loadKeys();
 	assert.equal(changeKey(canvas, "comment", "k").defaultPrevented, true, "the key is taken by the list");
 	assert.equal(keyPressed(canvas, "gd-comment"), "false", "assigning does not run the action");
@@ -8109,10 +8062,10 @@ test("canvas-layout S11: a new key triggers its action, the old one does not, an
 	assert.equal(canvas.document.getElementById("gd-panel").hidden, false);
 	keyPress(canvas, "p");
 	assert.equal(canvas.document.getElementById("gd-panel").hidden, true, "P toggles the review panel");
-	const items = openMore(canvas as unknown as Canvas);
-	assert.equal(items[1].getAttribute("aria-keyshortcuts"), "/");
-	assert.deepEqual(texts(items[1], "gd-menu-kbd"), ["/"]);
-	keyOn(items[1], "Escape");
+	const items = openSettings(canvas as unknown as Canvas);
+	assert.equal(items[2].getAttribute("aria-keyshortcuts"), "/");
+	assert.deepEqual(texts(items[2], "gd-menu-kbd"), ["/"]);
+	keyOn(items[2], "Escape");
 	keyPress(canvas, "?", { shiftKey: true });
 	assert.equal(shortcutsOpen(canvas), false, "? is free");
 	keyPress(canvas, "/");
@@ -8403,4 +8356,186 @@ test("canvas-layout S14: connected is only a dot, its state in the tooltip and a
 		assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule(selector)), `${selector}: tokens only`);
 		assert.ok(!/transition|animation/.test(rule(selector)), `${selector}: no motion`);
 	}
+});
+
+// ---- canvas-layout S15: the rail's More is Settings (a gear), with Appearance first: the theme and the language ----
+
+const THEME_KEY = "gentle-design:theme";
+const themeRadio = (canvas: Canvas, theme: string) => canvas.document.getElementById(`gd-theme-${theme}`);
+const themeChecked = (canvas: Canvas) => ["gentle", "neutral"].map((theme) => [theme, themeRadio(canvas, theme).checked]);
+const pageTheme = (canvas: Canvas) => canvas.document.documentElement.getAttribute("data-theme");
+const iconOf = (element: FakeElement) => findAll(element, (node) => node.localName === "use").map((node) => node.getAttribute("href"));
+
+test("canvas-layout S15: the rail's Settings button is a gear with its label and a tooltip naming what it holds", async () => {
+	const html = read("index.html");
+	const button = /<button type="button" id="gd-rail-settings" ([^>]*)>([^]*?)<\/button>/.exec(html);
+	assert.ok(button, "the rail has a Settings button");
+	assert.match(button![1], /^class="gd-tool gd-bottom" aria-haspopup="menu" aria-expanded="false" aria-controls="gd-menu" title="Settings: appearance, design system, keyboard shortcuts and step-by-step help" data-i18n-title="rail\.settings\.title"$/);
+	assert.equal(button![2], '<svg class="gd-i" aria-hidden="true"><use href="#i-gear"/></svg><span class="gd-tool-label" data-i18n="rail.settings">Settings</span>');
+	assert.match(html, /<symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"\/><path d="[^"]+"\/><\/symbol>/, "a gear in the sprite's 24 px stroke style");
+	assert.ok(!html.includes('id="gd-rail-more"'), "More is gone");
+	const { en, es } = loadCatalog();
+	assert.deepEqual([en["rail.settings"], es["rail.settings"]], ["Settings", "Ajustes"]);
+	for (const key of ["rail.more", "rail.more.title"]) assert.ok(!(key in en) && !(key in es), `${key} is gone`);
+
+	const spanish = await loadUx({ browser: "es" });
+	const settings = spanish.document.getElementById("gd-rail-settings");
+	assert.equal(settings.title, "Configuración: apariencia, sistema de diseño, atajos de teclado y ayuda paso a paso");
+	assert.ok(staticText(spanish as unknown as LangCanvas).includes("Ajustes"), "the label reads Ajustes (Configuración does not fit the 60 px rail)");
+});
+
+test("canvas-layout S15: Settings opens the same menu with Appearance first, then Design system, Keyboard shortcuts and Step-by-step help", async () => {
+	const canvas = await loadUx({ replies: SYSTEM_REPLY });
+	const c = canvas as unknown as Canvas;
+	const settings = settingsButton(c);
+	const items = openSettings(c);
+	assert.equal(settings.getAttribute("aria-expanded"), "true");
+	assert.equal(menuEl(c).getAttribute("aria-label"), "Settings");
+	assert.deepEqual(itemLabels(c), ["Appearance", "Design system board", "Keyboard shortcuts", "Step-by-step help"]);
+	assert.deepEqual(items.map((item) => [item.getAttribute("role"), iconOf(item)[0]]), [["menuitem", "#i-contrast"], ["menuitem", "#i-palette"], ["menuitem", "#i-keys"], ["menuitemcheckbox", "#i-help"]]);
+	assert.equal(c.document.activeElement, items[0], "focus moves to Appearance");
+	assert.equal(items[2].getAttribute("aria-keyshortcuts"), "?", "Keyboard shortcuts still shows its key");
+	assert.equal(items[3].getAttribute("aria-checked"), "false", "Step-by-step help is still a switch");
+	assert.match(read("index.html"), /<symbol id="i-contrast" viewBox="0 0 24 24">/);
+	// The others still do what they did.
+	items[1].dispatch("click");
+	assert.equal(c.navMode.textContent, "Using: Design system · Shift+Esc to exit");
+
+	const spanish = await loadUx({ browser: "es" });
+	const s = spanish as unknown as Canvas;
+	openSettings(s);
+	assert.equal(menuEl(s).getAttribute("aria-label"), "Ajustes");
+	assert.deepEqual(itemLabels(s), ["Apariencia", "Sistema de diseño", "Atajos de teclado", "Ayuda paso a paso"]);
+});
+
+test("canvas-layout S15: Appearance opens a dialog like the shortcuts one; single keys are off while it is open; Close and Esc return focus to Settings", async () => {
+	const canvas = await loadUx();
+	const c = canvas as unknown as Canvas;
+	const dialog = appearanceDialog(c);
+	let modal = 0;
+	(dialog as any).showModal = () => { modal++; dialog.setAttribute("open", ""); };
+	(dialog as any).close = () => dialog.removeAttribute("open");
+	assert.equal(appearanceOpen(c), false);
+	openAppearance(c);
+	assert.equal(modal, 1, "a modal dialog, like Keyboard shortcuts");
+	assert.equal(menuEl(c).hidden, true, "choosing Appearance closes the menu");
+	assert.deepEqual(themeChecked(c), [["gentle", true], ["neutral", false]], "Gentle is the default");
+	assert.deepEqual(langChecked(c), [["es", false], ["en", false], ["auto", true]]);
+	const shown = staticText(canvas as unknown as LangCanvas);
+	for (const text of ["Appearance", "Theme", "Gentle", "Neutral", "Language", "Match the browser"]) assert.ok(shown.includes(text), text);
+	press(c, "c");
+	assert.equal(pressed(c, "gd-comment"), "false", "C does nothing while it is open");
+	press(c, "?", { shiftKey: true });
+	assert.equal(c.document.getElementById("gd-shortcuts").hasAttribute("open"), false, "nor does the help key");
+	closeAppearance(c);
+	assert.equal(appearanceOpen(c), false);
+	assert.equal(c.document.activeElement, settingsButton(c), "Close returns focus to Settings");
+	press(c, "c");
+	assert.equal(pressed(c, "gd-comment"), "true", "single keys work again once it is closed");
+
+	// Esc: the browser closes the modal dialog; focus goes back to Settings.
+	openAppearance(c);
+	c.document.getElementById("gd-viewport").focus();
+	dialog.removeAttribute("open");
+	dialog.dispatch("close");
+	assert.equal(c.document.activeElement, settingsButton(c), "Esc returns focus to Settings");
+
+	const spanish = await loadUx({ browser: "es" });
+	openAppearance(spanish as unknown as Canvas);
+	const words = staticText(spanish as unknown as LangCanvas);
+	for (const text of ["Apariencia", "Tema", "Gentle", "Neutro", "Idioma", "Igual que el navegador", "Cerrar"]) assert.ok(words.includes(text), text);
+});
+
+test("canvas-layout S15: choosing Neutral sets data-theme on the page at once and saves it; Gentle takes it off and saves it", async () => {
+	const canvas = await loadUx();
+	const c = canvas as unknown as Canvas;
+	const sources = c.frames().map((frame) => frame.src);
+	assert.equal(pageTheme(c), null, "Gentle has no attribute");
+	assert.equal(canvas.data.get(THEME_KEY), undefined, "reading the default writes nothing");
+	openAppearance(c);
+	checkRadio(themeRadio(c, "neutral"));
+	assert.equal(pageTheme(c), "neutral");
+	assert.equal(canvas.data.get(THEME_KEY), "neutral");
+	assert.deepEqual(themeChecked(c), [["gentle", false], ["neutral", true]]);
+	assert.equal(appearanceOpen(c), true, "choosing keeps the dialog open");
+	assert.deepEqual(c.frames().map((frame) => frame.src), sources, "no artboard reloads");
+	checkRadio(themeRadio(c, "gentle"));
+	assert.equal(pageTheme(c), null);
+	assert.equal(canvas.data.get(THEME_KEY), "gentle");
+	assert.deepEqual(themeChecked(c), [["gentle", true], ["neutral", false]]);
+});
+
+test("canvas-layout S15: a stored Neutral applies on load; an absent or unknown value, or storage that throws, is Gentle", async () => {
+	const neutral = await loadUx({ stored: { [THEME_KEY]: "neutral" } });
+	assert.equal(pageTheme(neutral as unknown as Canvas), "neutral");
+	openAppearance(neutral as unknown as Canvas);
+	assert.deepEqual(themeChecked(neutral as unknown as Canvas), [["gentle", false], ["neutral", true]]);
+	for (const stored of ["klingon", "", "Neutral", "gentle"]) {
+		const canvas = await loadUx({ stored: { [THEME_KEY]: stored } });
+		assert.equal(pageTheme(canvas as unknown as Canvas), null, JSON.stringify(stored));
+		openAppearance(canvas as unknown as Canvas);
+		assert.deepEqual(themeChecked(canvas as unknown as Canvas), [["gentle", true], ["neutral", false]], JSON.stringify(stored));
+		assert.equal(canvas.data.get(THEME_KEY), stored, "reading never rewrites it");
+	}
+	const broken = await loadUx({ broken: true });
+	const b = broken as unknown as Canvas;
+	assert.equal(pageTheme(b), null, "storage that throws is Gentle");
+	openAppearance(b);
+	checkRadio(themeRadio(b, "neutral"));
+	assert.equal(pageTheme(b), "neutral", "and the choice still applies for this page");
+});
+
+/** The relative luminance of #rrggbb (WCAG 2.2). */
+function hexLuminance(hex: string) {
+	const [r, g, b] = [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16) / 255).map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+	return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+const hexContrast = (a: string, b: string) => { const [light, dark] = [hexLuminance(a), hexLuminance(b)].sort((x, y) => y - x); return (light + 0.05) / (dark + 0.05); };
+
+test("canvas-layout S15: canvas.css's Neutral theme overrides every color token of :root with neutral grays, readable on the accent", () => {
+	const css = read("canvas.css");
+	const tokensOf = (block: string) => new Map([...block.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((match) => [match[1], match[2].trim()]));
+	const root = tokensOf(css.match(/:root\s*{[^}]*}/)![0]);
+	const neutralBlock = css.match(/:root\[data-theme="neutral"\]\s*{[^}]*}/);
+	assert.ok(neutralBlock, "a :root[data-theme=\"neutral\"] block");
+	const neutral = tokensOf(neutralBlock![0]);
+	const colors = [...root].filter(([, value]) => /#[0-9a-fA-F]{3,8}\b/.test(value)).map(([name]) => name);
+	assert.ok(colors.length >= 30, "the walker finds the color tokens");
+	for (const name of colors) assert.ok(neutral.has(name), `${name} is overridden`);
+	assert.deepEqual([...neutral.keys()].filter((name) => !root.has(name)), [], "and nothing else");
+	const STATES = /^--(success|warning|error|info)(-|$)/;
+	for (const name of colors) {
+		const value = neutral.get(name)!;
+		if (STATES.test(name)) {
+			assert.equal(value, root.get(name), `${name}: a state keeps its color, so it still means the same`);
+			continue;
+		}
+		for (const [hex] of value.matchAll(/#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?\b/g)) {
+			const [r, g, b] = [1, 3, 5].map((at) => hex.slice(at, at + 2).toLowerCase());
+			assert.ok(r === g && g === b, `${name}: ${hex} is a gray`);
+		}
+	}
+	for (const name of ["--accent", "--accent-strong", "--accent-soft", "--accent-wash", "--accent-line", "--glow", "--selection", "--shadow-panel"]) assert.ok(neutral.get(name) !== root.get(name), `${name} leaves the pink`);
+	const hex = (name: string) => neutral.get(name)!.slice(0, 7);
+	assert.ok(hexLuminance(hex("--accent")) > 0.5, "a light-gray accent");
+	assert.ok(hexContrast(hex("--accent"), hex("--bg")) >= 4.5, "text on the accent (var(--bg)) stays readable");
+	assert.ok(hexContrast(hex("--accent-strong"), hex("--bg")) >= 4.5, "and on its hover");
+	assert.ok(hexContrast(hex("--text"), hex("--surface-1")) >= 7, "text on a dialog");
+	assert.ok(hexContrast(hex("--text-muted"), hex("--surface-1")) >= 4.5, "muted text on a dialog");
+	assert.ok(hexContrast(hex("--accent"), hex("--surface")) >= 4.5, "the accent as text on the panel");
+	assert.match(neutralBlock![0], /color-scheme: dark;/, "a dark theme");
+});
+
+test("canvas-layout S15: the docs describe Settings, Appearance with the theme and the language, and no language button in the top bar", () => {
+	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
+	const section = docs.slice(docs.indexOf("### Gentle Design"));
+	const rail = section.slice(section.indexOf("- **Tool rail**"), section.indexOf("\n", section.indexOf("- **Tool rail**")));
+	assert.match(rail, /\*\*Settings\*\* \(a gear\) at the bottom/);
+	assert.match(rail, /\*\*Appearance\*\*/);
+	assert.ok(!/\*\*More\*\*/.test(rail), "the rail has no More");
+	const bar = section.slice(section.indexOf("- **Top bar**"), section.indexOf("\n", section.indexOf("- **Top bar**")));
+	assert.ok(!/language/i.test(bar), "the top bar names no language button");
+	const appearance = section.slice(section.indexOf("- Appearance:"), section.indexOf("\n", section.indexOf("- Appearance:")));
+	for (const part of ["**Gentle**", "**Neutral**", "`gentle-design:theme`", "**Match the browser**", "`gentle-design:language`"]) assert.ok(appearance.includes(part), `Appearance mentions ${part}`);
+	assert.ok(!section.includes("globe"), "no globe button is described");
 });

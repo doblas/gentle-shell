@@ -12,8 +12,9 @@
 // the overview (comparing), so elements are picked only inside a direction, at full size (reviewing).
 // A minimap in the viewport's bottom right (M) shows every board and the visible area; clicking or dragging in it pans.
 // Every word it shows is in one catalog (English and Spanish, below); the language starts from the browser's and
-// a button in the top bar switches it live. Messages sent to the session are not text of the canvas and stay English.
-// A left tool rail of labeled tools (Move, Comment, Overview, and More: design system, shortcuts) and the
+// Settings > Appearance switches it live, with the theme (Gentle or Neutral). Messages sent to the session are not text
+// of the canvas and stay English.
+// A left tool rail of labeled tools (Move, Comment, Overview, and Settings: appearance, design system, shortcuts, help) and the
 // single-key shortcuts behind it; the mode chip in the viewport names the active mode. The top bar shows the chosen
 // direction's status and whether a Pi session is connected.
 // Handoffs (design/<slug>/handoffs.json) show live on each artboard's header: the
@@ -46,10 +47,13 @@
 	const MODE_KEY = "gentle-design:send-mode";
 	// "on" shows the CSS selectors on cards and the token inspector; anything else (or nothing) is off.
 	const TECHNICAL_KEY = "gentle-design:technical";
-	// "on" while the step-by-step help is turned on in this browser (from the rail's More); anything else (or nothing) is off.
+	// "on" while the step-by-step help is turned on in this browser (from the rail's Settings); anything else (or nothing) is off.
 	const HELP_KEY = "gentle-design:help";
 	// The keys a person gave the single-key shortcuts in this browser, for every design: a JSON object, action id -> key (canvas-layout S11).
 	const SHORTCUTS_KEY = "gentle-design:shortcuts";
+	// The canvas's theme in this browser (canvas-layout S15): "neutral" is Neutral; "gentle", anything else or nothing is Gentle.
+	const THEME_KEY = "gentle-design:theme";
+	const THEMES = ["gentle", "neutral"];
 	const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 	const MAX_PREVIEW_URL = 2048;
 	// The running app is another loopback origin (previewTarget refuses this server's own
@@ -101,9 +105,6 @@
 			"common.save": "Save",
 			"change.prompt": "What should change?",
 			"session.notConnected": "Canvas not connected to a Pi session.",
-			"lang.button": "Language ({code})",
-			"lang.title": "Language / Idioma",
-			"lang.menu": "Language",
 			"lang.es": "Español",
 			"lang.en": "English",
 			"lang.auto": "Match the browser",
@@ -115,8 +116,16 @@
 			"rail.comment.title": "Comment on an element ({key})",
 			"rail.overview": "Overview",
 			"rail.overview.title": "See all the directions ({key})",
-			"rail.more": "More",
-			"rail.more.title": "More: design system, keyboard shortcuts and step-by-step help",
+			"rail.settings": "Settings",
+			"rail.settings.title": "Settings: appearance, design system, keyboard shortcuts and step-by-step help",
+			"rail.appearance": "Appearance",
+			"appearance.theme": "Theme",
+			"appearance.language": "Language",
+			"theme.gentle": "Gentle",
+			"theme.gentle.hint": "Dark plum with the pink accent",
+			"theme.neutral": "Neutral",
+			"theme.neutral.hint": "Dark gray with a light-gray accent",
+			"theme.note": "The theme changes the canvas only; the directions keep their own design. Saved in this browser.",
 			"rail.system": "Design system board",
 			"rail.keys": "Keyboard shortcuts",
 			"rail.help": "Step-by-step help",
@@ -513,9 +522,6 @@
 			"common.save": "Guardar",
 			"change.prompt": "¿Qué debería cambiar?",
 			"session.notConnected": "El canvas no está conectado a una sesión de Pi.",
-			"lang.button": "Idioma ({code})",
-			"lang.title": "Language / Idioma",
-			"lang.menu": "Idioma",
 			"lang.es": "Español",
 			"lang.en": "English",
 			"lang.auto": "Igual que el navegador",
@@ -527,8 +533,16 @@
 			"rail.comment.title": "Comentar un elemento ({key})",
 			"rail.overview": "Ver todo",
 			"rail.overview.title": "Ver todas las propuestas ({key})",
-			"rail.more": "Más",
-			"rail.more.title": "Más: sistema de diseño, atajos de teclado y ayuda paso a paso",
+			"rail.settings": "Ajustes",
+			"rail.settings.title": "Configuración: apariencia, sistema de diseño, atajos de teclado y ayuda paso a paso",
+			"rail.appearance": "Apariencia",
+			"appearance.theme": "Tema",
+			"appearance.language": "Idioma",
+			"theme.gentle": "Gentle",
+			"theme.gentle.hint": "Ciruela oscuro con el acento rosa",
+			"theme.neutral": "Neutro",
+			"theme.neutral.hint": "Gris oscuro con un acento gris claro",
+			"theme.note": "El tema cambia solo el canvas; las propuestas conservan su propio diseño. Se guarda en este navegador.",
 			"rail.system": "Sistema de diseño",
 			"rail.keys": "Atajos de teclado",
 			"rail.help": "Ayuda paso a paso",
@@ -959,6 +973,27 @@
 	let languageChoice = storedLanguage();
 	let language = resolveLanguage(languageChoice);
 
+	// ---- theme (canvas-layout S15) -------------------------------------------------
+	// Gentle is :root's tokens; Neutral is data-theme="neutral" on <html>, which canvas.css gives its own tokens.
+
+	function storedTheme() {
+		try {
+			return localStorage.getItem(THEME_KEY) === "neutral" ? "neutral" : "gentle";
+		} catch {
+			return "gentle";
+		}
+	}
+
+	let theme = storedTheme();
+
+	function applyTheme() {
+		if (theme === "neutral") document.documentElement.setAttribute("data-theme", "neutral");
+		else document.documentElement.removeAttribute("data-theme");
+	}
+
+	// Before anything is drawn, so a Neutral page never shows the pink first.
+	applyTheme();
+
 	const hasKey = (key) => Object.prototype.hasOwnProperty.call(CATALOG.en, key);
 
 	/** The text of `key` in the current language, or in English when the Spanish entry is missing; {name} takes `params`. */
@@ -1038,7 +1073,7 @@
 		navMode: $("gd-nav-mode"),
 		toolNavigate: $("gd-tool-navigate"),
 		railFit: $("gd-rail-fit"),
-		railMore: $("gd-rail-more"),
+		railSettings: $("gd-rail-settings"),
 		connection: $("gd-connection"),
 		guide: $("gd-guide"),
 		guideSpot: $("gd-guide-spot"),
@@ -1051,6 +1086,10 @@
 		guideNextLabel: $("gd-guide-next-label"),
 		shortcuts: $("gd-shortcuts"),
 		shortcutsClose: $("gd-shortcuts-close"),
+		appearance: $("gd-appearance"),
+		appearanceClose: $("gd-appearance-close"),
+		themeInputs: Object.fromEntries(THEMES.map((name) => [name, $(`gd-theme-${name}`)])),
+		languageInputs: Object.fromEntries(LANG_CHOICES.map((choice) => [choice, $(`gd-language-${choice}`)])),
 		keysCustom: $("gd-keys-custom"),
 		keysMessage: $("gd-keys-message"),
 		keysRestore: $("gd-keys-restore"),
@@ -1132,10 +1171,7 @@
 		inspectorFix: $("gd-inspector-fix"),
 		inspectorCopy: $("gd-inspector-copy"),
 		menu: $("gd-menu"),
-		lang: $("gd-lang"),
 		arrange: Object.fromEntries(ARRANGEMENTS.map((kind) => [kind, $(`gd-arrange-${kind}`)])),
-		langCode: $("gd-lang-code"),
-		langMenu: $("gd-lang-menu"),
 		device: $("gd-device"),
 		deviceIcon: $("gd-device-icon"),
 		deviceName: $("gd-device-name"),
@@ -1211,8 +1247,6 @@
 		minimap: true,
 		// The open artboard menu: { board, button, items, actions }, or null.
 		menu: null,
-		// The open language menu: { items }, or null.
-		langMenu: null,
 		// The open device menu: { items, input, error }, or null.
 		deviceMenu: null,
 		// The open "another direction" dialog: { board, button, sending }, or null.
@@ -2101,20 +2135,19 @@
 		loc(item, "title", titleKey, titleParams);
 		item.append(icon(SIZE_ICONS[kind], "gd-i gd-i-s"), chip("gd-menu-label", t(name)));
 		if (size) item.append(chip("gd-device-dim", size));
-		item.append(icon("i-check", "gd-i gd-i-s gd-lang-check"));
+		item.append(icon("i-check", "gd-i gd-i-s gd-device-check"));
 		item.addEventListener("click", () => chooseDeviceItem(item));
 		return item;
 	}
 
 	/**
-	 * The device menu, built when it opens like the language menu: Phone, Tablet, Desktop and All sizes as radio items, then
+	 * The device menu, built when it opens: Phone, Tablet, Desktop and All sizes as radio items, then
 	 * the custom width field. The arrows reach the field as the last entry; inside it the other keys stay with the field.
 	 */
 	function openDeviceMenu(last) {
 		const board = state.focus;
 		if (!board) return;
 		closeMenu(false);
-		closeLangMenu(false);
 		closeDeviceMenu(false);
 		const items = SIZE_PRESETS.map((preset) => {
 			const { width, height } = preset.kind === "desktop" ? desktopSize(board) : presetSize(board, preset);
@@ -2694,8 +2727,8 @@
 	}
 
 	/**
-	 * Puts `menu` (an action menu or the language menu) under `button`, inside the window; `beside` puts it right of
-	 * the button instead (the rail's More, at the bottom left), bottom-aligned with it when there is no room below.
+	 * Puts `menu` (an action menu or the device menu) under `button`, inside the window; `beside` puts it right of
+	 * the button instead (the rail's Settings, at the bottom left), bottom-aligned with it when there is no room below.
 	 */
 	function placeMenu(button, menu, beside = false) {
 		const rect = button.getBoundingClientRect();
@@ -2717,7 +2750,6 @@
 	/** Builds the shared menu (#gd-menu) from `actions` under `button`, named `label`, with focus on its first (or `last`) item. */
 	function showMenu(button, actions, label, last, beside = false) {
 		closeMenu(false);
-		closeLangMenu(false);
 		closeDeviceMenu(false);
 		const nodes = [];
 		const items = [];
@@ -2818,87 +2850,52 @@
 	document.addEventListener("pointerdown", (event) => {
 		const open = state.menu;
 		if (open && !els.menu.contains(event.target) && !open.button.contains(event.target)) closeMenu(false);
-		if (state.langMenu && !els.langMenu.contains(event.target) && !els.lang.contains(event.target)) closeLangMenu(false);
 		if (state.deviceMenu && !els.deviceMenu.contains(event.target) && !els.device.contains(event.target)) closeDeviceMenu(false);
 	});
 
-	// ---- language switch -------------------------------------------------------------
-	// A globe button with the code of the language in the top bar opens a menu of radio items: Español, English and Match the
-	// browser. It is built when it opens and keeps the artboard menu's keyboard behavior.
+	// ---- appearance (canvas-layout S15) ---------------------------------------------------
+	// Settings > Appearance: the theme and the language as radio groups in a dialog built like the shortcuts list.
+	// A choice applies at once and the dialog stays open; Close or Esc returns to Settings.
 
-	function openLangMenu(last) {
-		closeMenu(false);
-		closeLangMenu(false);
-		closeDeviceMenu(false);
-		const nodes = [];
-		const items = [];
-		for (const choice of LANG_CHOICES) {
-			if (choice === "auto") {
-				const separator = document.createElement("div");
-				separator.className = "gd-menu-separator";
-				separator.setAttribute("role", "separator");
-				nodes.push(separator);
-			}
-			const item = document.createElement("button");
-			item.type = "button";
-			item.className = "gd-menu-item gd-lang-item";
-			item.setAttribute("role", "menuitemradio");
-			item.setAttribute("aria-checked", String(choice === languageChoice));
-			item.setAttribute("tabindex", "-1");
-			item.dataset.lang = choice;
-			item.append(chip("gd-menu-label", t(`lang.${choice}`)), icon("i-check", "gd-i gd-i-s gd-lang-check"));
-			item.addEventListener("click", () => chooseLangItem(item));
-			items.push(item);
-			nodes.push(item);
-		}
-		const note = document.createElement("p");
-		note.className = "gd-lang-note";
-		note.textContent = t("lang.note");
-		els.langMenu.replaceChildren(...nodes, note);
-		els.langMenu.hidden = false;
-		els.lang.setAttribute("aria-expanded", "true");
-		state.langMenu = { items };
-		placeMenu(els.lang, els.langMenu);
-		(last ? items[items.length - 1] : items[0]).focus();
+	/** Checks the radios of the current theme and language choice. */
+	function renderAppearance() {
+		for (const name of THEMES) els.themeInputs[name].checked = name === theme;
+		for (const choice of LANG_CHOICES) els.languageInputs[choice].checked = choice === languageChoice;
+	}
+
+	/** Saves the theme (gentle or neutral) and repaints the canvas with it; nothing reloads. */
+	function setTheme(name) {
+		if (!THEMES.includes(name)) return;
+		theme = name;
+		try { localStorage.setItem(THEME_KEY, name); } catch { /* storage may be unavailable: the theme holds for this page only */ }
+		applyTheme();
+		renderAppearance();
+	}
+
+	for (const name of THEMES) els.themeInputs[name].addEventListener("change", () => setTheme(name));
+	for (const choice of LANG_CHOICES) els.languageInputs[choice].addEventListener("change", () => setLanguage(choice));
+
+	function openAppearance() {
+		renderAppearance();
+		if (typeof els.appearance.showModal === "function") els.appearance.showModal();
+		else els.appearance.setAttribute("open", "");
 		renderGuide(false);
 	}
 
-	/** Closes the language menu; focus goes back to its button when it was inside the menu (or `refocus`). */
-	function closeLangMenu(refocus) {
-		const open = state.langMenu;
-		if (!open) return;
-		state.langMenu = null;
-		const inside = els.langMenu.contains(document.activeElement);
-		els.langMenu.hidden = true;
-		els.langMenu.replaceChildren();
-		els.lang.setAttribute("aria-expanded", "false");
-		if (refocus || inside) els.lang.focus();
+	function closeAppearance() {
+		if (typeof els.appearance.close === "function") els.appearance.close();
+		else els.appearance.removeAttribute("open");
 		renderGuide(false);
+		els.railSettings.focus();
 	}
 
-	function chooseLangItem(item) {
-		// Back on the button first, then the page changes language under it.
-		closeLangMenu(true);
-		setLanguage(item.dataset.lang);
-	}
+	// The browser closes the modal dialog on Esc too.
+	els.appearance.addEventListener("close", () => {
+		renderGuide(false);
+		els.railSettings.focus();
+	});
 
-	els.lang.addEventListener("click", () => {
-		if (state.langMenu) closeLangMenu(true);
-		else openLangMenu(false);
-	});
-	els.lang.addEventListener("keydown", (event) => {
-		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-			event.preventDefault();
-			openLangMenu(event.key === "ArrowUp");
-		} else if (event.key === "Escape" && state.langMenu) {
-			event.preventDefault();
-			event.stopPropagation();
-			closeLangMenu(true);
-		}
-	});
-	els.langMenu.addEventListener("keydown", (event) => {
-		if (state.langMenu) menuKeydown(event, state.langMenu.items, closeLangMenu, chooseLangItem);
-	});
+	els.appearanceClose.addEventListener("click", closeAppearance);
 
 	/** Saves the choice (es, en or auto) and rewrites the page in the language it resolves to. */
 	function setLanguage(choice) {
@@ -2920,14 +2917,13 @@
 	}
 
 	/**
-	 * The whole page in the current language, live: <html lang>, the code on the button, everything marked with a key (index.html and
-	 * what loc wrote), then what is built from state. No artboard frame is touched, so nothing reloads.
+	 * The whole page in the current language, live: <html lang>, everything marked with a key (index.html and what loc
+	 * wrote), then what is built from state. No artboard frame is touched, so nothing reloads.
 	 */
 	function applyLanguage() {
 		document.documentElement.lang = language;
-		els.langCode.textContent = language.toUpperCase();
-		loc(els.lang, "aria-label", "lang.button", { code: language.toUpperCase() });
 		refreshLoc();
+		renderAppearance();
 		if (state.systemBoard) Object.assign(state.systemBoard.artboard, { title: t("system.title"), tradeoff: t("system.tradeoff") });
 		renderNavMode();
 		renderConnection();
@@ -3306,7 +3302,7 @@
 	}
 
 	// ---- step-by-step help (replaces the canvas-progressive S6 first-run guide) ------------
-	// Off by default. More's Step-by-step help turns it on and saves it in this browser (HELP_KEY); while on, a non-modal
+	// Off by default. Settings' Step-by-step help turns it on and saves it in this browser (HELP_KEY); while on, a non-modal
 	// card names the step you are at and what to do there, and changes with it: the directions, a direction in focus, the
 	// agent building the chosen one (its header), and Compare with app once it is implemented. Got it (or Esc) hides the card until the
 	// step changes; Turn off help turns it off. It never shows over Compare, the comment box, a dialog or a menu: it waits
@@ -3347,7 +3343,7 @@
 	}
 
 	function guideBlocked() {
-		return Boolean(state.compare || state.menu || state.langMenu || state.deviceMenu || !els.popover.hidden || els.shortcuts.hasAttribute("open") || els.variantDialog.hasAttribute("open"));
+		return Boolean(state.compare || state.menu || state.deviceMenu || !els.popover.hidden || els.shortcuts.hasAttribute("open") || els.appearance.hasAttribute("open") || els.variantDialog.hasAttribute("open"));
 	}
 
 	/** Turns the help on (its card for the current step takes focus, coming back to `returnFocus`) or off, and saves it. */
@@ -5356,16 +5352,20 @@
 
 	els.panelToggle.addEventListener("click", () => setPanel(els.panel.hidden));
 
-	/** What the rail's More offers: the design system board (when there is one, and not over Compare), the keyboard shortcuts and the step-by-step help switch. */
-	function moreActions() {
+	/**
+	 * What the rail's Settings offers: Appearance (the theme and the language), the design system board (when there is one, and
+	 * not over Compare), the keyboard shortcuts and the step-by-step help switch.
+	 */
+	function settingsActions() {
 		return [
+			{ label: "rail.appearance", icon: "i-contrast", run: openAppearance },
 			{ label: "rail.system", icon: "i-palette", disabled: !state.systemBoard || Boolean(state.compare), run: () => enterFocus(state.systemBoard) },
 			{ label: "rail.keys", icon: "i-keys", shortcut: keyText(shortcutKey(shortcutById("help"))), run: openShortcuts },
-			{ label: "rail.help", icon: "i-help", checked: state.help.on, run: () => setHelp(!state.help.on, els.railMore) },
+			{ label: "rail.help", icon: "i-help", checked: state.help.on, run: () => setHelp(!state.help.on, els.railSettings) },
 		];
 	}
 
-	wireMenu(els.railMore, (last) => showMenu(els.railMore, moreActions(), t("rail.more"), last, true));
+	wireMenu(els.railSettings, (last) => showMenu(els.railSettings, settingsActions(), t("rail.settings"), last, true));
 
 	function openShortcuts() {
 		showKeysMessage(null);
@@ -5379,7 +5379,7 @@
 		if (typeof els.shortcuts.close === "function") els.shortcuts.close();
 		else els.shortcuts.removeAttribute("open");
 		renderGuide(false);
-		els.railMore.focus();
+		els.railSettings.focus();
 	}
 
 	// The browser closes the modal list on Esc too (not while a Change waits: that Esc only cancels the wait).
@@ -5611,8 +5611,8 @@
 		else showKeysMessage("keys.invalid", undefined, true);
 	}, true);
 
-	// The shortcuts never fire while typing, with a browser chord, while the comment box or the shortcuts list is open
-	// (where the help key closes it), in Compare, or in focus mode (the artboard owns the keyboard there; Shift+Esc is handled apart).
+	// The shortcuts never fire while typing, with a browser chord, while the comment box, the shortcuts list (where the help
+	// key closes it) or Appearance is open, in Compare, or in focus mode (the artboard owns the keyboard there; Shift+Esc is handled apart).
 	const TYPING_TAGS = ["input", "textarea", "select"];
 	document.addEventListener("keydown", (event) => {
 		if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -5627,7 +5627,7 @@
 			}
 			return;
 		}
-		if (!els.popover.hidden || state.focus || state.compare || state.menu || state.langMenu || state.deviceMenu || els.variantDialog.hasAttribute("open")) return;
+		if (!els.popover.hidden || state.focus || state.compare || state.menu || state.deviceMenu || els.appearance.hasAttribute("open") || els.variantDialog.hasAttribute("open")) return;
 		if (!shortcut) return;
 		event.preventDefault();
 		shortcut.run();
@@ -5776,7 +5776,7 @@
 			if (!state.focus) return;
 			event.preventDefault();
 			exitFocus();
-		} else if (state.mark && els.popover.hidden && !state.compare && !els.shortcuts.hasAttribute("open") && !els.variantDialog.hasAttribute("open")) {
+		} else if (state.mark && els.popover.hidden && !state.compare && !els.shortcuts.hasAttribute("open") && !els.appearance.hasAttribute("open") && !els.variantDialog.hasAttribute("open")) {
 			// A check's ring goes first; the next Esc leaves comment mode as before.
 			event.preventDefault();
 			clearMark();
@@ -5924,7 +5924,6 @@
 
 	window.addEventListener("resize", closePopover);
 	window.addEventListener("resize", () => closeMenu(false));
-	window.addEventListener("resize", () => closeLangMenu(false));
 	window.addEventListener("resize", () => closeDeviceMenu(false));
 	window.addEventListener("resize", layoutCompare);
 	window.addEventListener("resize", renderMinimap);
@@ -5938,7 +5937,6 @@
 
 	// index.html starts them hidden; the menus are built when they open. The guide too, until it opens.
 	els.menu.hidden = true;
-	els.langMenu.hidden = true;
 	els.deviceMenu.hidden = true;
 	els.guide.hidden = true;
 	els.guideSpot.hidden = true;
