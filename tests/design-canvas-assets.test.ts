@@ -3643,6 +3643,25 @@ test("T1/S1: the minimap draws every board as a block at its relative position a
 	assert.equal(miniPanel(canvas).hidden, false);
 });
 
+test("canvas-layout S4: each minimap block shows its title at a glance, and a block too small for text keeps only the tooltip", async () => {
+	const canvas = await minimapCanvas();
+	const labels = miniBlocks(canvas).map((block) => withClass(block, "gd-minimap-label"));
+	assert.deepEqual(labels.map((found) => found.length), [1, 1, 1], "one label per block");
+	assert.deepEqual(labels.map(([label]) => label.textContent), miniBlocks(canvas).map((block) => block.title), "the label is the hover title");
+	assert.equal(labels[1][0].textContent.startsWith("01 · "), true, "artboards lead with their number");
+	assert.deepEqual(miniBlocks(canvas).map((block) => block.classes.has("gd-minimap-tight")), [false, false, false]);
+	// A world so wide that every block is a sliver: no text is drawn, the tooltip stays.
+	layoutWorld(canvas, [[0, 0, 800, 600], [40000, 0, 400, 300], [80000, 0, 560, 840]]);
+	canvas.windowEvent("resize");
+	assert.deepEqual(miniBlocks(canvas).map((block) => block.classes.has("gd-minimap-tight")), [true, true, true]);
+	assert.equal(miniBlocks(canvas)[1].title.startsWith("01 · "), true);
+	const css = read("canvas.css");
+	const label = /\.gd-minimap-label\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+	assert.match(label, /text-overflow:\s*ellipsis/);
+	assert.match(label, /white-space:\s*nowrap/);
+	assert.match(css, /\.gd-minimap-tight \.gd-minimap-label\s*\{\s*display:\s*none;?\s*\}/);
+});
+
 test("T1/S1: blocks keep the world's aspect and are centered in the map", async () => {
 	const canvas = await loadRail(300, SYSTEM_REPLY);
 	// Wide and short bounds (4000 x 400): the width limits the scale to 0.048 and the height is centered.
