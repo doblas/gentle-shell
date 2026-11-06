@@ -185,7 +185,8 @@ body {
 
 .gd-spacer { flex: 1; }
 
-/* Whether a Pi session receives what the canvas sends (canvas-progressive S3); the text says it, never the dot alone. */
+/* Whether a Pi session receives what the canvas sends (canvas-progressive S3), at the bar's far right (canvas-layout S14).
+   Connected is a quiet dot whose word stays in the accessible name and the tooltip; Not connected keeps its words. */
 .gd-connection {
 	display: inline-flex;
 	align-items: center;
@@ -199,6 +200,8 @@ body {
 	white-space: nowrap;
 }
 
+.gd-connection[data-state="on"] { padding: 2px 4px; border-color: transparent; cursor: help; }
+
 .gd-connection-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px var(--success-halo); }
 
 .gd-connection[data-state="off"] {
@@ -210,57 +213,23 @@ body {
 
 .gd-connection[data-state="off"] .gd-connection-dot { background: var(--warning); box-shadow: 0 0 0 3px var(--warning-halo); }
 
-/* The chosen direction's status, right after the design selector (canvas-chosen-direction S1). */
-.gd-work {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	min-width: 0;
-	padding: 2px 4px 2px 10px;
-	border: 1px solid var(--accent-line);
-	border-radius: var(--radius-pill);
-	font-size: 12px;
-	color: var(--text-muted);
-	white-space: nowrap;
-}
-.gd-work[hidden] { display: none; }
-.gd-work-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
-.gd-work-dot[data-status="queued"] { background: var(--warning); }
-.gd-work-dot[data-status="sent"], .gd-work-dot[data-status="in_progress"] { background: var(--info); }
-.gd-work-dot[data-status="implemented"] { background: var(--success); }
-.gd-work-title { color: var(--accent); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
-.gd-work-state::before, .gd-work-note::before { content: "·"; margin-right: 8px; color: var(--text-faint); }
-.gd-work-note { min-width: 0; max-width: 40ch; overflow: hidden; text-overflow: ellipsis; }
-.gd-work-show { flex: none; min-height: 24px; padding: 0 10px; font-size: 12px; }
-
-/* The top bar never lets one item spill over the next: the controls keep their size, and the design name and the
-   chosen direction's status give way (cut with an ellipsis). As the bar narrows, a few words become icons; they stay
-   in the accessible name and the tooltip. A warning (Not connected) always keeps its words. */
+/* The top bar never lets one item spill over the next: the controls keep their size, and the design name gives way
+   (cut with an ellipsis). As the bar narrows, a few words become icons; they stay in the accessible name and the
+   tooltip. A warning (Not connected) always keeps its words. */
 .gd-bar { container: gd-bar / inline-size; }
 .gd-bar > .gd-lang-button, .gd-bar > .gd-zoom, .gd-bar > .gd-connection, .gd-bar > .gd-secondary, .gd-bar > .gd-toggle { flex: none; }
 .gd-bar > .gd-device-button { flex: none; }
 .gd-crumbs { flex: none; }
 .gd-field select { width: clamp(16ch, 15vw, 28ch); text-overflow: ellipsis; }
-/* The status shrinks (title, then state, cut with an ellipsis); Show never does. */
-.gd-work { flex: 0 1 auto; min-width: 9rem; overflow: hidden; }
-.gd-work-title { flex: 0 1 auto; min-width: 6ch; }
-.gd-work-state { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .gd-spacer { min-width: 0; }
 
-@container gd-bar (max-width: 2100px) {
-	.gd-work-note { display: none; }
-}
-
 @container gd-bar (max-width: 1700px) {
-	.gd-connection[data-state="on"] { padding: 2px 8px; }
-	.gd-connection[data-state="on"] .gd-connection-label,
 	#gd-compare-app > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 	#gd-compare-app { min-width: 36px; padding: 4px 8px; }
 	#gd-feature { max-width: 18ch; }
 }
 
 @container gd-bar (max-width: 1500px) {
-	.gd-work-state { display: none; }
 	#gd-lang-code { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 	#gd-device-size { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
@@ -271,8 +240,6 @@ body {
 
 @container gd-bar (max-width: 1020px) {
 	.gd-title, .gd-field > .gd-crumb-sep { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-	.gd-work-title { display: none; }
-	.gd-work { min-width: 0; }
 	#gd-device-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 
@@ -2188,7 +2155,6 @@ kbd {
 	.gd-artboard { transition: opacity 160ms ease; }
 	.gd-discarded .gd-frame-box { transition: opacity 160ms ease, filter 160ms ease; }
 	.gd-handoff-badge[data-status="sent"]::before, .gd-handoff-badge[data-status="in_progress"]::before { animation: gd-pulse 1.6s var(--ease) infinite; }
-	.gd-work-dot[data-status="sent"], .gd-work-dot[data-status="in_progress"] { animation: gd-pulse 1.6s var(--ease) infinite; }
 	.gd-check-mark { animation: gd-mark-pulse 0.9s var(--ease) 2; }
 	.gd-placeholder-status { animation: gd-breathe 2s var(--ease) infinite; }
 }

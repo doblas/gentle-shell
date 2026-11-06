@@ -5865,72 +5865,14 @@ test("S2: after a switch nothing of the old language is left in Compare or a pla
 	}
 });
 
-// ---- Chosen direction: top-bar status and discarded alternatives (canvas-chosen-direction T1/S1-S2)
+// ---- Chosen direction: discarded alternatives (canvas-chosen-direction T1/S2); its top-bar status (S1) is gone (canvas-layout S13)
 
-const workBar = (canvas: Canvas) => canvas.document.getElementById("gd-work");
-const workTexts = (canvas: Canvas) => ({
-	lead: texts(workBar(canvas), "gd-work-lead"),
-	title: texts(workBar(canvas), "gd-work-title"),
-	state: texts(workBar(canvas), "gd-work-state"),
-	note: texts(workBar(canvas), "gd-work-note"),
-});
 /** Today at hh:mm, local time, as the ISO string handoffs.json stores. */
 const todayAt = (hours: number, minutes: number) => { const date = new Date(); date.setHours(hours, minutes, 0, 0); return date.toISOString(); };
 
-test("chosen-direction S1: the top bar names the chosen direction with its state, time and note, live", async () => {
-	const canvas = await loadRail();
-	assert.equal(workBar(canvas).hidden, true, "hidden while nothing is chosen");
-
-	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "sent", queued: true, sentAt: todayAt(9, 47) } }));
-	assert.equal(workBar(canvas).hidden, false);
-	// canvas-progressive S2: no lead word.
-	assert.deepEqual(workTexts(canvas), { lead: [], title: ["“Second”"], state: ["Queued since 09:47"], note: [] });
-
-	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", sentAt: todayAt(9, 47), startedAt: todayAt(9, 48), note: "Exploring the current code (navigation and the Usage screen) before planning." } }));
-	assert.deepEqual(workTexts(canvas), { lead: [], title: ["“Second”"], state: ["In progress since 09:48"], note: ["Exploring the current code (navigation and the Usage screen) before planning."] });
-	const [note] = withClass(workBar(canvas), "gd-work-note");
-	assert.equal(note.title, "Exploring the current code (navigation and the Usage screen) before planning.", "the full note is in the tooltip");
-	assert.equal(withClass(workBar(canvas), "gd-work-dot")[0].dataset.status, "in_progress");
-
-	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented", implementedAt: "2020-03-04T09:05:00.000Z", previewUrl: "http://localhost:3000/" } }));
-	assert.deepEqual(workTexts(canvas).lead, []);
-	assert.match(workTexts(canvas).state[0], /^at Mar 4 2020, \d\d:\d\d$/, "another day keeps its date");
-	assert.equal(canvas.document.getElementById("gd-compare-app").hidden, false, "Compare with app stays the way to compare");
-
-	await setHandoffs(canvas, handoffDoc("01-a.html", {}));
-	assert.deepEqual(workTexts(canvas), { lead: [], title: ["“First”"], state: ["Not sent yet"], note: [] });
-
-	await setHandoffs(canvas, handoffDoc(null, {}));
-	assert.equal(workBar(canvas).hidden, true, "hidden again when nothing is chosen");
-});
-
-test("chosen-direction S1: Show opens the chosen artboard in focus mode and keeps keyboard focus on the bar across updates", async () => {
-	const canvas = await loadRail();
-	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }));
-	const [show] = withClass(workBar(canvas), "gd-work-show");
-	assert.equal(show.textContent, "Show");
-	assert.equal(show.getAttribute("aria-label"), "Show Second on the canvas");
-	show.dispatch("click");
-	assert.equal(canvas.navMode.textContent, "Using: Second · Shift+Esc to exit", "the chosen artboard is focused");
-	canvas.document.getElementById("gd-back").dispatch("click");
-
-	const [again] = withClass(workBar(canvas), "gd-work-show");
-	again.focus();
-	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", note: "Next step" } }));
-	assert.equal(canvas.document.activeElement, withClass(workBar(canvas), "gd-work-show")[0], "an update does not drop keyboard focus");
-});
-
-test("chosen-direction S1: index.html puts the status in the bar after the design selector, as a polite live region", () => {
-	const html = read("index.html");
-	assert.match(html, /<div id="gd-work" class="gd-work" role="status" aria-live="polite" hidden><\/div>/);
-	assert.ok(html.indexOf('class="gd-crumbs"') < html.indexOf('id="gd-work"') && html.indexOf('id="gd-work"') < html.indexOf('class="gd-spacer"'));
-});
-
-test("chosen-direction S1/S2: the status and the discarded labels are in Spanish too", async () => {
+test("chosen-direction S2: the discarded labels are in Spanish too", async () => {
 	const canvas = await loadLang({ browser: "es", replies: { "/t/api/designs/alpha/handoffs": handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", startedAt: todayAt(9, 48) } }) } });
 	const c = canvas as unknown as Canvas;
-	assert.deepEqual(workTexts(c), { lead: [], title: ["«Second»"], state: ["En curso desde 09:48"], note: [] });
-	assert.equal(withClass(workBar(c), "gd-work-show")[0].textContent, "Ver");
 	assert.deepEqual(texts(boardsOf(c)[0], "gd-choice"), ["Descartada"]);
 	assert.equal(withClass(boardsOf(c)[0], "gd-implement-start")[0].textContent, "Cambiar a esta…");
 });
@@ -6001,7 +5943,7 @@ test("chosen-direction S2: canvas.css dims a discarded artboard and restores it 
 	assert.match(rule(".gd-discarded .gd-frame-box"), /opacity:\s*\.45/);
 	assert.match(rule(".gd-discarded .gd-frame-box"), /filter:\s*grayscale\(\.6\)/);
 	assert.match(css, /\.gd-discarded:hover \.gd-frame-box,\s*\.gd-discarded:focus-within \.gd-frame-box \{[^}]*opacity:\s*1[^}]*filter:\s*none/);
-	for (const selector of [".gd-discarded .gd-frame-box", ".gd-choice-discarded", ".gd-minimap-discarded", ".gd-work"]) assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule(selector)), `${selector}: tokens only`);
+	for (const selector of [".gd-discarded .gd-frame-box", ".gd-choice-discarded", ".gd-minimap-discarded"]) assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule(selector)), `${selector}: tokens only`);
 	assert.match(css, /@media \(prefers-reduced-motion: no-preference\) \{[^]*\.gd-discarded \.gd-frame-box \{ transition:/, "the fade only animates without reduced motion");
 });
 
@@ -6912,16 +6854,6 @@ test("progressive S1: the Navigate mode chip reads Moving around the canvas · w
 	assert.match(read("index.html"), /id="gd-nav-mode"[^>]*>Moving around the canvas · wheel to zoom</);
 });
 
-test("progressive S2: the top-bar status sits after the design selector, without repeating the state word", async () => {
-	const canvas = await loadRail();
-	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "sent", queued: true, sentAt: todayAt(9, 47) } }));
-	assert.deepEqual(workTexts(canvas), { lead: [], title: ["“Second”"], state: ["Queued since 09:47"], note: [] });
-	await setHandoffs(canvas, handoffDoc("01-a.html", {}));
-	assert.deepEqual(workTexts(canvas), { lead: [], title: ["“First”"], state: ["Not sent yet"], note: [] });
-	const html = read("index.html");
-	assert.ok(html.indexOf('id="gd-design-field"') < html.indexOf('id="gd-work"') && html.indexOf('id="gd-work"') < html.indexOf('class="gd-spacer"'), "after the design selector");
-});
-
 test("progressive S3: the top bar says Connected, or Not connected with what to do when a delivery is missing", async () => {
 	const online = await loadRail();
 	assert.equal(texts(connection(online), "gd-connection-label")[0], "Connected");
@@ -7198,7 +7130,7 @@ const STEPS_EN = ["Compare", "Review", "Choose", "Implement"];
 const stepsAt = (index: number, names = STEPS_EN) => names.map((name, at) => (at === index ? `${name} (current)` : name));
 const COMPARE_TEXT = "Under each title you see what each one does better and what it gives up. Press “Open” on the one you want to review.";
 const REVIEW_TEXT = "Press “Comment” and click whatever you want to change. When it convinces you, press “Implement this”.";
-const BUILDING_TEXT = "The status at the top tells you how it is going. You can keep commenting meanwhile.";
+const BUILDING_TEXT = "Its header shows how it is going. You can keep commenting meanwhile.";
 const DONE_TEXT = "If your app is running, “Compare with app” at the top shows the design next to it.";
 
 /** Turns the help on from the rail's More. */
@@ -7273,11 +7205,11 @@ test("help S3: the card follows the flow: Review inside a direction, Implement w
 	c.document.getElementById("gd-back").dispatch("click");
 	assert.equal(guideView(c).target, "compare", "back on the canvas, back to Compare");
 
-	c.document.getElementById("gd-work").rect = { left: 500, top: 10, width: 120, height: 34 };
+	withClass(boardsOf(c)[1], "gd-artboard-label")[0].rect = { left: 500, top: 60, width: 120, height: 34 };
 	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", startedAt: todayAt(9, 48) } }));
 	assert.deepEqual(guideView(c), { eyebrow: "Step-by-step help · 4 of 4", title: "The agent is building it", steps: stepsAt(3), next: "Got it", target: "building" });
 	assert.equal(guideText(c), BUILDING_TEXT);
-	assert.deepEqual(spotBox(c), ["492px", "2px", "136px", "50px"], "the spotlight surrounds the top-bar status");
+	assert.deepEqual(spotBox(c), ["492px", "52px", "136px", "50px"], "the spotlight surrounds the chosen artboard's header (canvas-layout S13)");
 
 	c.document.getElementById("gd-compare-app").rect = { left: 900, top: 10, width: 160, height: 34 };
 	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented", implementedAt: todayAt(10, 5), previewUrl: "http://127.0.0.1:5173/" } }));
@@ -7285,7 +7217,7 @@ test("help S3: the card follows the flow: Review inside a direction, Implement w
 	assert.equal(guideText(c), DONE_TEXT);
 	assert.deepEqual(spotBox(c), ["892px", "2px", "176px", "50px"], "the spotlight surrounds Compare with app");
 	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented", implementedAt: todayAt(10, 5) } }));
-	assert.deepEqual(spotBox(c), ["492px", "2px", "136px", "50px"], "without a running app it points at the top-bar status");
+	assert.deepEqual(spotBox(c), ["492px", "52px", "136px", "50px"], "without a running app it points at the chosen artboard's header");
 	await setHandoffs(canvas, handoffDoc(null, {}));
 	assert.equal(guideView(c).target, "compare");
 
@@ -7384,7 +7316,7 @@ test("help S6: the help speaks Spanish, with tú forms, and follows a switch whi
 	c.document.getElementById("gd-back").dispatch("click");
 	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", startedAt: todayAt(9, 48) } }));
 	assert.equal(guideView(c).title, "El agente la está construyendo");
-	assert.equal(guideText(c), "El estado de arriba te dice cómo va. Mientras tanto puedes seguir comentando.");
+	assert.equal(guideText(c), "Su cabecera te dice cómo va. Mientras tanto puedes seguir comentando.");
 	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented", implementedAt: todayAt(10, 5) } }));
 	assert.equal(guideView(c).title, "Ya está implementada");
 	assert.equal(guideText(c), "Si tu app está en marcha, «Comparar con la app» arriba te enseña el diseño a su lado.");
@@ -7474,19 +7406,17 @@ test("board spacing: the header text never widens a direction, and a long tradeo
 
 // ---- canvas polish (impeccable): the top bar never overlaps, the focused board is never dimmed, browser surfaces carry the palette
 
-test("polish F1: the top bar keeps its controls whole and lets the design name and the chosen status give way, narrowing in steps", () => {
+test("polish F1: the top bar keeps its controls whole and lets the design name give way, narrowing in steps", () => {
 	const css = read("canvas.css");
 	assert.match(css, /\.gd-bar \{ container: gd-bar \/ inline-size; \}/, "the bar is a size container");
 	assert.match(css, /\.gd-bar > \.gd-lang-button, \.gd-bar > \.gd-zoom, \.gd-bar > \.gd-connection, \.gd-bar > \.gd-secondary, \.gd-bar > \.gd-toggle \{ flex: none; \}/, "controls never shrink under their text");
 	assert.match(css, /\.gd-field select \{ width: clamp\(16ch, 15vw, 28ch\); text-overflow: ellipsis; \}/, "the design name is cut with an ellipsis");
-	assert.match(css, /\.gd-work \{ flex: 0 1 auto; min-width: 9rem; overflow: hidden; \}/, "the status shrinks but keeps room for Show");
 	const block = (width: number) => {
 		const start = css.indexOf(`@container gd-bar (max-width: ${width}px) {`);
 		assert.ok(start >= 0, `a ${width}px step exists`);
 		return css.slice(start, css.indexOf("\n}", start));
 	};
-	assert.match(block(2100), /\.gd-work-note \{ display: none; \}/);
-	assert.match(block(1700), /\.gd-connection\[data-state="on"\] \.gd-connection-label,\s*#gd-compare-app > span \{ position: absolute;[^}]*clip-path: inset\(50%\)/, "Connected and Compare with app become icons, still named");
+	assert.match(block(1700), /#gd-compare-app > span \{ position: absolute;[^}]*clip-path: inset\(50%\)/, "Compare with app becomes an icon, still named (Connected is a dot at every width, canvas-layout S14)");
 	assert.ok(!/data-state="off"/.test(block(1700)), "Not connected keeps its words");
 	assert.match(block(1500), /#gd-lang-code \{ position: absolute;/, "the language button keeps its icon, still named");
 	assert.match(block(1400), /#gd-feature, #gd-feature-sep \{ display: none; \}/);
@@ -8389,4 +8319,101 @@ test("canvas-layout S11: canvas.css styles the list with tokens and no motion; t
 	assert.match(rail, /`gentle-design:shortcuts`/);
 	assert.match(rail, /saved in this browser/);
 	assert.match(rail, /`Esc`, `Shift\+Esc`, the arrows, `Space`, `Enter`/);
+});
+
+// ---- canvas-layout S13: no chosen-direction status in the top bar; S14: a subtle connection dot at the far right ----
+
+test("canvas-layout S13: the top bar has no chosen-direction status: no markup, code, styles or strings; the header, the Handoff card and Compare with app keep the state", async () => {
+	assert.ok(!read("index.html").includes("gd-work"), "no status in index.html");
+	assert.ok(!read("canvas.js").includes("gd-work"), "nothing renders it");
+	assert.ok(!read("canvas.css").includes(".gd-work"), "no styles only it used");
+	const { en, es } = loadCatalog();
+	for (const dictionary of [en, es]) assert.deepEqual(Object.keys(dictionary).filter((key) => key.startsWith("work.")), [], "no strings only it used");
+
+	const canvas = await loadRail();
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", startedAt: todayAt(9, 48), note: "Planning the navigation" } }));
+	assert.equal(canvas.document.byId.has("gd-work"), false, "the canvas looks for no status element");
+	assert.deepEqual(canvas.document.all.filter((element) => [...element.classes].some((name) => name.startsWith("gd-work"))).length, 0, "and builds none");
+	assert.ok(!canvas.document.all.some((element) => element.textContent === "In progress since 09:48" || element.getAttribute("aria-label") === "Show Second on the canvas"), "no status text and no Show anywhere");
+	const chosen = boardsOf(canvas)[1];
+	assert.deepEqual(texts(chosen, "gd-choice"), ["Chosen"], "the chosen artboard's header keeps its badge");
+	assert.deepEqual(texts(chosen, "gd-handoff-badge"), ["In progress"], "and its state");
+	assert.deepEqual(texts(chosen, "gd-handoff-note"), ["Planning the navigation"], "and the agent's note");
+	assert.equal(canvas.document.getElementById("gd-handoff-panel").hidden, false, "the review panel's Handoff card stays");
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented", implementedAt: todayAt(10, 5), previewUrl: "http://localhost:3000/" } }));
+	const compareApp = canvas.document.getElementById("gd-compare-app");
+	assert.equal(compareApp.hidden, false, "Compare with app stays in the top bar");
+	compareApp.dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-compare").hidden, false, "and compares the chosen artboard");
+});
+
+test("canvas-layout S13: the help's building and done steps point at the chosen artboard's header, and done at Compare with app once the app is known", async () => {
+	const canvas = await loadUx({ stored: { [HELP_KEY]: "on" } });
+	const c = canvas as unknown as Canvas;
+	withClass(boardsOf(c)[1], "gd-artboard-label")[0].rect = { left: 500, top: 100, width: 300, height: 60 };
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress", startedAt: todayAt(9, 48) } }));
+	assert.equal(guideView(c).target, "building");
+	assert.equal(guideText(c), "Its header shows how it is going. You can keep commenting meanwhile.");
+	assert.deepEqual(spotBox(c), ["492px", "92px", "316px", "76px"], "the spotlight surrounds the chosen artboard's header");
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented", implementedAt: todayAt(10, 5) } }));
+	assert.equal(guideView(c).target, "done");
+	assert.deepEqual(spotBox(c), ["492px", "92px", "316px", "76px"], "without a running app it points at the chosen artboard's header");
+	c.document.getElementById("gd-compare-app").rect = { left: 900, top: 10, width: 160, height: 34 };
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "implemented", implementedAt: todayAt(10, 5), previewUrl: "http://127.0.0.1:5173/" } }));
+	assert.deepEqual(spotBox(c), ["892px", "2px", "176px", "50px"], "with the app's preview it points at Compare with app");
+	withClass(boardsOf(c)[1], "gd-artboard-label")[0].rect = { left: 5000, top: 100, width: 300, height: 60 };
+	await setHandoffs(canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }));
+	assert.deepEqual(spotBox(c), ["-8px", "42px", "1016px", "716px"], "a header outside the view falls back to the view");
+
+	const spanish = await loadLang({ browser: "es", help: true });
+	await setHandoffs(spanish as unknown as Canvas, handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }));
+	assert.equal(guideText(spanish as unknown as Canvas), "Su cabecera te dice cómo va. Mientras tanto puedes seguir comentando.");
+});
+
+test("canvas-layout S14: the connection indicator is the last thing in the top bar, after Comments", () => {
+	const html = read("index.html");
+	const bar = html.slice(html.indexOf('<header class="gd-bar"'), html.indexOf("</header>", html.indexOf('<header class="gd-bar"')));
+	const ids = [...bar.matchAll(/<[a-z0-9]+ (?:[^>]* )?id="([^"]+)"/g)].map((match) => match[1]);
+	assert.equal(ids.at(-1), "gd-connection", "the far right end");
+	assert.ok(ids.indexOf("gd-panel-toggle") < ids.indexOf("gd-connection"), "after Comments");
+	assert.ok(ids.indexOf("gd-zoom-out") < ids.indexOf("gd-compare-app") && ids.indexOf("gd-compare-app") < ids.indexOf("gd-panel-toggle"), "Compare with app keeps its place after the zoom group");
+	assert.match(bar, /<p id="gd-connection" class="gd-connection"><\/p>\s*$/);
+});
+
+test("canvas-layout S14: connected is only a dot, its state in the tooltip and accessible name; not connected shows its words too", async () => {
+	const online = await loadRail();
+	const on = connection(online);
+	assert.equal(on.dataset.state, "on");
+	const [label] = withClass(on, "gd-connection-label");
+	assert.equal(label.textContent, "Connected", "the accessible name still says it");
+	assert.equal(label.classes.has("gd-visually-hidden"), true, "but only the dot shows");
+	assert.equal(withClass(on, "gd-connection-dot")[0].getAttribute("aria-hidden"), "true");
+	assert.equal(on.title, "Connected to the Pi session: your comments and requests reach the agent.", "the tooltip says the state");
+
+	const offline = await loadRail(300, {}, OFFLINE);
+	const [offLabel] = withClass(connection(offline), "gd-connection-label");
+	assert.equal(offLabel.textContent, "Not connected");
+	assert.equal(offLabel.classes.has("gd-visually-hidden"), false, "a lost connection keeps its words in sight");
+
+	const spanish = await loadLang({ browser: "es", config: OFFLINE });
+	const s = spanish as unknown as Canvas;
+	assert.equal(withClass(connection(s), "gd-connection-label")[0].classes.has("gd-visually-hidden"), false);
+	const onlineEs = await loadLang({ browser: "es" });
+	const [esLabel] = withClass(connection(onlineEs as unknown as Canvas), "gd-connection-label");
+	assert.deepEqual([esLabel.textContent, esLabel.classes.has("gd-visually-hidden")], ["Conectado", true]);
+	chooseLang(onlineEs, "en");
+	assert.deepEqual([esLabel.textContent, esLabel.classes.has("gd-visually-hidden")], ["Connected", true], "a language switch keeps it a dot");
+
+	const css = read("canvas.css");
+	const rule = (selector: string) => {
+		const start = css.indexOf(`${selector} {`);
+		assert.ok(start >= 0, `${selector} is styled`);
+		return css.slice(start, css.indexOf("}", start) + 1);
+	};
+	assert.match(rule('.gd-connection[data-state="on"]'), /border-color:\s*transparent/, "connected has no pill");
+	assert.match(css, /\.gd-connection\[data-state="off"\]\s*{[^}]*var\(--warning\)/, "not connected keeps the warning tokens");
+	for (const selector of [".gd-connection", '.gd-connection[data-state="on"]']) {
+		assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule(selector)), `${selector}: tokens only`);
+		assert.ok(!/transition|animation/.test(rule(selector)), `${selector}: no motion`);
+	}
 });

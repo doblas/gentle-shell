@@ -131,7 +131,7 @@
 			"guide.review.title": "Review this direction",
 			"guide.review.text": "Press “Comment” and click whatever you want to change. When it convinces you, press “Implement this”.",
 			"guide.building.title": "The agent is building it",
-			"guide.building.text": "The status at the top tells you how it is going. You can keep commenting meanwhile.",
+			"guide.building.text": "Its header shows how it is going. You can keep commenting meanwhile.",
 			"guide.done.title": "It is implemented",
 			"guide.done.text": "If your app is running, “Compare with app” at the top shows the design next to it.",
 			"guide.off": "Turn off help",
@@ -340,12 +340,6 @@
 			"handoff.implemented": "Implemented ✓",
 			"choice.chosen": "Chosen",
 			"choice.discarded": "Discarded",
-			"work.title": "“{title}”",
-			"work.since": "{state} since {time}",
-			"work.at": "at {time}",
-			"work.notSent": "Not sent yet",
-			"work.show": "Show",
-			"work.showAria": "Show {title} on the canvas",
 			"handoff.featureTitle": "Tracked in this ODD feature document",
 			"handoff.compare": "Compare",
 			"handoff.compareAria": "Compare {title} with the running app",
@@ -549,7 +543,7 @@
 			"guide.review.title": "Revisa esta propuesta",
 			"guide.review.text": "Pulsa «Comentar» y haz clic en lo que quieras cambiar. Cuando te convenza, pulsa «Implementar esto».",
 			"guide.building.title": "El agente la está construyendo",
-			"guide.building.text": "El estado de arriba te dice cómo va. Mientras tanto puedes seguir comentando.",
+			"guide.building.text": "Su cabecera te dice cómo va. Mientras tanto puedes seguir comentando.",
 			"guide.done.title": "Ya está implementada",
 			"guide.done.text": "Si tu app está en marcha, «Comparar con la app» arriba te enseña el diseño a su lado.",
 			"guide.off": "Apagar la ayuda",
@@ -758,12 +752,6 @@
 			"handoff.implemented": "Implementado ✓",
 			"choice.chosen": "Elegido",
 			"choice.discarded": "Descartada",
-			"work.title": "«{title}»",
-			"work.since": "{state} desde {time}",
-			"work.at": "a las {time}",
-			"work.notSent": "Aún sin enviar",
-			"work.show": "Ver",
-			"work.showAria": "Ver {title} en el canvas",
 			"handoff.featureTitle": "Seguimiento en este documento de funcionalidad ODD",
 			"handoff.compare": "Comparar",
 			"handoff.compareAria": "Comparar {title} con la app en ejecución",
@@ -1083,7 +1071,6 @@
 		countOpen: $("gd-count-open"),
 		tabPanel: $("gd-tabpanel"),
 		handoffPanel: $("gd-handoff-panel"),
-		work: $("gd-work"),
 		handoffTitle: $("gd-handoff-title"),
 		timeline: $("gd-timeline"),
 		back: $("gd-back"),
@@ -2018,7 +2005,7 @@
 		// rects: null until the artboard reports where each commented element is.
 		const flag = createOverflowFlag();
 		wrapper.layoutSize = { width: artboard.width, height: artboard.height };
-		const board = { slug, artboard, number, frame, wrapper, shield, hint, pins, handoff, stateChip, rects: null, system, viewWidth: artboard.width, viewHeight: artboard.height, flag, overflow: null, sizeFrames: [], sizesView: null, checks: null, menuButton, implement, openButton };
+		const board = { slug, artboard, number, frame, wrapper, header: label, shield, hint, pins, handoff, stateChip, rects: null, system, viewWidth: artboard.width, viewHeight: artboard.height, flag, overflow: null, sizeFrames: [], sizesView: null, checks: null, menuButton, implement, openButton };
 		setFrameSize(board, artboard.width, artboard.height);
 		renderShield(board);
 		renderHandoff(board);
@@ -3260,10 +3247,9 @@
 		return typeof chosen === "string" ? state.boards.find((board) => board.artboard.file === chosen) ?? null : null;
 	}
 
-	/** Everything outside the artboards that follows handoffs, boards and comments: the top-bar status, Compare with app, timeline. */
+	/** Everything outside the artboards that follows handoffs, boards and comments: the minimap, Compare with app, timeline. */
 	function renderHandoffViews() {
 		renderMinimap();
-		renderWork();
 		renderCompareApp();
 		renderTimeline();
 		renderParts();
@@ -3297,7 +3283,7 @@
 		return `${date.getFullYear() === now.getFullYear() ? day : `${day} ${date.getFullYear()}`}, ${clock}`;
 	}
 
-	/** A time in the top bar: just HH:MM today, otherwise the short date as the timeline writes it. */
+	/** A time in Partial implementations: just HH:MM today, otherwise the short date as the timeline writes it. */
 	function clockOrDate(value) {
 		const date = typeof value === "string" ? new Date(value) : null;
 		if (!date || Number.isNaN(date.getTime())) return "";
@@ -3305,54 +3291,10 @@
 		return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 	}
 
-	/**
-	 * The top-bar status of the chosen direction: what is being built, its state since when, the agent's
-	 * last note, and Show to open it in focus mode. Implemented leaves comparing to the bar's Compare with app.
-	 */
-	function renderWork() {
-		const board = chosenBoard();
-		const hadFocus = els.work.contains(document.activeElement);
-		els.work.hidden = !board;
-		if (!board) {
-			els.work.replaceChildren();
-			return;
-		}
-		const entry = handoffOf(board).entry;
-		const kind = entry ? handoffKind(entry) : null;
-		const dot = chip("gd-work-dot", "");
-		dot.setAttribute("aria-hidden", "true");
-		dot.dataset.status = kind ?? "chosen";
-		const title = chip("gd-work-title", t("work.title", { title: board.artboard.title }));
-		let stateText;
-		if (!kind) stateText = t("work.notSent");
-		else if (kind === "implemented") {
-			const time = clockOrDate(entry.implementedAt);
-			stateText = time ? t("work.at", { time }) : "";
-		} else {
-			const time = clockOrDate(kind === "in_progress" ? entry.startedAt ?? entry.sentAt : entry.sentAt);
-			stateText = time ? t("work.since", { state: t(`handoff.${kind}`), time }) : t(`handoff.${kind}`);
-		}
-		const parts = [dot, title];
-		if (stateText) parts.push(chip("gd-work-state", stateText));
-		if (kind && typeof entry.note === "string" && entry.note) {
-			const note = chip("gd-work-note", entry.note);
-			note.title = entry.note;
-			parts.push(note);
-		}
-		const show = document.createElement("button");
-		show.type = "button";
-		show.className = "gd-work-show";
-		show.textContent = t("work.show");
-		show.setAttribute("aria-label", t("work.showAria", { title: board.artboard.title }));
-		show.addEventListener("click", () => enterFocus(board));
-		parts.push(show);
-		els.work.replaceChildren(...parts);
-		if (hadFocus) show.focus();
-	}
-
-	// ---- connection (canvas-progressive S3) ----------------------------------------------
-	// Connected while every delivery the page config names exists; otherwise Not connected in the warning style, with the
-	// way out (the S15 wording) in its tooltip and, for screen readers, in a visually hidden sentence.
+	// ---- connection (canvas-progressive S3, canvas-layout S14) ------------------------------
+	// Connected while every delivery the page config names exists, shown as a dot alone: the word stays for screen readers
+	// and the sentence in the tooltip. Otherwise Not connected, in words and the warning style, with the way out (the S15
+	// wording) in its tooltip and, for screen readers, in a visually hidden sentence.
 
 	let connectionParts = null;
 
@@ -3366,6 +3308,7 @@
 		const online = Object.values(DELIVERY).every(Boolean);
 		els.connection.dataset.state = online ? "on" : "off";
 		connectionParts.label.textContent = t(online ? "connection.on" : "connection.off");
+		connectionParts.label.classList.toggle("gd-visually-hidden", online);
 		const sentence = online ? t("connection.onTitle") : t("connection.offTitle", { slug: state.slug ?? "<slug>" });
 		els.connection.title = sentence;
 		connectionParts.hidden.textContent = online ? "" : ` ${sentence}`;
@@ -3374,15 +3317,15 @@
 	// ---- step-by-step help (replaces the canvas-progressive S6 first-run guide) ------------
 	// Off by default. More's Step-by-step help turns it on and saves it in this browser (HELP_KEY); while on, a non-modal
 	// card names the step you are at and what to do there, and changes with it: the directions, a direction in focus, the
-	// agent building the chosen one, and Compare with app once it is implemented. Got it (or Esc) hides the card until the
+	// agent building the chosen one (its header), and Compare with app once it is implemented. Got it (or Esc) hides the card until the
 	// step changes; Turn off help turns it off. It never shows over Compare, the comment box, a dialog or a menu: it waits
 	// while one is open and comes back. Only turning it on moves focus into the card; a new step never takes the keyboard.
 
 	const HELP_STEPS = {
 		compare: { title: "guide.compare.title", text: "guide.compare.text", target: () => els.world },
 		review: { title: "guide.review.title", text: "guide.review.text", target: () => state.focus?.implement?.root ?? null },
-		building: { title: "guide.building.title", text: "guide.building.text", target: () => els.work },
-		done: { title: "guide.done.title", text: "guide.done.text", target: () => (els.compareApp.hidden ? els.work : els.compareApp) },
+		building: { title: "guide.building.title", text: "guide.building.text", target: () => chosenBoard()?.header ?? null },
+		done: { title: "guide.done.title", text: "guide.done.text", target: () => (els.compareApp.hidden ? chosenBoard()?.header ?? null : els.compareApp) },
 	};
 	// The card's own list of steps, and which one each help step is at: the agent building it and done are both Implement.
 	const GUIDE_STEP_KEYS = ["guide.step.compare", "guide.step.review", "guide.step.choose", "guide.step.implement"];
@@ -3462,7 +3405,10 @@
 		if (moveFocus) els.guideNext.focus();
 	}
 
-	/** The spotlight around the step's target (the directions are clipped to the viewport) and the card below it, above it, or inside the viewport. */
+	/**
+	 * The spotlight around the step's target (the directions and the chosen artboard's header are clipped to the viewport; one
+	 * out of view falls back to it) and the card below it, above it, or inside the viewport.
+	 */
 	function placeGuide() {
 		const name = els.guide.hidden ? null : els.guide.dataset.target;
 		if (!name || !HELP_STEPS[name]) return;
@@ -3470,7 +3416,7 @@
 		const element = HELP_STEPS[name].target();
 		let rect = element ? element.getBoundingClientRect() : null;
 		if (!rect || (rect.width === 0 && rect.height === 0)) rect = view;
-		if (name === "compare") {
+		if (name === "compare" || (element && element === chosenBoard()?.header)) {
 			const left = Math.max(rect.left, view.left);
 			const top = Math.max(rect.top, view.top);
 			const right = Math.min(rect.left + rect.width, view.left + view.width);
