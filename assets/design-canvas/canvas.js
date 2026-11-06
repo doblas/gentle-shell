@@ -1,5 +1,6 @@
-// Gentle Design canvas: artboards side by side with pan, zoom, live reload,
-// and comments persisted in design/<slug>/comments.json (pins, list, send modes).
+// Gentle Design canvas: artboards in a row, a column, a grid or wherever they were dragged by their title
+// (design/<slug>/layout.json), with pan, zoom, live reload, and comments persisted in
+// design/<slug>/comments.json (pins, list, send modes).
 // design/system.html, when present, is the first board of every design; it is
 // kept out of state.boards so comments never apply to it.
 // Artboards run in iframes sandboxed with scripts only, so each one has an opaque
@@ -30,6 +31,13 @@
 	// Room below a focused artboard for the floating "Back to canvas" button.
 	const BACK_SPACE = 64;
 	const CLICK_SLOP = 4;
+	// canvas-layout: the room between boards in every arrangement (today's row), and the key of the system board in
+	// design/<slug>/layout.json, where every artboard is keyed by its file (which ends in .html, so the two never meet).
+	const BOARD_GAP = 80;
+	const LAYOUT_SYSTEM_KEY = "system";
+	const ARRANGEMENTS = ["row", "column", "grid"];
+	// Controls keep their own press: one on a button, link or field in an artboard header neither pans nor moves the artboard.
+	const CONTROL_TAGS = ["button", "a", "input", "select", "textarea", "label"];
 	// The minimap: its map box in CSS px (canvas.css gives .gd-minimap-map the same size) and the pad kept free around the blocks.
 	const MINIMAP = { width: 204, height: 96, pad: 6, minBlock: 2 };
 	const LIMITS = { selector: 500, excerpt: 300, comment: 2000, variant: 2000, pins: 500, tokens: 500, screenshotBytes: 5 * 1024 * 1024 };
@@ -141,6 +149,13 @@
 			"zoom.in.title": "Zoom in (+)",
 			"zoom.fit": "Fit all",
 			"zoom.fit.title": "Fit all (0)",
+			"layout.group": "Arrange the directions",
+			"layout.row": "Row",
+			"layout.row.title": "Arrange in a row",
+			"layout.column": "Column",
+			"layout.column.title": "Arrange in a column",
+			"layout.grid": "Grid",
+			"layout.grid.title": "Arrange in a grid",
 			"a11y.ok": "Accessible ✓",
 			"a11y.fails.one": "{count} check",
 			"a11y.fails.other": "{count} checks",
@@ -218,6 +233,7 @@
 			"status.handoffs": "handoffs.json for {slug} cannot be read: {message}",
 			"status.comments": "comments.json for {slug} cannot be read: {message}",
 			"status.disconnected": "Live reload disconnected, retrying…",
+			"status.layout": "The layout of {slug} could not be saved: {message}",
 			"board.use": "Use {title}",
 			"board.hintUse": "Click to use this design",
 			"board.hintSystem": "Click to view the design system",
@@ -531,6 +547,13 @@
 			"zoom.in.title": "Acercar (+)",
 			"zoom.fit": "Ajustar todo",
 			"zoom.fit.title": "Ajustar todo (0)",
+			"layout.group": "Organizar las direcciones",
+			"layout.row": "Fila",
+			"layout.row.title": "Organizar en fila",
+			"layout.column": "Columna",
+			"layout.column.title": "Organizar en columna",
+			"layout.grid": "Cuadrícula",
+			"layout.grid.title": "Organizar en cuadrícula",
 			"a11y.ok": "Accesible ✓",
 			"a11y.fails.one": "{count} comprobación",
 			"a11y.fails.other": "{count} comprobaciones",
@@ -608,6 +631,7 @@
 			"status.handoffs": "No se puede leer handoffs.json de {slug}: {message}",
 			"status.comments": "No se puede leer comments.json de {slug}: {message}",
 			"status.disconnected": "Recarga en vivo desconectada, reintentando…",
+			"status.layout": "No se pudo guardar la disposición de {slug}: {message}",
 			"board.use": "Usar {title}",
 			"board.hintUse": "Haz clic para usar este diseño",
 			"board.hintSystem": "Haz clic para ver el design system",
@@ -1073,6 +1097,7 @@
 		inspectorCopy: $("gd-inspector-copy"),
 		menu: $("gd-menu"),
 		lang: $("gd-lang"),
+		arrange: Object.fromEntries(ARRANGEMENTS.map((kind) => [kind, $(`gd-arrange-${kind}`)])),
 		langCode: $("gd-lang-code"),
 		langMenu: $("gd-lang-menu"),
 		variantDialog: $("gd-variant"),
@@ -1131,6 +1156,12 @@
 		parts: { slug: null, parts: [] },
 		activeId: null,
 		designCount: 0,
+		// Where the boards sit in the world (canvas-layout S1-S3), as design/<slug>/layout.json keeps it: the arrangement
+		// ("row", "column", "grid", or "free" once a board is moved by hand) and each board's top left by its key, in world
+		// px with the bounds' top left at 0, 0. `saved` is the JSON last read or written, so the page's own write is not news.
+		layout: { slug: null, arrangement: "row", positions: {}, saved: "null" },
+		// Layout saves still in flight: until they land, a layout.json change may be older than what the page shows.
+		layoutSaves: 0,
 		// The minimap's switch (M); it also hides in focus mode and Compare.
 		minimap: true,
 		// The open artboard menu: { board, button, items, actions }, or null.
@@ -1318,6 +1349,8 @@
 
 	function fit() {
 		if (state.focus) return;
+		// A label may have grown (a handoff row, a wrapped tradeoff) since the boards were placed.
+		sizeWorld();
 		const rect = els.viewport.getBoundingClientRect();
 		const width = els.world.offsetWidth;
 		const height = els.world.offsetHeight;
@@ -1478,29 +1511,50 @@
 		handleWheel(event.deltaX, event.deltaY, event.deltaMode, event.ctrlKey || event.metaKey, event.shiftKey, event.clientX, event.clientY);
 	}, { passive: false });
 
+	const isControl = (target) => CONTROL_TAGS.some((tag) => target.closest(tag));
+
 	// A press on a shield pans like the background; released without moving, it is a
 	// click on that artboard: focus mode, in Comment mode too (S1: elements are picked inside it).
+	// A press on an artboard's label header moves that artboard instead (canvas-layout S1), saved once on release.
 	let drag = null;
 	els.viewport.addEventListener("pointerdown", (event) => {
-		if (state.focus || event.button !== 0 || event.target.closest("button")) return;
+		if (state.focus || event.button !== 0 || isControl(event.target)) return;
 		const shield = event.target.closest(".gd-shield");
-		if (!shield && event.target !== els.viewport && event.target !== els.world && !event.target.closest(".gd-artboard-label")) return;
-		drag = { id: event.pointerId, x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, moved: false, board: shield ? boardOfShield(shield) : null };
+		const label = event.target.closest(".gd-artboard-label");
+		if (!shield && event.target !== els.viewport && event.target !== els.world && !label) return;
+		const mover = label ? allBoards().find((board) => board.wrapper === label.parentElement) ?? null : null;
+		const from = mover ? state.layout.positions[layoutKey(mover)] : null;
+		drag = { id: event.pointerId, x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, moved: false, board: shield ? boardOfShield(shield) : null, mover: from ? { board: mover, from } : null };
 		els.viewport.setPointerCapture(event.pointerId);
-		els.viewport.classList.add("gd-panning");
+		els.viewport.classList.add(drag.mover ? "gd-moving" : "gd-panning");
 	});
 	els.viewport.addEventListener("pointermove", (event) => {
 		if (!drag || drag.id !== event.pointerId) return;
+		if (Math.abs(event.clientX - drag.startX) > CLICK_SLOP || Math.abs(event.clientY - drag.startY) > CLICK_SLOP) drag.moved = true;
+		if (drag.mover) {
+			// In world px, so the artboard stays under the pointer at any zoom; a still press moves nothing.
+			if (!drag.moved) return;
+			const { board, from } = drag.mover;
+			moveBoard(board, { x: Math.round(from.x + (event.clientX - drag.startX) / state.zoom), y: Math.round(from.y + (event.clientY - drag.startY) / state.zoom) });
+			return;
+		}
 		panBy(event.clientX - drag.x, event.clientY - drag.y);
 		drag.x = event.clientX;
 		drag.y = event.clientY;
-		if (Math.abs(event.clientX - drag.startX) > CLICK_SLOP || Math.abs(event.clientY - drag.startY) > CLICK_SLOP) drag.moved = true;
 	});
 	const endDrag = (event) => {
 		if (!drag || drag.id !== event.pointerId) return;
 		const ended = drag;
 		drag = null;
-		els.viewport.classList.remove("gd-panning");
+		els.viewport.classList.remove("gd-panning", "gd-moving");
+		if (ended.mover) {
+			ended.mover.board.wrapper.classList.remove("gd-lifted");
+			if (!ended.moved) return;
+			// A cancelled move (the browser took the pointer) puts the artboard back; a release keeps it, by hand.
+			if (event.type === "pointerup") finishMove();
+			else moveBoard(ended.mover.board, ended.mover.from);
+			return;
+		}
 		if (event.type === "pointerup" && ended.board && !ended.moved) enterFocus(ended.board);
 	};
 	els.viewport.addEventListener("pointerup", endDrag);
@@ -1615,11 +1669,12 @@
 		if (!board) return;
 		const viewport = els.viewport.getBoundingClientRect();
 		// Layout offsets inside the world ignore its transform, so re-centering is idempotent
-		// (a scaled bounding rect carries sub-pixel error that shifted the board by 1 px).
+		// (a scaled bounding rect carries sub-pixel error that shifted the board by 1 px). The artboard is placed
+		// in the world and its frame box below its label, inside it.
 		const box = board.frame.parentElement;
-		const left = box.offsetLeft;
-		const top = box.offsetTop;
-		const labelSpace = box.offsetTop - board.wrapper.offsetTop;
+		const left = board.wrapper.offsetLeft + box.offsetLeft;
+		const top = board.wrapper.offsetTop + box.offsetTop;
+		const labelSpace = box.offsetTop;
 		const all = state.size.kind === "all";
 		const { width, height } = focusSize(board);
 		// Screen pixels per artboard pixel: 1 when it fits beside the margins.
@@ -1659,6 +1714,7 @@
 		}
 		if (focused) renderSizeControl(focused);
 		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit]) control.disabled = Boolean(focused);
+		renderArrange();
 		els.design.disabled = Boolean(focused) || state.designCount === 0;
 		els.back.hidden = !focused;
 		els.compareApp.disabled = Boolean(state.compare);
@@ -1717,6 +1773,7 @@
 		closeMenu(false);
 		state.placeholder = null;
 		els.world.replaceChildren();
+		sizeWorld();
 		state.boards = [];
 		clearMark();
 		renderHandoffViews();
@@ -1851,6 +1908,7 @@
 		pins.className = "gd-pins";
 		// rects: null until the artboard reports where each commented element is.
 		const flag = createOverflowFlag();
+		wrapper.layoutSize = { width: artboard.width, height: artboard.height };
 		const board = { slug, artboard, number, frame, wrapper, shield, hint, pins, handoff, stateChip, rects: null, system, viewWidth: artboard.width, viewHeight: artboard.height, flag, overflow: null, sizeControl, sizeFrames: [], sizesView: null, checks: null, menuButton, implement, openButton };
 		setFrameSize(board, artboard.width, artboard.height);
 		renderShield(board);
@@ -2875,8 +2933,10 @@
 		frame.append(status);
 		box.append(frame);
 		wrapper.append(label, box);
+		wrapper.layoutSize = { width: source.artboard.width, height: source.artboard.height };
 		state.placeholder = wrapper;
 		els.world.append(wrapper);
+		applyLayout();
 		renderMinimap();
 	}
 
@@ -3618,6 +3678,7 @@
 	function showSystemOnly() {
 		state.manifest = null;
 		state.boards = [];
+		useLayout(null, null);
 		showFeature(null);
 		if (!state.systemBoard) {
 			showEmpty("empty.noDesigns");
@@ -3640,6 +3701,10 @@
 			return;
 		}
 		if (slug !== state.slug) return;
+		// Where the boards sit; a save in flight is newer than what the file may still say.
+		const layout = await fetchLayout(slug);
+		if (slug !== state.slug) return;
+		if (state.layout.slug !== slug || state.layoutSaves === 0) useLayout(slug, layout);
 		closePopover();
 		renderConnection();
 		// A manifest change is the new artboard arriving (or any other edit): the placeholder has done its job.
@@ -3677,11 +3742,211 @@
 		}
 	}
 
-	/** The system board first, then the design's artboards. */
+	// ---- layout (canvas-layout) ------------------------------------------------
+	// Artboards are placed in the world by position, not by the flow of a row: the world is as big as their bounds,
+	// so fit, the minimap, focus mode and the help card read it as before.
+
+	/** A board's key in layout.json: its artboard file, or the system board's own key. */
+	function layoutKey(board) {
+		return board.system ? LAYOUT_SYSTEM_KEY : board.artboard.file;
+	}
+
+	/** A world child's box in world px: its manifest width, and its frame (at its manifest height) below its label. */
+	function layoutSize(wrapper) {
+		const box = wrapper.children[wrapper.children.length - 1];
+		const size = wrapper.layoutSize ?? { width: 0, height: 0 };
+		return { width: size.width, height: (box ? box.offsetTop : 0) + size.height };
+	}
+
+	/** api/designs/<slug>/layout's layout, or null when it is none (the boards then sit in a row). */
+	function readLayout(value) {
+		if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+		if (value.arrangement !== "free" && !ARRANGEMENTS.includes(value.arrangement)) return null;
+		const raw = value.positions;
+		if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+		const positions = {};
+		for (const [key, position] of Object.entries(raw)) {
+			if (!position || !Number.isInteger(position.x) || !Number.isInteger(position.y)) return null;
+			positions[key] = { x: position.x, y: position.y };
+		}
+		return { arrangement: value.arrangement, positions };
+	}
+
+	/** The saved layout of design `slug`; null when it has none or it cannot be read (the canvas never fails on it). */
+	async function fetchLayout(slug) {
+		try {
+			const data = await getJson(`api/designs/${encodeURIComponent(slug)}/layout`);
+			return readLayout(data && data.layout);
+		} catch {
+			return null;
+		}
+	}
+
+	/** Takes `layout` (null: none, a row) as design `slug`'s; the boards move at the next applyLayout. */
+	function useLayout(slug, layout) {
+		state.layout = { slug, arrangement: layout ? layout.arrangement : "row", positions: layout ? { ...layout.positions } : {}, saved: JSON.stringify(layout) };
+	}
+
+	/** The top left of a box right of the boxes `rects`, top-aligned with them, or below them, left-aligned. */
+	function spotAfter(rects, below) {
+		if (rects.length === 0) return { x: 0, y: 0 };
+		const left = Math.min(...rects.map((rect) => rect.x));
+		const top = Math.min(...rects.map((rect) => rect.y));
+		if (below) return { x: left, y: Math.max(...rects.map((rect) => rect.y + rect.height)) + BOARD_GAP };
+		return { x: Math.max(...rects.map((rect) => rect.x + rect.width)) + BOARD_GAP, y: top };
+	}
+
+	/**
+	 * Positions of `boards` in arrangement `kind`, in order, BOARD_GAP apart: a grid of roughly square columns, each as
+	 * wide as its widest board, and rows as tall as their tallest; a row is a grid of one row, a column one of one column.
+	 */
+	function arranged(kind, boards) {
+		const columns = Math.max(1, kind === "row" ? boards.length : kind === "column" ? 1 : Math.ceil(Math.sqrt(boards.length)));
+		const widths = [];
+		const heights = [];
+		boards.forEach((board, index) => {
+			const size = layoutSize(board.wrapper);
+			const column = index % columns;
+			const row = Math.floor(index / columns);
+			widths[column] = Math.max(widths[column] ?? 0, size.width);
+			heights[row] = Math.max(heights[row] ?? 0, size.height);
+		});
+		const starts = (lengths) => lengths.map((_, index) => lengths.slice(0, index).reduce((sum, length) => sum + length + BOARD_GAP, 0));
+		const xs = starts(widths);
+		const ys = starts(heights);
+		return Object.fromEntries(boards.map((board, index) => [layoutKey(board), { x: xs[index % columns], y: ys[Math.floor(index / columns)] }]));
+	}
+
+	function place(wrapper, at) {
+		wrapper.layoutAt = at;
+		wrapper.style.left = `${at.x}px`;
+		wrapper.style.top = `${at.y}px`;
+	}
+
+	/** The world as big as the bounds of what is placed in it, so fit and the help card see every board. */
+	function sizeWorld() {
+		let right = 0;
+		let bottom = 0;
+		for (const wrapper of Array.from(els.world.children)) {
+			if (!wrapper.layoutAt) continue;
+			const size = layoutSize(wrapper);
+			right = Math.max(right, wrapper.layoutAt.x + size.width);
+			bottom = Math.max(bottom, wrapper.layoutAt.y + size.height);
+		}
+		els.world.style.width = `${right}px`;
+		els.world.style.height = `${bottom}px`;
+	}
+
+	/**
+	 * Puts every board where the layout says, and the placeholder after them, and sizes the world to their bounds. An
+	 * arrangement is laid out again from the boards' sizes; a free layout keeps each board's position, a board it does
+	 * not know goes after the others, and one the design lost drops out. Positions keep the bounds' top left at 0, 0:
+	 * when a board went left of (or above) the others, everything shifts and the view follows, so nothing jumps.
+	 */
+	function applyLayout() {
+		const boards = allBoards();
+		const layout = state.layout;
+		const keys = boards.map(layoutKey);
+		let positions = {};
+		if (layout.arrangement === "free") {
+			const rects = [];
+			const known = boards.filter((board, index) => layout.positions[keys[index]]);
+			for (const board of [...known, ...boards.filter((board) => !known.includes(board))]) {
+				const key = layoutKey(board);
+				positions[key] = layout.positions[key] ?? spotAfter(rects, false);
+				rects.push({ ...positions[key], ...layoutSize(board.wrapper) });
+			}
+		} else positions = arranged(layout.arrangement, boards);
+		const minX = boards.length > 0 ? Math.min(...keys.map((key) => positions[key].x)) : 0;
+		const minY = boards.length > 0 ? Math.min(...keys.map((key) => positions[key].y)) : 0;
+		layout.positions = Object.fromEntries(keys.map((key) => [key, { x: positions[key].x - minX, y: positions[key].y - minY }]));
+		boards.forEach((board, index) => place(board.wrapper, layout.positions[keys[index]]));
+		if (state.placeholder) place(state.placeholder, spotAfter(boards.map((board) => ({ ...board.wrapper.layoutAt, ...layoutSize(board.wrapper) })), layout.arrangement === "column"));
+		sizeWorld();
+		if (minX === 0 && minY === 0) return;
+		const view = state.focus ? state.savedView : state;
+		if (view) {
+			view.x += minX * view.zoom;
+			view.y += minY * view.zoom;
+		}
+		if (!state.focus) applyView();
+	}
+
+	/** Puts `board` at `at` while it is dragged by its title; it is saved on release (finishMove). */
+	function moveBoard(board, at) {
+		state.layout.positions[layoutKey(board)] = at;
+		board.wrapper.classList.add("gd-lifted");
+		place(board.wrapper, at);
+		sizeWorld();
+		renderMinimap();
+	}
+
+	/** A board moved by hand: the layout is free from now on, and it is saved once. */
+	function finishMove() {
+		state.layout.arrangement = "free";
+		applyLayout();
+		renderArrange();
+		saveLayout();
+	}
+
+	/** Writes the layout of the design shown to its layout.json; a failure says so in the status line and the boards stay. */
+	async function saveLayout() {
+		const slug = state.slug;
+		if (!slug || !state.manifest || state.layout.slug !== slug) return;
+		const body = { arrangement: state.layout.arrangement, positions: state.layout.positions };
+		state.layout.saved = JSON.stringify(body);
+		state.layoutSaves += 1;
+		const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/layout`, body);
+		state.layoutSaves -= 1;
+		if (!reply.ok && slug === state.slug) setStatus("status.layout", true, { slug, message: explain(reply).detail });
+	}
+
+	/** layout.json changed: another page moved or arranged the boards, so they move here too; the page's own save is no news. */
+	async function onLayoutChange() {
+		const slug = state.slug;
+		if (!slug || state.layoutSaves > 0) return;
+		const layout = await fetchLayout(slug);
+		if (slug !== state.slug || !state.manifest || state.layoutSaves > 0 || (drag && drag.mover)) return;
+		if (JSON.stringify(layout) === state.layout.saved) return;
+		useLayout(slug, layout);
+		applyLayout();
+		renderArrange();
+		renderMinimap();
+		if (state.focus) centerFocus();
+	}
+
+	/** The Row / Column / Grid buttons: the current arrangement pressed (none for a hand-made layout), off inside a direction. */
+	function renderArrange() {
+		const off = Boolean(state.focus) || !state.manifest;
+		for (const kind of ARRANGEMENTS) {
+			els.arrange[kind].setAttribute("aria-pressed", String(state.layout.arrangement === kind));
+			els.arrange[kind].disabled = off;
+		}
+	}
+
+	/** Lays every board out as a row, a column or a grid, saves it and shows them all. */
+	function arrange(kind) {
+		if (state.focus || !state.manifest) return;
+		state.layout.arrangement = kind;
+		applyLayout();
+		renderArrange();
+		saveLayout();
+		fit();
+	}
+
+	for (const kind of ARRANGEMENTS) els.arrange[kind].addEventListener("click", () => arrange(kind));
+
+	/** The system board first, then the design's artboards, each where the layout puts it. */
 	function placeBoards() {
 		const boards = allBoards();
 		closeMenu(false);
+		// A board being moved is replaced by a new one: the move ends where it is, unsaved.
+		if (drag && drag.mover) {
+			drag = null;
+			els.viewport.classList.remove("gd-moving");
+		}
 		els.world.replaceChildren(...boards.map((board) => board.wrapper), ...(state.placeholder ? [state.placeholder] : []));
+		applyLayout();
 		if (state.mark && !boards.includes(state.mark.board)) clearMark();
 		if (state.focus && !boards.includes(state.focus)) exitFocus();
 		else applyFocusState();
@@ -3828,6 +4093,11 @@
 			// Not a shared asset: a part's progress reloads no artboard.
 			if (change.file === "parts.json") {
 				loadParts();
+				return;
+			}
+			// Nor is where the boards sit: they move, nothing reloads.
+			if (change.file === "layout.json") {
+				onLayoutChange().catch(() => {});
 				return;
 			}
 			if (state.compare && state.compare.board.artboard.file === change.file) state.compare.artboardFrame.src = `${boardUrl(state.compare.board)}?v=${Date.now()}`;

@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { DESIGN_COMMENTS_FILE, DESIGN_COMMENT_LIMITS, DESIGN_SCREENSHOT_TYPES, DesignCommentsError, MAX_DESIGN_SCREENSHOT_BYTES, createDesignCommentStore, describeViewport, isDesignCommentId, truncateUtf16, viewportProblem, type DesignViewport, type StoredDesignComment } from "./design-comments.ts";
 import { DESIGN_FEATURE_PATH, DesignHandoffsError, createDesignHandoffStore, sendDesignHandoff, type DesignHandoffDelivery } from "./design-handoffs.ts";
 import { readSystemTokens } from "./design-system-tokens.ts";
+import { DesignLayoutError, createDesignLayoutStore } from "./design-layout.ts";
 import { DesignPartsError, createDesignPartStore, sendDesignPart, type DesignPart } from "./design-parts.ts";
 
 // Loopback canvas host for gentle-design (S4-S6). Every route lives under a
@@ -43,6 +44,8 @@ const LIMITS = Object.freeze({
 	bodyBytes: 16 * 1024,
 	/** POST api/comments may carry one base64 screenshot; its other fields keep `bodyBytes`. */
 	commentBodyBytes: 8 * 1024 * 1024,
+	/** POST api/designs/<slug>/layout: up to 100 positions keyed by artboard paths of up to 512 characters. */
+	layoutBodyBytes: 64 * 1024,
 	...DESIGN_COMMENT_LIMITS,
 	manifestBytes: 256 * 1024,
 	fileBytes: 32 * 1024 * 1024,
@@ -178,6 +181,13 @@ function partFailure(error: unknown): never {
 	if (error.code === "invalid-file") throw new HttpError(422, "invalid-parts", { error: "invalid-parts", reason: error.message });
 	if (error.code === "limit") throw new HttpError(409, "too-many-parts", { error: "too-many-parts", reason: error.message });
 	throw new HttpError(400, "invalid-part", { error: "invalid-part", reason: error.message });
+}
+
+/** layout.json failures as HTTP: an unknown design is 404, a refused layout 400 with its reason. */
+function layoutFailure(error: unknown): never {
+	if (!(error instanceof DesignLayoutError)) throw error;
+	if (error.code === "not-found") throw new HttpError(404, "not-found");
+	throw new HttpError(400, "invalid-layout", { error: "invalid-layout", reason: error.message });
 }
 
 /** handoffs.json failures as HTTP: a broken file is 422 and is never overwritten. */
@@ -502,6 +512,7 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 	const store = createDesignCommentStore(designRoot);
 	const handoffs = createDesignHandoffStore(designRoot);
 	const partStore = createDesignPartStore(designRoot);
+	const layouts = createDesignLayoutStore(designRoot);
 	// Deliveries of one design run one at a time (send-now and send-all), so a
 	// comment is never delivered twice: a send-all waits for an in-flight send-now.
 	const sending = new Map<string, Promise<unknown>>();
@@ -844,6 +855,13 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		reply(res, 202, { ok: true, id: part.id, queued });
 	}
 
+	/** canvas-layout S3: the canvas saves where its artboards sit, validated whole before layout.json is replaced. */
+	async function saveLayout(req: IncomingMessage, res: ServerResponse, slug: string): Promise<void> {
+		const body = await readJsonObject(req, false, LIMITS.layoutBodyBytes);
+		const layout = await layouts.write(slug, body).catch(layoutFailure);
+		reply(res, 200, { ok: true, layout });
+	}
+
 	async function serveScreenshot(res: ServerResponse, slug: string, id: string): Promise<void> {
 		const image = await store.readScreenshot(slug, id).catch(storeFailure);
 		if (!image) throw new HttpError(404, "not-found");
@@ -926,11 +944,11 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		const rest = parts.slice(2);
 		const method = req.method ?? "GET";
 		const post = postRoute(rest);
-		const get = post ? undefined : route(rest);
+		const get = route(rest);
 		// Unknown paths stay 404 whatever the method; only known routes answer 405.
 		if (!post && !get) return reply(res, 404, { error: "not-found" });
-		if (method !== (post ? "POST" : "GET")) return reply(res, 405, { error: "method-not-allowed" }, { Allow: post ? "POST" : "GET" });
-		if (post) {
+		if (!(method === "POST" && post) && !(method === "GET" && get)) return reply(res, 405, { error: "method-not-allowed" }, { Allow: [get ? "GET" : "", post ? "POST" : ""].filter(Boolean).join(", ") });
+		if (method === "POST" && post) {
 			// Every write needs this server's exact Origin and a JSON body, so no other page can forge one.
 			if (!ownOrigins.has(String(req.headers.origin))) return reply(res, 403, { error: "forbidden" });
 			if (mediaType(req) !== "application/json") return reply(res, 415, { error: "unsupported-media-type" });
@@ -961,6 +979,10 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		if (rest.length === 4 && rest[0] === "api" && rest[1] === "designs" && rest[3] === "implement-part") {
 			const slug = safeSegment(rest[2]);
 			return slug && SLUG.test(slug) ? (req, res) => implementPart(req, res, slug) : undefined;
+		}
+		if (rest.length === 4 && rest[0] === "api" && rest[1] === "designs" && rest[3] === "layout") {
+			const slug = safeSegment(rest[2]);
+			return slug && SLUG.test(slug) ? (req, res) => saveLayout(req, res, slug) : undefined;
 		}
 		if (rest.length < 5 || rest[0] !== "api" || rest[1] !== "designs" || rest[3] !== "comments") return undefined;
 		const slug = safeSegment(rest[2]);
@@ -1013,6 +1035,11 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 			if (tail.length === 3 && tail[2] === "parts") {
 				const slug = safeSegment(tail[1]);
 				return slug && SLUG.test(slug) ? async (_req, res) => reply(res, 200, await partStore.read(slug).catch(partFailure)) : undefined;
+			}
+			if (tail.length === 3 && tail[2] === "layout") {
+				// A missing, unreadable or invalid layout.json is `layout: null`: the canvas lays the artboards out in a row.
+				const slug = safeSegment(tail[1]);
+				return slug && SLUG.test(slug) ? async (_req, res) => reply(res, 200, { layout: await layouts.read(slug).catch(layoutFailure) }) : undefined;
 			}
 		}
 		if (head === "files" && tail.length >= 2) {

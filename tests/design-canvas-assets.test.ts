@@ -7337,3 +7337,240 @@ test("implement-part S7: the docs, the README row and the skill describe Impleme
 	assert.ok(gate, "SKILL.md has a Decision Gates row for the part message");
 	for (const part of ['action "handoff"', "`part`", "only that element", "not choose"]) assert.ok(gate!.includes(part), `the row mentions ${part}`);
 });
+
+// ---- canvas-layout T1: artboards anywhere on the canvas, a Row / Column / Grid arrangement, saved in layout.json ----
+
+const LAYOUT_URL = "/t/api/designs/alpha/layout";
+const NO_LAYOUT = { [LAYOUT_URL]: { layout: null } };
+const ARRANGE_IDS = ["gd-arrange-row", "gd-arrange-column", "gd-arrange-grid"];
+/** Where a world child sits, as the canvas wrote it: [left, top]. */
+const placed = (wrapper: FakeElement) => [wrapper.style.left, wrapper.style.top];
+const worldBox = (canvas: Canvas) => [canvas.world.style.width, canvas.world.style.height];
+const pressedArrangements = (canvas: Canvas) => ARRANGE_IDS.map((id) => canvas.document.getElementById(id).getAttribute("aria-pressed"));
+const layoutPosts = (canvas: Canvas) => canvas.posts.filter((post) => post.url === LAYOUT_URL);
+/** The title in an artboard's label header: the handle that moves it. */
+const boardTitle = (wrapper: FakeElement) => findAll(wrapper, (element) => element.classes.has("gd-artboard-title"))[0];
+/** A press on `target`, moves through `path`, and a release (or a cancel) at the last point. */
+async function dragFrom(target: FakeElement, from: [number, number], path: Array<[number, number]>, end = "pointerup") {
+	target.dispatch("pointerdown", { button: 0, pointerId: 3, clientX: from[0], clientY: from[1] });
+	for (const [x, y] of path) target.dispatch("pointermove", { pointerId: 3, clientX: x, clientY: y });
+	const [x, y] = path.length > 0 ? path[path.length - 1] : from;
+	target.dispatch(end, { button: 0, pointerId: 3, clientX: x, clientY: y });
+	for (let i = 0; i < 5; i++) await flush();
+}
+
+test("canvas-layout S3: without layout.json the artboards sit in today's row, 80 px apart and top-aligned, the system board first", async () => {
+	const canvas = await loadRail(300, SYSTEM_REPLY);
+	assert.ok(canvas.fetched.includes(LAYOUT_URL), "the canvas asks for the saved layout");
+	assert.deepEqual(canvas.world.children.map(placed), [["0px", "0px"], ["880px", "0px"], ["1360px", "0px"]]);
+	assert.deepEqual(worldBox(canvas), ["1760px", "600px"], "the world is as big as the boards' bounds");
+	assert.deepEqual(pressedArrangements(canvas), ["true", "false", "false"], "Row is the arrangement");
+	assert.deepEqual(canvas.posts, [], "opening a design saves nothing");
+});
+
+test("canvas-layout S1: dragging an artboard's title moves it in world px at any zoom and saves it once, on release, as a free layout", async () => {
+	const canvas = await loadRail(300, NO_LAYOUT);
+	const [first, second] = canvas.world.children;
+	canvas.document.getElementById("gd-zoom-out").dispatch("click");
+	assert.equal(canvas.zoomLevel.textContent, "80%");
+	const view = canvas.world.style.transform;
+	// Within the 4 px click slop nothing moves; then 80 x 40 screen px at 80% are 100 x 50 world px.
+	boardTitle(second).dispatch("pointerdown", { button: 0, pointerId: 3, clientX: 500, clientY: 300 });
+	boardTitle(second).dispatch("pointermove", { pointerId: 3, clientX: 503, clientY: 302 });
+	assert.deepEqual(placed(second), ["480px", "0px"], "a still press does not move");
+	boardTitle(second).dispatch("pointermove", { pointerId: 3, clientX: 580, clientY: 340 });
+	assert.deepEqual(placed(second), ["580px", "50px"]);
+	assert.equal(layoutPosts(canvas).length, 0, "nothing is saved while it moves");
+	boardTitle(second).dispatch("pointerup", { button: 0, pointerId: 3, clientX: 580, clientY: 340 });
+	for (let i = 0; i < 5; i++) await flush();
+	assert.equal(canvas.world.style.transform, view, "moving an artboard never pans");
+	assert.equal(canvas.navMode.textContent, NAV_CHIP, "nor opens it");
+	assert.deepEqual(canvas.posts, [{ url: LAYOUT_URL, body: { arrangement: "free", positions: { "01-a.html": { x: 0, y: 0 }, "02-b.html": { x: 580, y: 50 } } } }]);
+	assert.deepEqual(pressedArrangements(canvas), ["false", "false", "false"], "a hand-made layout is none of the arrangements");
+	assert.deepEqual(worldBox(canvas), ["980px", "350px"]);
+	assert.deepEqual(placed(first), ["0px", "0px"], "the other artboard stays");
+
+	// Left of everything: the boards keep their place on screen and the world's top left stays the bounds' top left.
+	const [x, y] = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(canvas.world.style.transform)!.slice(1).map(Number);
+	await dragFrom(boardTitle(first), [100, 100], [[-100, 100]]);
+	assert.deepEqual(canvas.world.children.map(placed), [["0px", "0px"], ["830px", "50px"]]);
+	assert.equal(canvas.world.style.transform, `translate(${x - 200}px, ${y}px) scale(0.8)`);
+	assert.deepEqual(layoutPosts(canvas).at(-1)!.body, { arrangement: "free", positions: { "01-a.html": { x: 0, y: 0 }, "02-b.html": { x: 830, y: 50 } } });
+	assert.equal(layoutPosts(canvas).length, 2, "one save per move");
+});
+
+test("canvas-layout S1: a still click on a title moves nothing, and a cancelled move puts the artboard back unsaved", async () => {
+	const canvas = await loadRail(300, NO_LAYOUT);
+	const second = canvas.world.children[1];
+	click(boardTitle(second), 500, 300);
+	await dragFrom(boardTitle(second), [500, 300], [[600, 400]], "pointercancel");
+	assert.deepEqual(placed(second), ["480px", "0px"]);
+	assert.deepEqual(canvas.posts, []);
+	assert.equal(canvas.navMode.textContent, NAV_CHIP);
+});
+
+test("canvas-layout S1/S7: dragging the artboard body or the empty canvas still pans, a still click still opens it, header buttons keep their default, and focus mode moves nothing", async () => {
+	const canvas = await loadRail(300, NO_LAYOUT);
+	const [first, second] = canvas.boards;
+	const before = canvas.world.style.transform;
+	await dragFrom(first.shield!, [150, 150], [[190, 170]]);
+	assert.notEqual(canvas.world.style.transform, before, "the body pans");
+	const panned = canvas.world.style.transform;
+	await dragFrom(canvas.world, [700, 600], [[650, 560]]);
+	assert.notEqual(canvas.world.style.transform, panned, "the empty canvas pans");
+	assert.deepEqual(canvas.world.children.map(placed), [["0px", "0px"], ["480px", "0px"]], "and no artboard moved");
+	const open = withClass(second.wrapper, "gd-board-open")[0];
+	await dragFrom(open, [700, 120], [[800, 200]]);
+	assert.deepEqual(placed(second.wrapper), ["480px", "0px"], "a press on a header button does not move the artboard");
+	assert.deepEqual(canvas.posts, []);
+	open.dispatch("click");
+	assert.match(canvas.navMode.textContent, /^Using: Second/, "and the button still works");
+	assert.equal(canvas.document.getElementById("gd-arrange-grid").disabled, true, "no arrangement while a direction is open");
+	await dragFrom(boardTitle(second.wrapper), [500, 60], [[600, 160]]);
+	assert.deepEqual(placed(second.wrapper), ["480px", "0px"], "focus mode moves nothing");
+	assert.deepEqual(canvas.posts, []);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(canvas.document.getElementById("gd-arrange-grid").disabled, false);
+	click(first.shield!, 150, 150);
+	assert.match(canvas.navMode.textContent, /^Using: First/, "a still click on the body opens it");
+});
+
+const MIXED_REPLY = {
+	...SYSTEM_REPLY,
+	...NO_LAYOUT,
+	"/t/api/designs/alpha": {
+		slug: "alpha",
+		title: "Alpha",
+		brief: "",
+		artboards: [
+			{ file: "01-a.html", title: "A", tradeoff: "", width: 400, height: 300 },
+			{ file: "02-b.html", title: "B", tradeoff: "", width: 200, height: 500 },
+			{ file: "03-c.html", title: "C", tradeoff: "", width: 300, height: 100 },
+			{ file: "04-d.html", title: "D", tradeoff: "", width: 100, height: 200 },
+		],
+	},
+};
+const MIXED_KEYS = ["system", "01-a.html", "02-b.html", "03-c.html", "04-d.html"];
+const positionsOf = (rows: number[][]) => Object.fromEntries(rows.map(([x, y], index) => [MIXED_KEYS[index], { x, y }]));
+
+test("canvas-layout S2: Row, Column and Grid arrange every artboard with 80 px between them, save the arrangement and fit the view", async () => {
+	const canvas = await loadRail(300, MIXED_REPLY);
+	Object.defineProperty(canvas.world, "offsetWidth", { get: () => Number.parseFloat(canvas.world.style.width) });
+	Object.defineProperty(canvas.world, "offsetHeight", { get: () => Number.parseFloat(canvas.world.style.height) });
+	const arrange = async (id: string) => {
+		canvas.document.getElementById(id).dispatch("click");
+		for (let i = 0; i < 5; i++) await flush();
+	};
+	// Grid: 5 boards in 3 columns as wide as their widest, rows as tall as their tallest.
+	await arrange("gd-arrange-grid");
+	const grid = [[0, 0], [880, 0], [1360, 0], [0, 680], [880, 680]];
+	assert.deepEqual(canvas.world.children.map(placed), grid.map(([x, y]) => [`${x}px`, `${y}px`]));
+	assert.deepEqual(worldBox(canvas), ["1560px", "880px"]);
+	assert.deepEqual(pressedArrangements(canvas), ["false", "false", "true"]);
+	assert.deepEqual(layoutPosts(canvas).at(-1)!.body, { arrangement: "grid", positions: positionsOf(grid) });
+	// Column: one above the other, left-aligned.
+	await arrange("gd-arrange-column");
+	const column = [[0, 0], [0, 680], [0, 1060], [0, 1640], [0, 1820]];
+	assert.deepEqual(canvas.world.children.map(placed), column.map(([x, y]) => [`${x}px`, `${y}px`]));
+	assert.deepEqual(worldBox(canvas), ["800px", "2020px"]);
+	assert.deepEqual(pressedArrangements(canvas), ["false", "true", "false"]);
+	assert.deepEqual(layoutPosts(canvas).at(-1)!.body, { arrangement: "column", positions: positionsOf(column) });
+	// Fit shows the whole column: 604 / 2020 of the 700 px viewport, 48 px from the top.
+	assert.equal(canvas.zoomLevel.textContent, "30%");
+	assert.match(canvas.world.style.transform, /^translate\([\d.]+px, 48px\) scale\(0\.29900990099/);
+	// Row: side by side, top-aligned.
+	await arrange("gd-arrange-row");
+	const row = [[0, 0], [880, 0], [1360, 0], [1640, 0], [2020, 0]];
+	assert.deepEqual(canvas.world.children.map(placed), row.map(([x, y]) => [`${x}px`, `${y}px`]));
+	assert.deepEqual(layoutPosts(canvas).at(-1)!.body, { arrangement: "row", positions: positionsOf(row) });
+	assert.equal(layoutPosts(canvas).length, 3, "one save per choice");
+	// After an arrangement each artboard can still be moved by hand: the layout becomes free and the others stay.
+	await arrange("gd-arrange-column");
+	await dragFrom(boardTitle(canvas.world.children[2]), [300, 300], [[330, 300]]);
+	assert.deepEqual(layoutPosts(canvas).at(-1)!.body, { arrangement: "free", positions: positionsOf([[0, 0], [0, 680], [100, 1060], [0, 1640], [0, 1820]]) });
+	assert.deepEqual(pressedArrangements(canvas), ["false", "false", "false"]);
+});
+
+test("canvas-layout S3: a saved layout is restored; an artboard it does not know gets a spot after the others and one the design lost drops out of the next save", async () => {
+	const saved = { arrangement: "free", positions: { "01-a.html": { x: 0, y: 500 }, "02-b.html": { x: 600, y: 0 }, "gone.html": { x: 5000, y: 5000 } } };
+	const manifest = { slug: "alpha", title: "Alpha", brief: "", artboards: [
+		{ file: "01-a.html", title: "First", tradeoff: "", width: 400, height: 300 },
+		{ file: "02-b.html", title: "Second", tradeoff: "", width: 400, height: 300 },
+		{ file: "03-c.html", title: "Third", tradeoff: "", width: 400, height: 300 },
+	] };
+	const canvas = await loadRail(300, { [LAYOUT_URL]: { layout: saved }, "/t/api/designs/alpha": manifest });
+	assert.deepEqual(canvas.world.children.map(placed), [["0px", "500px"], ["600px", "0px"], ["1080px", "0px"]]);
+	assert.deepEqual(worldBox(canvas), ["1480px", "800px"]);
+	assert.deepEqual(pressedArrangements(canvas), ["false", "false", "false"]);
+	assert.deepEqual(canvas.posts, [], "restoring saves nothing");
+	await dragFrom(boardTitle(canvas.world.children[2]), [800, 100], [[800, 140]]);
+	assert.deepEqual(layoutPosts(canvas), [{ url: LAYOUT_URL, body: { arrangement: "free", positions: { "01-a.html": { x: 0, y: 500 }, "02-b.html": { x: 600, y: 0 }, "03-c.html": { x: 1080, y: 40 } } } }]);
+});
+
+test("canvas-layout S3: a design whose layout cannot be read opens in the row", async () => {
+	for (const reply of [{ __http: 500 }, { __throw: "offline" }, { layout: { arrangement: "diagonal", positions: {} } }, { layout: { arrangement: "free", positions: { "01-a.html": { x: "far", y: 0 } } } }, { layout: "row" }]) {
+		const canvas = await loadRail(300, { [LAYOUT_URL]: reply });
+		assert.deepEqual(canvas.world.children.map(placed), [["0px", "0px"], ["480px", "0px"]], JSON.stringify(reply));
+		assert.deepEqual(pressedArrangements(canvas), ["true", "false", "false"]);
+	}
+});
+
+test("canvas-layout S3: a layout.json change from another page moves the artboards without reloading any; the page's own save changes nothing", async () => {
+	const canvas = await loadRail(300, NO_LAYOUT);
+	const frames = canvas.frames();
+	const sources = frames.map((frame) => frame.src);
+	await dragFrom(boardTitle(canvas.world.children[1]), [500, 100], [[540, 100]]);
+	const own = layoutPosts(canvas)[0].body;
+	canvas.replies[LAYOUT_URL] = { layout: own };
+	await canvas.serverEvent("change", { slug: "alpha", file: "layout.json" });
+	assert.deepEqual(canvas.world.children.map(placed), [["0px", "0px"], ["520px", "0px"]]);
+	canvas.replies[LAYOUT_URL] = { layout: { arrangement: "column", positions: {} } };
+	await canvas.serverEvent("change", { slug: "alpha", file: "layout.json" });
+	assert.deepEqual(canvas.world.children.map(placed), [["0px", "0px"], ["0px", "380px"]], "a column, as the other page chose");
+	assert.deepEqual(pressedArrangements(canvas), ["false", "true", "false"]);
+	assert.ok(canvas.frames().every((frame, index) => frame === frames[index] && frame.src === sources[index]), "no artboard reloads");
+	assert.equal(layoutPosts(canvas).length, 1, "and nothing is saved back");
+	await canvas.serverEvent("change", { slug: "beta", file: "layout.json" });
+	assert.deepEqual(canvas.world.children.map(placed), [["0px", "0px"], ["0px", "380px"]], "another design's layout is not this one's");
+});
+
+test("canvas-layout S3: the new-direction placeholder goes after the boards and the world grows to hold it", async () => {
+	const canvas = await loadRail(300, SYSTEM_REPLY);
+	canvas.replies[VARIANT_URL] = { ok: true, slug: "alpha", file: "02-b.html", queued: false };
+	await openVariant(canvas, 2);
+	variantField(canvas).value = "Calmer";
+	await submitVariant(canvas);
+	const [placeholder] = withClass(canvas.world, "gd-placeholder");
+	assert.deepEqual(placed(placeholder), ["1840px", "0px"]);
+	assert.deepEqual(worldBox(canvas), ["2240px", "600px"]);
+});
+
+test("canvas-layout S3: focus mode centers a moved artboard from where it sits", async () => {
+	const canvas = await loadRail(300, { [LAYOUT_URL]: { layout: { arrangement: "free", positions: { "01-a.html": { x: 0, y: 0 }, "02-b.html": { x: 600, y: 900 } } } } });
+	const [, second] = canvas.boards;
+	// The browser lays an absolutely placed artboard out at its position; its frame box sits under the label, inside it.
+	second.wrapper.offsetLeft = 600;
+	second.wrapper.offsetTop = 900;
+	second.frame.parentElement!.offsetTop = 20;
+	click(second.shield!, 200, 200);
+	// x centers the 400 px frame in 1000 px: 300 - 600; y puts it in the middle below the 16 px margin and the label: 200 - 920.
+	assert.equal(canvas.world.style.transform, "translate(-300px, -720px) scale(1)");
+});
+
+test("canvas-layout S2: the arrangement control sits in the top bar before the language, named from the catalog, and styled with tokens", () => {
+	const html = read("index.html");
+	const group = /<div class="gd-group gd-arrange" role="group"[^>]*data-i18n-aria-label="layout\.group"[^>]*>([^]*?)<\/div>/.exec(html);
+	assert.ok(group, "a labelled group");
+	for (const kind of ["row", "column", "grid"]) {
+		assert.match(group![1], new RegExp(`<button type="button" id="gd-arrange-${kind}" aria-pressed="${kind === "row"}"[^>]*data-i18n-aria-label="layout\\.${kind}" data-i18n-title="layout\\.${kind}\\.title"><svg class="gd-i" aria-hidden="true"><use href="#i-${kind}"/></svg></button>`));
+		assert.match(html, new RegExp(`<symbol id="i-${kind}"`));
+	}
+	assert.ok(html.indexOf('class="gd-spacer"') < html.indexOf('id="gd-arrange-row"') && html.indexOf('id="gd-arrange-row"') < html.indexOf('id="gd-lang"'));
+	const { en, es } = loadCatalog();
+	assert.deepEqual(["layout.row", "layout.column", "layout.grid"].map((key) => en[key]), ["Row", "Column", "Grid"]);
+	assert.deepEqual(["layout.row", "layout.column", "layout.grid"].map((key) => es[key]), ["Fila", "Columna", "Cuadrícula"]);
+	const css = read("canvas.css");
+	const pressed = /\.gd-arrange button\[aria-pressed="true"\]\s*{([^}]*)}/.exec(css);
+	assert.ok(pressed && /var\(--/.test(pressed[1]) && !/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(pressed[1]), "the chosen arrangement shows, in tokens");
+	assert.match(css, /\.gd-world \.gd-artboard\s*{[^}]*position:\s*absolute/, "artboards sit where the layout puts them");
+});

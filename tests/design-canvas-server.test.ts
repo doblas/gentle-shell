@@ -1508,3 +1508,86 @@ test("canvas-trim S3: the history routes are unknown paths (404 whatever the met
 	await new Promise((resolve) => setTimeout(resolve, 100));
 	assert.equal(existsSync(join(root, "alpha", ".history")), false);
 });
+
+// canvas-layout S3: design/<slug>/layout.json, read and written whole by the canvas through the server.
+
+const LAYOUT_PATH = "api/designs/alpha/layout";
+const SAVED_LAYOUT = { arrangement: "free", positions: { system: { x: 0, y: 0 }, "01-hero.html": { x: 1520, y: 0 }, "02-bare.html": { x: 0, y: 1280 } } };
+
+test("canvas-layout S3: GET layout is null without layout.json; POST validates and saves it whole; GET gives it back", async (t) => {
+	const { port, base, root } = await start(t);
+	const missing = await rawRequest(port, `${base}${LAYOUT_PATH}`);
+	assert.equal(missing.status, 200);
+	assert.deepEqual(JSON.parse(missing.body), { layout: null });
+	const saved = await postJson(port, LAYOUT_PATH, SAVED_LAYOUT);
+	assert.equal(saved.status, 200);
+	assert.deepEqual(JSON.parse(saved.body), { ok: true, layout: SAVED_LAYOUT });
+	assert.equal(readFileSync(join(root, "alpha", "layout.json"), "utf8"), `${JSON.stringify(SAVED_LAYOUT, null, 2)}\n`);
+	const read = await rawRequest(port, `${base}${LAYOUT_PATH}`);
+	assert.equal(read.status, 200);
+	assert.deepEqual(JSON.parse(read.body), { layout: SAVED_LAYOUT });
+	// A broken file is no layout: the canvas opens in a row and the next save replaces it.
+	writeFileSync(join(root, "alpha", "layout.json"), "{ broken");
+	assert.deepEqual(JSON.parse((await rawRequest(port, `${base}${LAYOUT_PATH}`)).body), { layout: null });
+	assert.equal((await postJson(port, LAYOUT_PATH, SAVED_LAYOUT)).status, 200);
+	assert.deepEqual(JSON.parse(readFileSync(join(root, "alpha", "layout.json"), "utf8")), SAVED_LAYOUT);
+});
+
+test("canvas-layout S3: an invalid layout is refused with its reason and nothing is written", async (t) => {
+	const { port, root } = await start(t);
+	const refuse = async (body: unknown, reason: RegExp) => {
+		const reply = await postJson(port, LAYOUT_PATH, body);
+		assert.equal(reply.status, 400, JSON.stringify(body));
+		const answer = JSON.parse(reply.body);
+		assert.equal(answer.error, "invalid-layout");
+		assert.match(answer.reason, reason);
+	};
+	await refuse({ arrangement: "diagonal", positions: {} }, /^arrangement must be "row", "column", "grid" or "free"$/);
+	await refuse({ arrangement: "row", positions: { "01-hero.html": { x: 1.5, y: 0 } } }, /x and y must be integers/);
+	await refuse({ arrangement: "row", positions: { "../beta/01-a.html": { x: 0, y: 0 } } }, /keys must be relative \.html artboard paths/);
+	await refuse({ arrangement: "row", positions: {}, extra: true }, /unknown keys: extra/);
+	assert.equal(existsSync(join(root, "alpha", "layout.json")), false, "nothing is written");
+	assert.equal((await postJson(port, LAYOUT_PATH, SAVED_LAYOUT)).status, 200);
+	const before = readFileSync(join(root, "alpha", "layout.json"), "utf8");
+	await refuse({ arrangement: "row", positions: { "01-hero.html": { x: 0, y: 3_000_000 } } }, /between -2000000 and 2000000/);
+	assert.equal(readFileSync(join(root, "alpha", "layout.json"), "utf8"), before, "the saved layout stays as it was");
+	assert.equal((await postJson(port, "api/designs/missing/layout", SAVED_LAYOUT)).status, 404);
+	assert.equal((await postJson(port, "api/designs/Not_A_Slug/layout", SAVED_LAYOUT)).status, 404);
+	assert.equal(existsSync(join(root, "missing")), false);
+});
+
+test("canvas-layout S3: the layout route keeps the Origin, content-type, JSON and method rules", async (t) => {
+	const { port, base, root } = await start(t);
+	const path = `${base}${LAYOUT_PATH}`;
+	const body = JSON.stringify(SAVED_LAYOUT);
+	const own = { Origin: `http://127.0.0.1:${port}`, "Content-Type": "application/json" };
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { "Content-Type": "application/json" }, body })).status, 403, "no Origin");
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { ...own, Origin: "http://evil.example" }, body })).status, 403);
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: { ...own, "Content-Type": "text/plain" }, body })).status, 415);
+	assert.equal((await rawRequest(port, path, { method: "POST", headers: own, body: "not json" })).status, 400);
+	const put = await rawRequest(port, path, { method: "PUT", headers: own, body });
+	assert.equal(put.status, 405);
+	assert.equal(put.headers.allow, "GET, POST");
+	assert.equal((await rawRequest(port, path, { headers: { Origin: "http://evil.example" } })).status, 403, "only this server's pages read it");
+	assert.equal((await rawRequest(port, path, { headers: { Origin: "null" } })).status, 403, "a sandboxed artboard may not read it");
+	assert.equal((await rawRequest(port, `${base}api/designs/missing/layout`)).status, 404);
+	assert.equal(existsSync(join(root, "alpha", "layout.json")), false);
+	// The other GET-only and POST-only routes keep answering 405 with their one method.
+	const comments = await rawRequest(port, `${base}api/designs/alpha/comments`, { method: "POST", headers: own, body: "{}" });
+	assert.equal(comments.status, 405);
+	assert.equal(comments.headers.allow, "GET");
+	const implement = await rawRequest(port, `${base}api/designs/alpha/implement`);
+	assert.equal(implement.status, 405);
+	assert.equal(implement.headers.allow, "POST");
+});
+
+test("canvas-layout S3: saving the layout streams one change for layout.json", async (t) => {
+	const { port } = await start(t);
+	const events = openEvents(port);
+	t.after(() => events.req.destroy());
+	await events.ready;
+	await events.waitFor(/: connected\n\n/);
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	assert.equal((await postJson(port, LAYOUT_PATH, SAVED_LAYOUT)).status, 200);
+	await events.waitFor(/event: change\ndata: \{"slug":"alpha","file":"layout\.json"\}\n\n/);
+});
