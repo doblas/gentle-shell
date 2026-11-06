@@ -455,6 +455,9 @@
 			"keys.fit": "Fit all directions",
 			"keys.zoom": "Zoom in and out",
 			"keys.pan": "Pan (Shift for larger steps)",
+			"keys.spaceKey": "Space",
+			"keys.drag": "drag",
+			"keys.space": "Pan from anywhere, even over an artboard",
 			"keys.minimap": "Show or hide the minimap",
 			"keys.panel": "Show or hide the review panel",
 			"keys.esc": "Leave Comment mode or close the comment box",
@@ -855,6 +858,9 @@
 			"keys.fit": "Ajustar todas las propuestas",
 			"keys.zoom": "Acercar y alejar",
 			"keys.pan": "Desplazar (Shift para pasos más grandes)",
+			"keys.spaceKey": "Espacio",
+			"keys.drag": "arrastrar",
+			"keys.space": "Desplázate desde cualquier punto, también sobre una propuesta",
 			"keys.minimap": "Mostrar u ocultar el minimapa",
 			"keys.panel": "Mostrar u ocultar el panel de revisión",
 			"keys.esc": "Salir del modo Comentar o cerrar el cuadro de comentario",
@@ -1174,6 +1180,10 @@
 		layout: { slug: null, arrangement: "row", positions: {}, saved: "null" },
 		// Layout saves still in flight: until they land, a layout.json change may be older than what the page shows.
 		layoutSaves: 0,
+		// The artboard pressed last, outlined until a press elsewhere, Esc or focus mode (canvas-layout S10), or null.
+		selected: null,
+		// Space held to pan (canvas-layout S9): { used } once a press panned with it, or null.
+		space: null,
 		// The minimap's switch (M); it also hides in focus mode and Compare.
 		minimap: true,
 		// The open artboard menu: { board, button, items, actions }, or null.
@@ -1536,18 +1546,22 @@
 
 	const isControl = (target) => CONTROL_TAGS.some((tag) => target.closest(tag));
 
-	// A press on a shield pans like the background; released without moving, it is a
-	// click on that artboard: focus mode, in Comment mode too (S1: elements are picked inside it).
-	// A press on an artboard's label header moves that artboard instead (canvas-layout S1), saved once on release.
+	// A press on any part of an artboard (its label header or its shield) moves that artboard and selects it
+	// (canvas-layout S9, S10), saved once on release; a press on the background pans and clears the selection.
+	// A shield released without moving is a click on that artboard: focus mode, in Comment mode too
+	// (S1: elements are picked inside it). With Space held, every press pans and changes nothing else.
 	let drag = null;
 	els.viewport.addEventListener("pointerdown", (event) => {
 		if (state.focus || event.button !== 0 || isControl(event.target)) return;
 		const shield = event.target.closest(".gd-shield");
 		const label = event.target.closest(".gd-artboard-label");
 		if (!shield && event.target !== els.viewport && event.target !== els.world && !label) return;
-		const mover = label ? allBoards().find((board) => board.wrapper === label.parentElement) ?? null : null;
-		const from = mover ? state.layout.positions[layoutKey(mover)] : null;
-		drag = { id: event.pointerId, x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, moved: false, board: shield ? boardOfShield(shield) : null, mover: from ? { board: mover, from } : null };
+		const space = state.space;
+		if (space) space.used = true;
+		const board = space ? null : shield ? boardOfShield(shield) : label ? allBoards().find((candidate) => candidate.wrapper === label.parentElement) ?? null : null;
+		const from = board ? state.layout.positions[layoutKey(board)] : null;
+		drag = { id: event.pointerId, x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, moved: false, board: shield ? board : null, mover: from ? { board, from } : null };
+		if (!space) selectBoard(drag.mover ? board : null);
 		els.viewport.setPointerCapture(event.pointerId);
 		els.viewport.classList.add(drag.mover ? "gd-moving" : "gd-panning");
 	});
@@ -1570,16 +1584,44 @@
 		const ended = drag;
 		drag = null;
 		els.viewport.classList.remove("gd-panning", "gd-moving");
-		if (ended.mover) {
-			ended.mover.board.wrapper.classList.remove("gd-lifted");
-			if (!ended.moved) return;
+		if (ended.mover && ended.moved) {
 			// A cancelled move (the browser took the pointer) puts the artboard back; a release keeps it, by hand.
 			if (event.type === "pointerup") finishMove();
 			else moveBoard(ended.mover.board, ended.mover.from);
+			ended.mover.board.wrapper.classList.remove("gd-lifted");
 			return;
 		}
 		if (event.type === "pointerup" && ended.board && !ended.moved) enterFocus(ended.board);
 	};
+
+	/** The artboard pressed last shows selected, all of it (canvas-layout S10); null clears it. */
+	function selectBoard(board) {
+		state.selected = board;
+		for (const candidate of allBoards()) candidate.wrapper.classList.toggle("gd-selected", candidate === board);
+	}
+
+	// Space held pans from anywhere, over an artboard too (canvas-layout S9). Not while typing, from a
+	// button or a link (Space is theirs), with the comment box, a menu or a dialog open, or in focus mode.
+	const spaceTarget = (target) => target === document.body || target === document.documentElement || target === els.viewport || Boolean(target && target.closest && target.closest(".gd-shield"));
+	function releaseSpace() {
+		state.space = null;
+		els.viewport.classList.remove("gd-space-pan");
+	}
+	document.addEventListener("keydown", (event) => {
+		// A shield prevents Space's default itself (it opens on release), so defaultPrevented is no reason to skip.
+		if (event.key !== " " || event.ctrlKey || event.metaKey || event.altKey || !spaceTarget(event.target)) return;
+		if (state.focus || guideBlocked()) return;
+		event.preventDefault();
+		if (!state.space) state.space = { used: false };
+		els.viewport.classList.add("gd-space-pan");
+	});
+	document.addEventListener("keyup", (event) => {
+		if (event.key === " " && state.space) releaseSpace();
+	});
+	// The release never comes once the window loses focus.
+	window.addEventListener("blur", () => {
+		if (state.space) releaseSpace();
+	});
 	els.viewport.addEventListener("pointerup", endDrag);
 	els.viewport.addEventListener("pointercancel", endDrag);
 
@@ -1666,6 +1708,12 @@
 		board.frame.style.height = `${height}px`;
 	}
 
+	/** Desktop in focus mode: the viewport's whole width at 100%, never narrower than the artboard was designed. */
+	function desktopSize(board) {
+		const room = Math.floor(els.viewport.getBoundingClientRect().width - FOCUS_MARGIN * 2);
+		return { width: Math.max(board.artboard.width, room), height: board.artboard.height };
+	}
+
 	function presetSize(board, preset) {
 		return preset.manifest ? { width: board.artboard.width, height: board.artboard.height } : { width: preset.width, height: preset.height };
 	}
@@ -1674,6 +1722,7 @@
 	function focusSize(board) {
 		const size = state.size;
 		if (size.kind === "custom") return { width: size.width, height: board.artboard.height };
+		if (size.kind === "desktop") return desktopSize(board);
 		const preset = SIZE_PRESETS.find((candidate) => candidate.kind === size.kind);
 		return preset ? presetSize(board, preset) : presetSize(board, SIZE_PRESETS[2]);
 	}
@@ -1766,6 +1815,7 @@
 			setPanel(false);
 		}
 		closePopover();
+		selectBoard(null);
 		state.focus = board;
 		// Every focus session starts at Desktop.
 		state.size = { kind: "desktop" };
@@ -1941,6 +1991,12 @@
 		shield.addEventListener("keydown", (event) => {
 			if (event.key !== "Enter" && event.key !== " ") return;
 			event.preventDefault();
+			if (event.key === "Enter") enterFocus(board);
+		});
+		// Space opens on release, like a button, so a Space held to pan (canvas-layout S9) opens nothing.
+		shield.addEventListener("keyup", (event) => {
+			if (event.key !== " " || (state.space && state.space.used)) return;
+			event.preventDefault();
 			enterFocus(board);
 		});
 		frame.addEventListener("load", () => {
@@ -2047,7 +2103,7 @@
 		closeLangMenu(false);
 		closeDeviceMenu(false);
 		const items = SIZE_PRESETS.map((preset) => {
-			const { width, height } = presetSize(board, preset);
+			const { width, height } = preset.kind === "desktop" ? desktopSize(board) : presetSize(board, preset);
 			return deviceItem(preset.kind, preset.name, "size.preset.title", { name: ref(preset.name), width, height }, `${width} × ${height}`);
 		});
 		items.push(deviceItem("all", "size.all", "size.all.title"));
@@ -2460,6 +2516,8 @@
 			if (surface && surface !== "browser") throw exportError(surface === "monitor" ? "export.sharedScreen" : "export.sharedOther", { surface });
 			if (state.focus !== board) enterFocus(board);
 			if (state.size.kind !== "desktop") setSize({ kind: "desktop" });
+			// Desktop fills the window (canvas-layout S8); the image is the artboard at its own width.
+			setFrameSize(board, board.artboard.width, board.viewHeight);
 			// The viewport covers the window without the canvas chrome; the artboard goes to its top left at 100%.
 			document.body.classList.add("gd-exporting");
 			Object.assign(state, { zoom: 1, x: 0, y: 0 });
@@ -4039,6 +4097,7 @@
 		els.world.replaceChildren(...boards.map((board) => board.wrapper), ...(state.placeholder ? [state.placeholder] : []));
 		applyLayout();
 		if (state.mark && !boards.includes(state.mark.board)) clearMark();
+		if (state.selected && !boards.includes(state.selected)) state.selected = null;
 		if (state.focus && !boards.includes(state.focus)) exitFocus();
 		else applyFocusState();
 	}
@@ -5563,6 +5622,10 @@
 			// A check's ring goes first; the next Esc leaves comment mode as before.
 			event.preventDefault();
 			clearMark();
+		} else if (state.selected && !guideBlocked()) {
+			// Then the selected artboard (canvas-layout S10).
+			event.preventDefault();
+			selectBoard(null);
 		} else if (state.commenting && els.popover.hidden && event.target === document.body) setCommenting(false);
 	});
 

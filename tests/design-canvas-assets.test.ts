@@ -59,7 +59,8 @@ class FakeElement {
 		const classes = this.classes;
 		return {
 			add: (name: string) => classes.add(name),
-			remove: (name: string) => classes.delete(name),
+			// Like the DOM, any number of names at once.
+			remove: (...names: string[]) => names.forEach((name) => classes.delete(name)),
 			contains: (name: string) => classes.has(name),
 			toggle: (name: string, force?: boolean) => {
 				const on = force === undefined ? !classes.has(name) : force;
@@ -349,13 +350,41 @@ test("a taller artboard is top-aligned and clipped to the viewport while focused
 	// canvas-layout S5: the 700 px viewport keeps an 8 px margin (16 before), the 20 px label and a 48 px band for the
 	// Back button (64 before): 624 px of frame instead of 600.
 	assert.equal(first.frame.style.height, "624px");
-	// x centers the 400 px board in 1000 px: 300 - 480; y puts its top 8 + 20 px down: 28 - 20.
-	assert.equal(canvas.world.style.transform, "translate(-180px, 8px) scale(1)");
+	// canvas-layout S8: Desktop is the 1000 px viewport less its 8 px margins, so x puts the frame at the left margin: 8 - 480;
+	// y puts its top 8 + 20 px down: 28 - 20.
+	assert.equal(first.frame.style.width, "984px");
+	assert.equal(canvas.world.style.transform, "translate(-472px, 8px) scale(1)");
 	// Re-centering (window resize, panel toggle) is idempotent.
 	canvas.windowEvent("resize");
-	assert.equal(canvas.world.style.transform, "translate(-180px, 8px) scale(1)");
+	assert.equal(canvas.world.style.transform, "translate(-472px, 8px) scale(1)");
 	canvas.document.getElementById("gd-back").dispatch("click");
 	assert.equal(first.frame.style.height, "1600px");
+	assert.equal(first.frame.style.width, "400px");
+});
+
+test("canvas-layout S8: Desktop fills the viewport's width at 100% in focus, the fixed sizes keep theirs, and the other artboards are hidden", async () => {
+	const canvas = await loadCanvas();
+	const [first] = canvas.boards;
+	click(first.shield!, 10, 10);
+	// A 400 px artboard in the 1000 px viewport: Desktop is 1000 - 2 * 8 wide, at 100%, from the left margin.
+	assert.equal(first.frame.style.width, "984px");
+	assert.equal(canvas.zoomLevel.textContent, "100%");
+	assert.equal(readout(canvas), "Desktop 984 × 300");
+	openDevices(canvas);
+	assert.equal(findAll(deviceItems(canvas).find((item) => item.dataset.size === "desktop")!, (element) => element.textContent === "984 × 300").length, 1, "the menu names the width Desktop has here");
+	deviceButton(canvas).dispatch("click");
+	chooseSize(canvas, "phone");
+	assert.equal(first.frame.style.width, "390px");
+	chooseSize(canvas, "desktop");
+	assert.equal(first.frame.style.width, "984px");
+	// A wider window widens Desktop with it.
+	canvas.viewport.rect = { left: 0, top: 50, width: 1600, height: 700 };
+	canvas.windowEvent("resize");
+	assert.equal(first.frame.style.width, "1584px");
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(first.frame.style.width, "400px", "leaving focus restores the artboard's own width");
+	const css = read("canvas.css");
+	assert.match(css, /\.gd-focused \.gd-world > :not\(\.gd-focus-board\) \{ visibility: hidden; \}/);
 });
 
 test("canvas-layout S5: an open artboard uses the room: 8 px margins, a one-line header with the tradeoff in its tooltip, Back in a 48 px band", async () => {
@@ -444,15 +473,16 @@ test("the Back to canvas button and Shift+Esc in the canvas both leave focus mod
 	assert.equal(canvas.navMode.textContent, NAV_CHIP);
 });
 
-test("a drag over an artboard pans the canvas, and in comment mode a click opens the artboard in focus instead of picking", async () => {
+test("a drag over an artboard moves it (canvas-layout S9), and in comment mode a click opens the artboard in focus instead of picking", async () => {
 	const canvas = await loadCanvas();
-	const [first] = canvas.boards;
+	const [first, second] = canvas.boards;
 	first.frame.rect = { left: 100, top: 100, width: 200, height: 150 };
 	const before = canvas.world.style.transform;
-	first.shield!.dispatch("pointerdown", { button: 0, pointerId: 1, clientX: 150, clientY: 150 });
-	first.shield!.dispatch("pointermove", { pointerId: 1, clientX: 190, clientY: 170 });
-	first.shield!.dispatch("pointerup", { button: 0, pointerId: 1, clientX: 190, clientY: 170 });
-	assert.notEqual(canvas.world.style.transform, before, "the drag panned");
+	second.shield!.dispatch("pointerdown", { button: 0, pointerId: 1, clientX: 550, clientY: 150 });
+	second.shield!.dispatch("pointermove", { pointerId: 1, clientX: 590, clientY: 170 });
+	second.shield!.dispatch("pointerup", { button: 0, pointerId: 1, clientX: 590, clientY: 170 });
+	assert.equal(canvas.world.style.transform, before, "the drag did not pan");
+	assert.deepEqual([second.wrapper.style.left, second.wrapper.style.top], ["520px", "20px"], "it moved the artboard");
 	assert.equal(canvas.navMode.textContent, NAV_CHIP, "a drag never enters focus mode");
 
 	canvas.document.getElementById("gd-comment").dispatch("click");
@@ -1604,8 +1634,9 @@ test("canvas-layout S6: the top bar's device button opens a menu of Phone, Table
 	focusOn(canvas);
 	assert.equal(button.disabled, false);
 	assert.equal(button.title, "Preview size of the open artboard");
-	assert.equal(button.getAttribute("aria-label"), "Preview size: Desktop 400 × 300");
-	assert.equal(readout(canvas), "Desktop 400 × 300", "the button reads the current size");
+	// canvas-layout S8: Desktop is the viewport's width (1000 px less two 8 px margins) at the artboard's height.
+	assert.equal(button.getAttribute("aria-label"), "Preview size: Desktop 984 × 300");
+	assert.equal(readout(canvas), "Desktop 984 × 300", "the button reads the current size");
 	assert.equal(deviceIcon(canvas), "#i-monitor");
 	assert.notEqual(button.getAttribute("aria-expanded"), "true", "index.html starts it false");
 	button.dispatch("click");
@@ -1616,8 +1647,8 @@ test("canvas-layout S6: the top bar's device button opens a menu of Phone, Table
 	const items = deviceItems(canvas);
 	assert.deepEqual(items.map((item) => item.dataset.size), ["phone", "tablet", "desktop", "all"]);
 	assert.deepEqual(items.map((item) => texts(item, "gd-menu-label")[0]), ["Phone", "Tablet", "Desktop", "All sizes"]);
-	assert.deepEqual(items.map((item) => texts(item, "gd-device-dim")[0]), ["390 × 844", "820 × 1180", "400 × 300", undefined]);
-	assert.deepEqual(items.map((item) => item.title), ["Phone 390 × 844", "Tablet 820 × 1180", "Desktop 400 × 300", "All sizes: Phone, Tablet and Desktop side by side"]);
+	assert.deepEqual(items.map((item) => texts(item, "gd-device-dim")[0]), ["390 × 844", "820 × 1180", "984 × 300", undefined]);
+	assert.deepEqual(items.map((item) => item.title), ["Phone 390 × 844", "Tablet 820 × 1180", "Desktop 984 × 300", "All sizes: Phone, Tablet and Desktop side by side"]);
 	assert.deepEqual(items.map((item) => item.getAttribute("aria-checked")), ["false", "false", "true", "false"], "Desktop is checked when focus mode starts");
 	assert.ok(items.every((item) => item.type === "button"));
 	for (const item of items) assert.equal(withClass(item, "gd-i")[0].getAttribute("aria-hidden"), "true", "icons are decoration");
@@ -1648,7 +1679,7 @@ test("canvas-layout S6: choosing a size closes the menu, gives focus back to the
 		["#i-phone", "Phone 390 × 844", "Preview size: Phone 390 × 844"],
 		["#i-tablet", "Tablet 820 × 1180", "Preview size: Tablet 820 × 1180"],
 		["#i-devices", "All sizes", "Preview size: All sizes"],
-		["#i-monitor", "Desktop 400 × 300", "Preview size: Desktop 400 × 300"],
+		["#i-monitor", "Desktop 984 × 300", "Preview size: Desktop 984 × 300"],
 		["#i-width", "Custom 600 × 300", "Preview size: Custom 600 × 300"],
 	]);
 	canvas.document.getElementById("gd-back").dispatch("click");
@@ -1714,7 +1745,7 @@ test("canvas-layout S6: the device menu keeps the language menu's keys, and the 
 	button.dispatch("click");
 	button.dispatch("click");
 	assert.equal(deviceMenu(canvas).hidden, true, "the button closes it again");
-	assert.equal(readout(canvas), "Desktop 400 × 300", "closing chose nothing");
+	assert.equal(readout(canvas), "Desktop 984 × 300", "closing chose nothing");
 });
 
 test("canvas-layout S6: the device, language and artboard menus close each other, and leaving the artboard closes the device menu", async () => {
@@ -1757,7 +1788,7 @@ test("canvas-layout S6: the artboard header has no size bar any more, in the ove
 	for (const selector of [".gd-sizebar", ".gd-size-custom", ".gd-size-input", ".gd-size-readout", ".gd-size-error"]) assert.ok(!css.includes(selector), `${selector} is not styled any more`);
 });
 
-test("S1: Desktop is the artboard's own manifest size, and each focus session starts at Desktop", async () => {
+test("S1: Desktop is the artboard's own manifest size when it is wider than the window (canvas-layout S8), and each focus session starts at Desktop", async () => {
 	const canvas = await loadRail(300, wideAlpha);
 	focusOn(canvas);
 	assert.equal(readout(canvas), "Desktop 1200 × 800");
@@ -1791,11 +1822,14 @@ test("S2: Phone, Tablet and Desktop resize the focused iframe in place, centered
 	assert.deepEqual(pressedSizes(canvas), ["tablet"]);
 	assert.equal(readout(canvas), "Tablet 820 × 1180");
 
+	// canvas-layout S8: Desktop is the viewport's width at 100%, from the left margin.
 	chooseSize(canvas, "desktop");
-	assert.equal(first.frame.style.width, "400px");
+	assert.equal(first.frame.style.width, "984px");
 	assert.equal(first.frame.style.height, "300px");
+	assert.equal(canvas.world.style.transform, "translate(8px, 550px) scale(1)");
+	assert.equal(canvas.zoomLevel.textContent, "100%");
 	assert.deepEqual(pressedSizes(canvas), ["desktop"]);
-	assert.equal(readout(canvas), "Desktop 400 × 300");
+	assert.equal(readout(canvas), "Desktop 984 × 300");
 	assert.equal(first.frame.src, src, "the artboard is not reloaded");
 	assert.equal(canvas.frames()[0], first.frame, "and keeps its iframe");
 });
@@ -1875,7 +1909,7 @@ test("S2: leaving focus mode, or focusing another artboard, restores the manifes
 	assert.equal(first.frame.style.width, "400px", "the artboard left behind is restored");
 	assert.equal(first.frame.style.height, "300px");
 	assert.deepEqual(pressedSizes(canvas), ["desktop"], "the new focus starts at Desktop");
-	assert.equal(second.frame.style.width, "400px");
+	assert.equal(second.frame.style.width, "984px", "Desktop is the viewport's width (canvas-layout S8)");
 	canvas.message(second.frame.contentWindow, { type: "gd:exit-focus" });
 	assert.equal(second.frame.style.width, "400px");
 });
@@ -2159,13 +2193,14 @@ test("S5: in All sizes each size frame has its own chip", async () => {
 });
 
 test("S5: the artboard's own chip shows only while focused at a single size, and a report made earlier shows on focus", async () => {
-	const canvas = await loadRail();
+	// canvas-layout S8: Desktop is the artboard's own width only when it is wider than the viewport, so a 1200 px one here.
+	const canvas = await loadRail(300, wideAlpha);
 	const [first] = canvas.boards;
 	const chip = overflowChip(first.wrapper);
-	canvas.message(first.frame.contentWindow, report(400, 450));
+	canvas.message(first.frame.contentWindow, report(1200, 1250));
 	assert.equal(chip.hidden, true, "not on the canvas overview");
 	focusOn(canvas);
-	assert.equal(chip.hidden, false, "Desktop is 400 px wide: the earlier report applies");
+	assert.equal(chip.hidden, false, "Desktop is 1200 px wide: the earlier report applies");
 	chooseSize(canvas, "all");
 	assert.equal(chip.hidden, true, "All sizes has a chip per frame instead");
 	canvas.document.getElementById("gd-back").dispatch("click");
@@ -2222,7 +2257,7 @@ const submitComment = async (canvas: Canvas, text = "Tighter") => {
 };
 const PICK = { type: "gd:pick", selector: "#cta", excerpt: "Buy", rect: { x: 30, y: 40, width: 60, height: 20 } };
 
-test("S7: a comment made at the manifest size, unfocused or at Desktop, carries no viewport", async () => {
+test("S7: a comment made at the manifest size carries no viewport; at Desktop in focus it carries the window-wide size it was made at (canvas-layout S8)", async () => {
 	const canvas = await loadRail();
 	tallViewport(canvas);
 	const [first] = canvas.boards;
@@ -2231,8 +2266,9 @@ test("S7: a comment made at the manifest size, unfocused or at Desktop, carries 
 	canvas.message(first.frame.contentWindow, PICK);
 	assert.ok(!("viewport" in await submitComment(canvas)), "not focused");
 	focusOn(canvas);
+	first.frame.rect = { left: 0, top: 0, width: 984, height: 300 };
 	canvas.message(first.frame.contentWindow, PICK);
-	assert.ok(!("viewport" in await submitComment(canvas)), "Desktop");
+	assert.deepEqual((await submitComment(canvas)).viewport, { width: 984, height: 300 }, "Desktop: the viewport's width, the manifest height");
 	// A custom width equal to the manifest width is the manifest size too.
 	setCustom(canvas, "400");
 	canvas.message(first.frame.contentWindow, PICK);
@@ -2255,10 +2291,10 @@ test("S7: a comment at a preset or custom width carries the viewport of that siz
 	setCustom(canvas, "720");
 	canvas.message(first.frame.contentWindow, PICK);
 	assert.deepEqual((await submitComment(canvas)).viewport, { width: 720, height: 300 });
-	// The size is the one at the pick: back at Desktop the next comment has none.
+	// The size is the one at the pick: back at Desktop the next comment has Desktop's (canvas-layout S8: the viewport's width).
 	chooseSize(canvas, "desktop");
 	canvas.message(first.frame.contentWindow, PICK);
-	assert.ok(!("viewport" in await submitComment(canvas)));
+	assert.deepEqual((await submitComment(canvas)).viewport, { width: 984, height: 300 });
 });
 
 test("S7: in All sizes the comment carries the size of the frame that was picked; the Desktop frame is the manifest size", async () => {
@@ -4355,7 +4391,7 @@ for (const scale of [1, 2]) test(`T3/S4: export ${scale}× crops the selected ta
 	const calls: string[] = [];
 	const draw: number[][] = [];
 	const names: string[] = [];
-	const during: Array<{ exporting: boolean; transform: string }> = [];
+	const during: Array<{ exporting: boolean; transform: string; width: string }> = [];
 	let output: any;
 	const stream = { getTracks: () => [{ stop: () => calls.push("stop") }] };
 	const canvas = await loadRail(300, {}, {}, {
@@ -4369,7 +4405,7 @@ for (const scale of [1, 2]) test(`T3/S4: export ${scale}× crops the selected ta
 		if (tag === "video") return { videoWidth: 1200, videoHeight: 800, play: async () => { calls.push("play"); }, requestVideoFrameCallback: (done: () => void) => { calls.push("frame"); done(); } };
 		if (tag === "canvas") return output = { getContext: () => ({ drawImage: (_video: unknown, ...args: number[]) => {
 			draw.push(args);
-			during.push({ exporting: canvas.document.body.classList.contains("gd-exporting"), transform: canvas.world.style.transform });
+			during.push({ exporting: canvas.document.body.classList.contains("gd-exporting"), transform: canvas.world.style.transform, width: canvas.boards[0].frame.style.width });
 			calls.push("draw");
 		} }), toBlob: (done: (blob: object) => void) => { calls.push("encode"); done({}); } };
 		if (tag === "a") return { click() { names.push(this.download); }, href: "", download: "" };
@@ -4391,6 +4427,7 @@ for (const scale of [1, 2]) test(`T3/S4: export ${scale}× crops the selected ta
 	assert.equal(during.length, 1);
 	assert.equal(during[0].exporting, true, "the canvas chrome is hidden while the frame is grabbed");
 	assert.match(during[0].transform, /scale\(1\)/, "the artboard is at 100%");
+	assert.equal(during[0].width, "400px", "at its own width, not Desktop's window width (canvas-layout S8)");
 	assert.equal(canvas.document.body.classList.contains("gd-exporting"), false, "the chrome comes back");
 	assert.equal(canvas.world.style.transform, before);
 	assert.equal(canvas.posts.length, 0);
@@ -5208,12 +5245,12 @@ test("S2: the top bar's device selector, the artboard header and the mode chip a
 	assert.equal(readout(devices), "Escritorio");
 	click(first.shield!, 200, 200);
 	assert.equal(deviceButton(devices).title, "Tamaño de la vista previa de la propuesta abierta");
-	assert.equal(deviceButton(devices).getAttribute("aria-label"), "Tamaño de la vista previa: Escritorio 400 × 300");
-	assert.equal(readout(devices), "Escritorio 400 × 300");
+	assert.equal(deviceButton(devices).getAttribute("aria-label"), "Tamaño de la vista previa: Escritorio 984 × 300");
+	assert.equal(readout(devices), "Escritorio 984 × 300");
 	openDevices(devices);
 	assert.equal(deviceMenu(devices).getAttribute("aria-label"), "Tamaño de la vista previa");
 	assert.deepEqual(deviceItems(devices).map((item) => texts(item, "gd-menu-label")[0]), ["Móvil", "Tablet", "Escritorio", "Todos los tamaños"]);
-	assert.deepEqual(deviceItems(devices).map((item) => item.title), ["Móvil 390 × 844", "Tablet 820 × 1180", "Escritorio 400 × 300", "Todos los tamaños: móvil, tablet y escritorio, lado a lado"]);
+	assert.deepEqual(deviceItems(devices).map((item) => item.title), ["Móvil 390 × 844", "Tablet 820 × 1180", "Escritorio 984 × 300", "Todos los tamaños: móvil, tablet y escritorio, lado a lado"]);
 	assert.deepEqual(texts(deviceMenu(devices), "gd-device-custom-label"), ["Personalizado"]);
 	assert.equal(customInput(devices).getAttribute("aria-label"), "Ancho personalizado en píxeles");
 	setCustom(devices, "100");
@@ -7698,30 +7735,199 @@ test("canvas-layout S1: a still click on a title moves nothing, and a cancelled 
 	assert.equal(canvas.navMode.textContent, NAV_CHIP);
 });
 
-test("canvas-layout S1/S7: dragging the artboard body or the empty canvas still pans, a still click still opens it, header buttons keep their default, and focus mode moves nothing", async () => {
+test("canvas-layout S9/S7: dragging the artboard body moves it, the empty canvas still pans, a still click still opens it, header buttons keep their default, and focus mode moves nothing", async () => {
 	const canvas = await loadRail(300, NO_LAYOUT);
 	const [first, second] = canvas.boards;
 	const before = canvas.world.style.transform;
-	await dragFrom(first.shield!, [150, 150], [[190, 170]]);
-	assert.notEqual(canvas.world.style.transform, before, "the body pans");
-	const panned = canvas.world.style.transform;
+	await dragFrom(second.shield!, [550, 150], [[590, 170]]);
+	assert.equal(canvas.world.style.transform, before, "the body moves its artboard instead of panning");
+	assert.deepEqual(canvas.world.children.map(placed), [["0px", "0px"], ["520px", "20px"]]);
+	assert.equal(layoutPosts(canvas).length, 1);
 	await dragFrom(canvas.world, [700, 600], [[650, 560]]);
-	assert.notEqual(canvas.world.style.transform, panned, "the empty canvas pans");
-	assert.deepEqual(canvas.world.children.map(placed), [["0px", "0px"], ["480px", "0px"]], "and no artboard moved");
+	assert.notEqual(canvas.world.style.transform, before, "the empty canvas pans");
+	assert.deepEqual(canvas.world.children.map(placed), [["0px", "0px"], ["520px", "20px"]], "and no artboard moved");
 	const open = withClass(second.wrapper, "gd-board-open")[0];
 	await dragFrom(open, [700, 120], [[800, 200]]);
-	assert.deepEqual(placed(second.wrapper), ["480px", "0px"], "a press on a header button does not move the artboard");
-	assert.deepEqual(canvas.posts, []);
+	assert.deepEqual(placed(second.wrapper), ["520px", "20px"], "a press on a header button does not move the artboard");
+	assert.equal(layoutPosts(canvas).length, 1);
 	open.dispatch("click");
 	assert.match(canvas.navMode.textContent, /^Using: Second/, "and the button still works");
 	assert.equal(canvas.document.getElementById("gd-arrange-grid").disabled, true, "no arrangement while a direction is open");
 	await dragFrom(boardTitle(second.wrapper), [500, 60], [[600, 160]]);
-	assert.deepEqual(placed(second.wrapper), ["480px", "0px"], "focus mode moves nothing");
-	assert.deepEqual(canvas.posts, []);
+	await dragFrom(second.shield!, [500, 160], [[600, 260]]);
+	assert.deepEqual(placed(second.wrapper), ["520px", "20px"], "focus mode moves nothing");
+	assert.equal(layoutPosts(canvas).length, 1);
 	canvas.document.getElementById("gd-back").dispatch("click");
 	assert.equal(canvas.document.getElementById("gd-arrange-grid").disabled, false);
 	click(first.shield!, 150, 150);
 	assert.match(canvas.navMode.textContent, /^Using: First/, "a still click on the body opens it");
+});
+
+// ---- canvas-layout T6: drag any part of an artboard to move it, Space + drag to pan, the pressed artboard selected ----
+
+/** A key event on `target` (its listeners, then its ancestors'), then on the document's listeners, like the browser. */
+function keyAt(canvas: Canvas, type: "keydown" | "keyup", key: string, target: FakeElement = canvas.document.body, init: Record<string, unknown> = {}) {
+	const event = target.dispatch(type, { key, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, ...init });
+	for (const listener of canvas.document.listeners.get(type) ?? []) listener(event);
+	return event;
+}
+const translation = (canvas: Canvas) => /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(canvas.world.style.transform)!.slice(1).map(Number);
+const selectedBoards = (canvas: Canvas) => canvas.world.children.filter((wrapper) => wrapper.classes.has("gd-selected"));
+
+test("canvas-layout S9: dragging an artboard's frame moves it like its title: world px at any zoom, a 4 px slop, one save on release, a free layout; a still click still opens it", async () => {
+	const canvas = await loadRail(300, NO_LAYOUT);
+	const [, second] = canvas.boards;
+	canvas.document.getElementById("gd-zoom-out").dispatch("click");
+	const view = canvas.world.style.transform;
+	second.shield!.dispatch("pointerdown", { button: 0, pointerId: 3, clientX: 500, clientY: 300 });
+	assert.ok(canvas.viewport.classes.has("gd-moving"), "the grabbing cursor of a move");
+	second.shield!.dispatch("pointermove", { pointerId: 3, clientX: 503, clientY: 302 });
+	assert.deepEqual(placed(second.wrapper), ["480px", "0px"], "a still press does not move");
+	// 80 x 40 screen px at 80% are 100 x 50 world px.
+	second.shield!.dispatch("pointermove", { pointerId: 3, clientX: 580, clientY: 340 });
+	assert.deepEqual(placed(second.wrapper), ["580px", "50px"]);
+	assert.equal(layoutPosts(canvas).length, 0, "nothing is saved while it moves");
+	second.shield!.dispatch("pointerup", { button: 0, pointerId: 3, clientX: 580, clientY: 340 });
+	for (let i = 0; i < 5; i++) await flush();
+	assert.ok(!canvas.viewport.classes.has("gd-moving"));
+	assert.equal(canvas.world.style.transform, view, "moving an artboard never pans");
+	assert.equal(canvas.navMode.textContent, NAV_CHIP, "nor opens it");
+	assert.deepEqual(canvas.posts, [{ url: LAYOUT_URL, body: { arrangement: "free", positions: { "01-a.html": { x: 0, y: 0 }, "02-b.html": { x: 580, y: 50 } } } }]);
+	assert.deepEqual(pressedArrangements(canvas), ["false", "false", "false"]);
+	await dragFrom(second.shield!, [500, 300], [[600, 400]], "pointercancel");
+	assert.deepEqual(placed(second.wrapper), ["580px", "50px"], "a cancelled move puts it back");
+	assert.ok(!second.wrapper.classes.has("gd-lifted"), "and lays it down");
+	assert.equal(layoutPosts(canvas).length, 1, "unsaved");
+	click(second.shield!, 500, 300);
+	assert.match(canvas.navMode.textContent, /^Using: Second/, "a still click opens it");
+	assert.equal(layoutPosts(canvas).length, 1, "and saves nothing");
+
+	// Comment mode keeps the click that opens the direction to comment; a drag still moves it.
+	canvas.document.getElementById("gd-back").dispatch("click");
+	canvas.document.getElementById("gd-comment").dispatch("click");
+	await dragFrom(second.shield!, [500, 300], [[540, 300]]);
+	assert.deepEqual(placed(second.wrapper), ["630px", "50px"]);
+	assert.equal(canvas.navMode.textContent, COMMENT_CHIP);
+	click(second.shield!, 500, 300);
+	assert.match(canvas.navMode.textContent, /^Using: Second/);
+	assert.equal(canvas.document.getElementById("gd-comment").getAttribute("aria-pressed"), "true", "with Comment mode still on");
+});
+
+test("canvas-layout S9: holding Space pans from anywhere, over an artboard too, with a grab cursor, and never scrolls the page", async () => {
+	const canvas = await loadRail(300, NO_LAYOUT);
+	const [, second] = canvas.boards;
+	const [x, y] = translation(canvas);
+	assert.equal(keyAt(canvas, "keydown", " ").defaultPrevented, true, "Space does not scroll the page");
+	assert.ok(canvas.viewport.classes.has("gd-space-pan"), "a grab cursor while it is held");
+	assert.equal(keyAt(canvas, "keydown", " ", undefined, { repeat: true }).defaultPrevented, true, "nor does its auto-repeat");
+	await dragFrom(second.shield!, [500, 300], [[540, 320]]);
+	await dragFrom(boardTitle(second.wrapper), [500, 60], [[520, 60]]);
+	assert.deepEqual(translation(canvas), [x + 60, y + 20], "the frame and the title pan");
+	assert.deepEqual(canvas.world.children.map(placed), [["0px", "0px"], ["480px", "0px"]], "and no artboard moves");
+	click(second.shield!, 500, 300);
+	assert.equal(canvas.navMode.textContent, NAV_CHIP, "a still press with Space opens nothing");
+	assert.deepEqual(selectedBoards(canvas), [], "nor selects");
+	assert.deepEqual(canvas.posts, []);
+	keyAt(canvas, "keyup", " ");
+	assert.ok(!canvas.viewport.classes.has("gd-space-pan"));
+	await dragFrom(second.shield!, [500, 300], [[540, 320]]);
+	assert.deepEqual(placed(second.wrapper), ["520px", "20px"], "without Space a drag moves the artboard again");
+	assert.deepEqual(translation(canvas), [x + 60, y + 20]);
+	// A window that loses focus never sees the release: Space lets go.
+	keyAt(canvas, "keydown", " ");
+	canvas.windowEvent("blur");
+	assert.ok(!canvas.viewport.classes.has("gd-space-pan"));
+	await dragFrom(second.shield!, [500, 300], [[510, 300]]);
+	assert.deepEqual(placed(second.wrapper), ["530px", "20px"]);
+
+	const css = read("canvas.css");
+	assert.match(css, /\.gd-viewport\.gd-space-pan, \.gd-viewport\.gd-space-pan \* \{ cursor: grab; \}/);
+	assert.match(css, /\.gd-viewport\.gd-space-pan\.gd-panning, \.gd-viewport\.gd-space-pan\.gd-panning \* \{ cursor: grabbing; \}/);
+});
+
+test("canvas-layout S9: Space stays with fields, buttons, the comment box and an open artboard, and a Space on an artboard's shield still opens it", async () => {
+	const canvas = await loadRail(300, NO_LAYOUT);
+	const [first] = canvas.boards;
+	const editable = canvas.document.createElement("div") as FakeElement & { isContentEditable?: boolean };
+	editable.isContentEditable = true;
+	for (const target of [...["input", "textarea", "select", "button", "a"].map((tag) => canvas.document.createElement(tag)), editable]) {
+		assert.equal(keyAt(canvas, "keydown", " ", target).defaultPrevented, false, `${target.localName}: Space keeps its default`);
+		assert.ok(!canvas.viewport.classes.has("gd-space-pan"), target.localName);
+	}
+	canvas.document.getElementById("gd-popover").hidden = false;
+	assert.equal(keyAt(canvas, "keydown", " ").defaultPrevented, false, "the comment box keeps it");
+	assert.ok(!canvas.viewport.classes.has("gd-space-pan"));
+	canvas.document.getElementById("gd-popover").hidden = true;
+
+	// From the keyboard an artboard's shield is a button: Space opens it on release, like a button, when it did not pan.
+	const held = keyAt(canvas, "keydown", " ", first.shield!);
+	assert.equal(held.defaultPrevented, true);
+	assert.equal(canvas.navMode.textContent, NAV_CHIP, "not on the press, which may start a pan");
+	await dragFrom(first.shield!, [150, 150], [[190, 150]]);
+	keyAt(canvas, "keyup", " ", first.shield!);
+	assert.equal(canvas.navMode.textContent, NAV_CHIP, "a Space that panned opens nothing");
+	assert.deepEqual(canvas.world.children.map(placed), [["0px", "0px"], ["480px", "0px"]]);
+	keyAt(canvas, "keydown", " ", first.shield!);
+	keyAt(canvas, "keyup", " ", first.shield!);
+	assert.match(canvas.navMode.textContent, /^Using: First/, "a plain Space opens it");
+	assert.ok(!canvas.viewport.classes.has("gd-space-pan"));
+	// Inside a direction Space belongs to the artboard and the Back button.
+	assert.equal(keyAt(canvas, "keydown", " ").defaultPrevented, false, "focus mode keeps it");
+	assert.ok(!canvas.viewport.classes.has("gd-space-pan"));
+});
+
+test("canvas-layout S10: pressing an artboard outlines all of it as selected until a press elsewhere or Esc, one at a time; opening it clears it", async () => {
+	const canvas = await loadRail(300, NO_LAYOUT);
+	const [first, second] = canvas.boards;
+	assert.deepEqual(selectedBoards(canvas), []);
+	second.shield!.dispatch("pointerdown", { button: 0, pointerId: 3, clientX: 500, clientY: 300 });
+	assert.deepEqual(selectedBoards(canvas), [second.wrapper], "on the press, before it moves");
+	second.shield!.dispatch("pointermove", { pointerId: 3, clientX: 540, clientY: 320 });
+	second.shield!.dispatch("pointerup", { button: 0, pointerId: 3, clientX: 540, clientY: 320 });
+	for (let i = 0; i < 5; i++) await flush();
+	assert.deepEqual(selectedBoards(canvas), [second.wrapper], "and after the drop");
+	await dragFrom(boardTitle(first.wrapper), [100, 20], []);
+	assert.deepEqual(selectedBoards(canvas), [first.wrapper], "another artboard's title takes it: one at a time");
+	await dragFrom(canvas.world, [700, 600], [[650, 560]]);
+	assert.deepEqual(selectedBoards(canvas), [], "a press on the background clears it");
+	await dragFrom(second.shield!, [500, 300], [[510, 300]]);
+	await dragFrom(withClass(second.wrapper, "gd-board-open")[0], [700, 20], []);
+	assert.deepEqual(selectedBoards(canvas), [second.wrapper], "a header button keeps it");
+	const esc = keyAt(canvas, "keydown", "Escape");
+	assert.equal(esc.defaultPrevented, true);
+	assert.deepEqual(selectedBoards(canvas), [], "Esc clears it");
+	await dragFrom(second.shield!, [500, 300], [[510, 300]]);
+	withClass(second.wrapper, "gd-board-open")[0].dispatch("click");
+	assert.deepEqual(selectedBoards(canvas), [], "opening a direction clears it");
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.deepEqual(selectedBoards(canvas), []);
+	click(first.shield!, 150, 150);
+	assert.match(canvas.navMode.textContent, /^Using: First/);
+	assert.deepEqual(selectedBoards(canvas), [], "a still click opens it, selected only for the press");
+
+	const css = read("canvas.css");
+	const start = css.indexOf("\n.gd-world .gd-selected {");
+	assert.ok(start >= 0, "the selected artboard is styled");
+	const rule = css.slice(start, css.indexOf("}", start) + 1);
+	assert.match(rule, /outline:[^;]*var\(--accent\)/, "an accent outline around the whole artboard");
+	assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(|transition|animation/.test(rule), "tokens only, and no motion");
+});
+
+test("canvas-layout S9: the shortcuts list names Space + drag, in English and Spanish, and the docs describe the gestures", () => {
+	const html = read("index.html");
+	assert.match(html, /<dt><kbd data-i18n="keys\.spaceKey">Space<\/kbd> \+ <span data-i18n="keys\.drag">drag<\/span><\/dt><dd data-i18n="keys\.space">Pan from anywhere, even over an artboard<\/dd>/);
+	assert.ok(html.indexOf('data-i18n="keys.pan"') < html.indexOf('data-i18n="keys.space"') && html.indexOf('data-i18n="keys.space"') < html.indexOf('data-i18n="keys.minimap"'), "after the arrow keys");
+	const { en, es } = loadCatalog();
+	assert.deepEqual(["keys.spaceKey", "keys.drag", "keys.space"].map((key) => en[key]), ["Space", "drag", "Pan from anywhere, even over an artboard"]);
+	assert.deepEqual(["keys.spaceKey", "keys.drag", "keys.space"].map((key) => es[key]), ["Espacio", "arrastrar", "Desplázate desde cualquier punto, también sobre una propuesta"]);
+	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
+	const section = docs.slice(docs.indexOf("### Gentle Design"));
+	const layout = section.slice(section.indexOf("- Layout:"), section.indexOf("\n", section.indexOf("- Layout:")));
+	for (const part of ["any part of it", "`Space`", "selected", "empty canvas"]) assert.ok(layout.includes(part), `the Layout bullet mentions ${part}`);
+	assert.ok(!section.includes("dragging the artboard itself or the empty canvas still pans"), "the old gesture is gone");
+	assert.ok(!section.includes("drag always pan or zoom the canvas, even over an artboard"));
+	assert.ok(!section.includes("**Desktop** (the artboard's own size in `design.json`"), "Desktop is the window's width now (canvas-layout S8)");
+	assert.ok(!section.includes("the rest of the canvas is dimmed"), "the other artboards are hidden, not dimmed");
 });
 
 const MIXED_REPLY = {
@@ -7842,8 +8048,9 @@ test("canvas-layout S3: focus mode centers a moved artboard from where it sits",
 	second.wrapper.offsetTop = 900;
 	second.frame.parentElement!.offsetTop = 20;
 	click(second.shield!, 200, 200);
-	// x centers the 400 px frame in 1000 px: 300 - 600; y puts it in the middle below the 16 px margin and the label: 200 - 920.
-	assert.equal(canvas.world.style.transform, "translate(-300px, -720px) scale(1)");
+	// x puts Desktop's 984 px frame (canvas-layout S8) at the 8 px margin: 8 - 600; y puts it in the middle below the margin and the label: 200 - 920.
+	assert.equal(second.frame.style.width, "984px");
+	assert.equal(canvas.world.style.transform, "translate(-592px, -720px) scale(1)");
 });
 
 test("canvas-layout S2: the arrangement control sits in the top bar before the language, named from the catalog, and styled with tokens", () => {

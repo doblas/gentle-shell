@@ -468,6 +468,9 @@ select {
 }
 
 .gd-viewport.gd-panning { cursor: grabbing; }
+/* Space held: every press pans, over an artboard too (canvas-layout S9). */
+.gd-viewport.gd-space-pan, .gd-viewport.gd-space-pan * { cursor: grab; }
+.gd-viewport.gd-space-pan.gd-panning, .gd-viewport.gd-space-pan.gd-panning * { cursor: grabbing; }
 
 .gd-nav-mode {
 	position: absolute;
@@ -634,9 +637,15 @@ select {
 /* The one being moved stays above the others. */
 .gd-world .gd-lifted { z-index: 1; }
 
-/* An artboard moves by its label header; its buttons and links keep their own cursor. Inside a direction it stays put. */
+/* An artboard moves by any part of it (canvas-layout S9): its label header says so; its buttons and links keep their own
+   cursor, and its frame keeps the pointer of the click that opens it. Inside a direction it stays put. */
 .gd-world .gd-artboard:not(.gd-placeholder) > .gd-artboard-label { cursor: move; user-select: none; }
 .gd-viewport.gd-moving, .gd-viewport.gd-moving * { cursor: grabbing; }
+/* The artboard pressed last, title and frame, until a press elsewhere or Esc (canvas-layout S10). */
+.gd-world .gd-selected {
+	outline: calc(2px * var(--gd-inv-zoom, 1)) solid var(--accent);
+	outline-offset: calc(6px * var(--gd-inv-zoom, 1));
+}
 .gd-focused .gd-world .gd-artboard > .gd-artboard-label { cursor: auto; user-select: auto; }
 
 .gd-artboard-label {
@@ -889,7 +898,8 @@ select {
 /* Comment mode in the overview: a click opens the direction (its hint says so); elements are picked inside it. */
 
 .gd-viewport.gd-focused { cursor: default; }
-.gd-focused .gd-artboard:not(.gd-focus-board) { opacity: 0.25; }
+/* Only the open artboard shows: the others would peek in beside it. */
+.gd-focused .gd-world > :not(.gd-focus-board) { visibility: hidden; }
 .gd-focused .gd-focus-board .gd-artboard-frame { box-shadow: 0 0 0 2px var(--accent), var(--shadow-frame); }
 
 /* Floats in the 48 px band canvas.js keeps free below the focused artboard (BACK_SPACE). */
