@@ -3892,25 +3892,12 @@ test("T1/S1: the minimap draws every board as a block at its relative position a
 	assert.equal(miniPanel(canvas).hidden, false);
 });
 
-test("canvas-layout S4: each minimap block shows its title at a glance, and a block too small for text keeps only the tooltip", async () => {
+test("canvas-layout S4 (withdrawn, L20): minimap blocks carry no text; each names its artboard only on hover", async () => {
 	const canvas = await minimapCanvas();
-	const labels = miniBlocks(canvas).map((block) => withClass(block, "gd-minimap-label"));
-	assert.deepEqual(labels.map((found) => found.length), [1, 1, 1], "one label per block");
-	assert.deepEqual(labels.map(([label]) => label.textContent), miniBlocks(canvas).map((block) => block.title), "the label is the hover title");
-	assert.equal(labels[1][0].textContent.startsWith("01 · "), true, "artboards lead with their number");
-	assert.deepEqual(miniBlocks(canvas).map((block) => block.classes.has("gd-minimap-tight")), [false, false, false]);
-	// A world so wide that every block is a sliver: no text is drawn, the tooltip stays.
-	layoutWorld(canvas, [[0, 0, 800, 600], [40000, 0, 400, 300], [80000, 0, 560, 840]]);
-	canvas.windowEvent("resize");
-	assert.deepEqual(miniBlocks(canvas).map((block) => block.classes.has("gd-minimap-tight")), [true, true, true]);
-	assert.equal(miniBlocks(canvas)[1].title.startsWith("01 · "), true);
-	const css = read("canvas.css");
-	const label = /\.gd-minimap-label\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
-	// A narrow block wraps the title onto up to three lines instead of cutting it to its first letters.
-	assert.match(label, /-webkit-line-clamp:\s*3/);
-	assert.match(label, /overflow-wrap:\s*anywhere/);
-	assert.doesNotMatch(label, /white-space:\s*nowrap/);
-	assert.match(css, /\.gd-minimap-tight \.gd-minimap-label\s*\{\s*display:\s*none;?\s*\}/);
+	const blocks = miniBlocks(canvas);
+	assert.deepEqual(blocks.map((block) => block.children.length), [0, 0, 0], "no label inside the blocks");
+	assert.equal(blocks[1].title.startsWith("01 · "), true, "the hover title names the artboard");
+	assert.doesNotMatch(read("canvas.css"), /gd-minimap-label|gd-minimap-tight/);
 });
 
 test("T1/S1: blocks keep the world's aspect and are centered in the map", async () => {

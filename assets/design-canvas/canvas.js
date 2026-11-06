@@ -40,7 +40,7 @@
 	// Controls keep their own press: one on a button, link or field in an artboard header neither pans nor moves the artboard.
 	const CONTROL_TAGS = ["button", "a", "input", "select", "textarea", "label"];
 	// The minimap: its map box in CSS px (canvas.css gives .gd-minimap-map the same size) and the pad kept free around the blocks.
-	const MINIMAP = { width: 204, height: 96, pad: 6, minBlock: 2, labelWidth: 18, labelHeight: 11 };
+	const MINIMAP = { width: 204, height: 96, pad: 6, minBlock: 2 };
 	const LIMITS = { selector: 500, excerpt: 300, comment: 2000, variant: 2000, pins: 500, tokens: 500, screenshotBytes: 5 * 1024 * 1024 };
 	const SCREENSHOT_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 	const MODE_KEY = "gentle-design:send-mode";
@@ -1444,10 +1444,6 @@
 		const block = document.createElement("span");
 		block.className = "gd-minimap-block";
 		block.setAttribute("aria-hidden", "true");
-		const label = document.createElement("span");
-		label.className = "gd-minimap-label";
-		block.append(label);
-		block.label = label;
 		return block;
 	}
 
@@ -1480,15 +1476,10 @@
 			block.classList.toggle("gd-minimap-discarded", Boolean(chosen && entry.board && !entry.board.system && entry.board !== chosen));
 			block.classList.toggle("gd-minimap-placeholder", !entry.board);
 			block.title = minimapTitle(entry);
-			// The title shows at a glance; a block too small to hold a line of it keeps only the hover title.
-			block.label.textContent = block.title;
-			const width = Math.max(MINIMAP.minBlock, entry.rect.width * map.scale);
-			const height = Math.max(MINIMAP.minBlock, entry.rect.height * map.scale);
-			block.classList.toggle("gd-minimap-tight", width < MINIMAP.labelWidth || height < MINIMAP.labelHeight);
 			block.style.left = rounded(map.x + entry.rect.x * map.scale);
 			block.style.top = rounded(map.y + entry.rect.y * map.scale);
-			block.style.width = rounded(width);
-			block.style.height = rounded(height);
+			block.style.width = rounded(Math.max(MINIMAP.minBlock, entry.rect.width * map.scale));
+			block.style.height = rounded(Math.max(MINIMAP.minBlock, entry.rect.height * map.scale));
 		});
 		const children = [...blocks, els.minimapView];
 		// Only when the set of boards changed: a pan only moves the outline, and re-attaching nodes on every pointer move is wasted work.

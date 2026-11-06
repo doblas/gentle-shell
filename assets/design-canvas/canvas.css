@@ -522,35 +522,16 @@ select {
 	touch-action: none;
 }
 
-/* A block is a solid box so its title stays readable; the title clips to the block and hides when the block is a sliver. */
 .gd-minimap-block {
 	position: absolute;
-	overflow: hidden;
-	box-sizing: border-box;
-	border: 1px solid var(--border);
 	border-radius: 2px;
-	background: var(--surface-2);
+	background: var(--text-muted);
+	opacity: .5;
 }
 
-.gd-minimap-label {
-	display: -webkit-box;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 3;
-	line-clamp: 3;
-	padding: 1px 3px;
-	overflow: hidden;
-	color: var(--text);
-	font: 600 9px/1.1 var(--font-sans);
-	overflow-wrap: anywhere;
-	text-overflow: ellipsis;
-	pointer-events: none;
-}
-
-.gd-minimap-tight .gd-minimap-label { display: none; }
-.gd-minimap-system { background: var(--surface-1); }
-.gd-minimap-system .gd-minimap-label { color: var(--text-muted); }
-.gd-minimap-chosen { border-color: var(--accent); background: var(--accent-wash); }
-.gd-minimap-discarded { opacity: .45; }
+.gd-minimap-system { background: var(--text-faint); }
+.gd-minimap-chosen { background: var(--accent); opacity: 1; }
+.gd-minimap-discarded { opacity: .25; }
 .gd-minimap-placeholder { background: transparent; border: 1px dashed var(--accent); opacity: 1; }
 
 .gd-minimap-view {
