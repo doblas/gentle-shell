@@ -3870,8 +3870,10 @@ test("canvas-layout S4: each minimap block shows its title at a glance, and a bl
 	assert.equal(miniBlocks(canvas)[1].title.startsWith("01 · "), true);
 	const css = read("canvas.css");
 	const label = /\.gd-minimap-label\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
-	assert.match(label, /text-overflow:\s*ellipsis/);
-	assert.match(label, /white-space:\s*nowrap/);
+	// A narrow block wraps the title onto up to three lines instead of cutting it to its first letters.
+	assert.match(label, /-webkit-line-clamp:\s*3/);
+	assert.match(label, /overflow-wrap:\s*anywhere/);
+	assert.doesNotMatch(label, /white-space:\s*nowrap/);
 	assert.match(css, /\.gd-minimap-tight \.gd-minimap-label\s*\{\s*display:\s*none;?\s*\}/);
 });
 

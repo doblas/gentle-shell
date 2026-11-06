@@ -563,12 +563,15 @@ select {
 }
 
 .gd-minimap-label {
-	display: block;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
+	line-clamp: 3;
 	padding: 1px 3px;
 	overflow: hidden;
 	color: var(--text);
 	font: 600 9px/1.1 var(--font-sans);
-	white-space: nowrap;
+	overflow-wrap: anywhere;
 	text-overflow: ellipsis;
 	pointer-events: none;
 }
