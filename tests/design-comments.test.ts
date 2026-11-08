@@ -343,3 +343,27 @@ test("S5: a malformed resolution in an existing comments.json is an invalid-file
 	writeFileSync(path, JSON.stringify({ version: 1, comments: [{ ...good.comments[0], status: "resolved", resolution: "Done." }, { ...good.comments[0], id: "other1" }] }));
 	assert.deepEqual((await store.read("alpha")).comments.map((comment) => comment.resolution), ["Done.", undefined]);
 });
+
+test("canvas-layout S17: setText changes the text of an open, unsent comment and refuses sent, resolved, unknown and invalid ones without writing", async (t) => {
+	const root = designRoot(t);
+	const store = fixedStore(root);
+	const a = await store.add("alpha", INPUT);
+	const sent = await store.add("alpha", INPUT);
+	const resolved = await store.add("alpha", INPUT);
+	await store.markSent("alpha", [sent.id]);
+	await store.setStatus("alpha", [resolved.id], "resolved");
+	const edited = await store.setText("alpha", a.id, "Make it much bigger");
+	assert.equal(edited.comment, "Make it much bigger");
+	assert.equal(edited.sentAt, null);
+	assert.equal(edited.createdAt, FIXED.toISOString(), "the creation time stays");
+	const path = join(root, "alpha", "comments.json");
+	const before = readFileSync(path, "utf8");
+	assert.equal(JSON.parse(before).comments[0].comment, "Make it much bigger");
+	const refused = (code: string) => (error: unknown) => error instanceof DesignCommentsError && error.code === code;
+	await assert.rejects(store.setText("alpha", sent.id, "New"), refused("locked"));
+	await assert.rejects(store.setText("alpha", resolved.id, "New"), refused("locked"));
+	await assert.rejects(store.setText("alpha", "nope00", "New"), refused("not-found"));
+	await assert.rejects(store.setText("alpha", a.id, ""), refused("invalid-input"));
+	await assert.rejects(store.setText("alpha", a.id, "x".repeat(2001)), refused("invalid-input"));
+	assert.equal(readFileSync(path, "utf8"), before, "a refused edit writes nothing");
+});

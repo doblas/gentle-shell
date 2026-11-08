@@ -221,6 +221,10 @@
 			"comment.agent": "Agent:",
 			"comment.resolved": "Comment resolved",
 			"comment.reopened": "Comment reopened",
+			"comment.edit": "Edit",
+			"comment.editAria": "Edit comment {number}",
+			"comment.editLabel": "Text of comment {number}",
+			"comment.updated": "Comment updated",
 			"comment.status.open": "open",
 			"comment.status.resolved": "resolved",
 			"pin.aria": "Comment {number} ({status}): {text}",
@@ -502,6 +506,7 @@
 			"reason.body-too-large": "The request was too large. Remove the screenshot or shorten the comment, then try again with something smaller.",
 			"reason.file-too-large": "That file is too large for the canvas to show. Make the artboard or asset smaller.",
 			"reason.not-found": "That item no longer exists. Reload the canvas to see the current state.",
+			"reason.comment-sent": "This comment was already sent or resolved, so its text can no longer change.",
 			"reason.too-many-streams": "Too many canvas tabs are open. Close the ones you do not use, then reload this one.",
 			"reason.internal": "An unexpected error happened in the canvas server. Try again; if it keeps failing, reopen it: open the canvas from your session with /gentle:design open.",
 			"reason.forbidden": "The server refused this request. Reload the canvas page, or reopen it with /gentle:design open.",
@@ -638,6 +643,10 @@
 			"comment.agent": "Agente:",
 			"comment.resolved": "Comentario resuelto",
 			"comment.reopened": "Comentario reabierto",
+			"comment.edit": "Editar",
+			"comment.editAria": "Editar comentario {number}",
+			"comment.editLabel": "Texto del comentario {number}",
+			"comment.updated": "Comentario actualizado",
 			"comment.status.open": "abierto",
 			"comment.status.resolved": "resuelto",
 			"pin.aria": "Comentario {number} ({status}): {text}",
@@ -919,6 +928,7 @@
 			"reason.body-too-large": "La solicitud era demasiado grande. Quita la captura o acorta el comentario y vuelve a intentarlo con algo más pequeño.",
 			"reason.file-too-large": "Ese archivo es demasiado grande para que el canvas lo muestre. Reduce el tamaño del artboard o del recurso.",
 			"reason.not-found": "Ese elemento ya no existe. Recarga el canvas para ver el estado actual.",
+			"reason.comment-sent": "Este comentario ya se envió o se resolvió, así que su texto ya no puede cambiar.",
 			"reason.too-many-streams": "Hay demasiadas pestañas del canvas abiertas. Cierra las que no uses y recarga esta.",
 			"reason.internal": "Ocurrió un error inesperado en el servidor del canvas. Inténtalo de nuevo; si sigue fallando, vuelve a abrirlo: abre el canvas desde tu sesión con /gentle:design open.",
 			"reason.forbidden": "El servidor rechazó esta solicitud. Recarga la página del canvas o vuelve a abrirla con /gentle:design open.",
@@ -1276,6 +1286,8 @@
 		toastTimer: 0,
 		// Failed resolve or reopen replies by comment id, shown in that comment's card.
 		cardErrors: new Map(),
+		// Drafts of the comments being edited in their card (canvas-layout S17), by id; they survive a re-render.
+		editing: new Map(),
 	};
 
 	/** The status line: the text of `key` (none clears it), kept in the language of the page. */
@@ -5116,7 +5128,12 @@
 			const file = document.createElement("span");
 			file.className = "gd-comment-file";
 			file.textContent = comment.file;
-			show.append(meta, text);
+			// An open comment not sent yet can still change (canvas-layout S17): its text becomes an editor outside the button.
+			const editable = comment.status === "open" && !comment.sentAt;
+			if (!editable) state.editing.delete(comment.id);
+			const editing = editable && state.editing.has(comment.id);
+			show.append(meta);
+			if (!editing) show.append(text);
 			// Where the comment was made, when not at the artboard's own size.
 			if (comment.viewport && typeof comment.viewport === "object") {
 				const label = describeViewport(comment.viewport);
@@ -5143,8 +5160,57 @@
 			toggle.textContent = t(next === "resolved" ? "comment.resolve" : "comment.reopen");
 			toggle.setAttribute("aria-label", t(next === "resolved" ? "comment.resolveAria" : "comment.reopenAria", { number: commentNumber(comment) }));
 			toggle.addEventListener("click", () => setCommentStatus(comment.id, next));
-			actions.append(toggle);
 			item.append(show);
+			if (editing) {
+				const field = document.createElement("textarea");
+				field.className = "gd-comment-editor";
+				field.rows = 3;
+				field.setAttribute("maxlength", String(LIMITS.comment));
+				field.setAttribute("aria-label", t("comment.editLabel", { number: commentNumber(comment) }));
+				field.value = state.editing.get(comment.id);
+				const save = document.createElement("button");
+				save.type = "button";
+				save.className = "gd-comment-save gd-primary";
+				save.textContent = t("common.save");
+				const cancel = document.createElement("button");
+				cancel.type = "button";
+				cancel.className = "gd-comment-cancel";
+				cancel.textContent = t("common.cancel");
+				const sync = () => { save.disabled = field.value.trim().length === 0; };
+				field.addEventListener("input", () => { state.editing.set(comment.id, field.value); sync(); });
+				field.addEventListener("keydown", (event) => {
+					if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel.click(); }
+					else if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !save.disabled) { event.preventDefault(); save.click(); }
+				});
+				cancel.addEventListener("click", () => {
+					state.editing.delete(comment.id);
+					state.cardErrors.delete(comment.id);
+					renderList();
+					els.list.querySelector(`[data-id="${CSS.escape(comment.id)}"] .gd-comment-edit`)?.focus();
+				});
+				save.addEventListener("click", () => saveCommentText(comment.id));
+				sync();
+				item.append(field);
+				actions.append(cancel, save);
+			} else {
+				if (editable) {
+					const edit = document.createElement("button");
+					edit.type = "button";
+					edit.className = "gd-comment-edit";
+					edit.textContent = t("comment.edit");
+					edit.setAttribute("aria-label", t("comment.editAria", { number: commentNumber(comment) }));
+					edit.addEventListener("click", () => {
+						state.editing.set(comment.id, comment.comment);
+						state.cardErrors.delete(comment.id);
+						renderList();
+						const field = els.list.querySelector(`[data-id="${CSS.escape(comment.id)}"] .gd-comment-editor`);
+						field?.focus();
+						field?.setSelectionRange?.(field.value.length, field.value.length);
+					});
+					actions.append(edit);
+				}
+				actions.append(toggle);
+			}
 			// What the agent did, from the note it gave when resolving; a reopened comment has none.
 			if (comment.status === "resolved" && typeof comment.resolution === "string" && comment.resolution) {
 				const reply = document.createElement("div");
@@ -5237,6 +5303,24 @@
 			renderList();
 			els.list.querySelector(`[data-id="${CSS.escape(id)}"] .gd-comment-toggle`)?.focus();
 		} else showToast(t(status === "resolved" ? "comment.resolved" : "comment.reopened"), false);
+		await loadComments();
+	}
+
+	async function saveCommentText(id) {
+		const slug = state.slug;
+		const draft = state.editing.get(id);
+		if (typeof draft !== "string" || draft.trim().length === 0) return;
+		if (state.cardErrors.delete(id)) renderList();
+		const reply = await postJson(`api/designs/${encodeURIComponent(slug)}/comments/${encodeURIComponent(id)}/text`, { comment: draft });
+		if (!reply.ok) {
+			// The editor and its draft stay, with the reason in the card, so nothing typed is lost.
+			state.cardErrors.set(id, reply);
+			renderList();
+			els.list.querySelector(`[data-id="${CSS.escape(id)}"] .gd-comment-editor`)?.focus();
+		} else {
+			state.editing.delete(id);
+			showToast(t("comment.updated"), false);
+		}
 		await loadComments();
 	}
 

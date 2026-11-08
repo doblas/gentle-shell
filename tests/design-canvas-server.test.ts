@@ -1591,3 +1591,35 @@ test("canvas-layout S3: saving the layout streams one change for layout.json", a
 	assert.equal((await postJson(port, LAYOUT_PATH, SAVED_LAYOUT)).status, 200);
 	await events.waitFor(/event: change\ndata: \{"slug":"alpha","file":"layout\.json"\}\n\n/);
 });
+
+test("canvas-layout S17: the text route edits an open, unsent comment and refuses sent, resolved, unknown, invalid and cross-origin edits without writing", async (t) => {
+	const { port, root } = await start(t);
+	await postComment(port, { ...VALID, mode: "collect" });
+	await postComment(port, { ...VALID, mode: "collect" });
+	await postComment(port, { ...VALID, mode: "collect" });
+	const [open, sent, resolved] = storedComments(root);
+	const path = join(root, "alpha", "comments.json");
+	const document = JSON.parse(readFileSync(path, "utf8"));
+	document.comments[1].sentAt = "2026-11-08T10:00:00.000Z";
+	document.comments[2].status = "resolved";
+	document.comments[2].resolvedAt = "2026-11-08T10:00:00.000Z";
+	writeFileSync(path, JSON.stringify(document));
+	const edited = await postJson(port, `api/designs/alpha/comments/${open.id}/text`, { comment: "  Make it\r\nmuch bigger  " });
+	assert.equal(edited.status, 200);
+	assert.equal(JSON.parse(edited.body).comment.comment, "Make it\nmuch bigger", "line endings normalized and trimmed like a new comment");
+	assert.equal(storedComments(root)[0].comment, "Make it\nmuch bigger");
+	const before = readFileSync(path, "utf8");
+	const refusal = async (id: string, body: unknown) => {
+		const reply = await postJson(port, `api/designs/alpha/comments/${id}/text`, body);
+		return [reply.status, JSON.parse(reply.body || "{}").error];
+	};
+	assert.deepEqual(await refusal(sent.id, { comment: "New" }), [409, "comment-sent"]);
+	assert.deepEqual(await refusal(resolved.id, { comment: "New" }), [409, "comment-sent"]);
+	assert.deepEqual(await refusal("zzzzzz", { comment: "New" }), [404, "not-found"]);
+	assert.deepEqual(await refusal(open.id, { comment: "   " }), [400, "invalid-comment"]);
+	assert.deepEqual(await refusal(open.id, { comment: "x".repeat(2001) }), [400, "invalid-comment"]);
+	assert.deepEqual(await refusal(open.id, { comment: 7 }), [400, "invalid-comment"]);
+	const foreign = await rawRequest(port, `/${TOKEN}/api/designs/alpha/comments/${open.id}/text`, { method: "POST", headers: { Origin: "http://evil.example", "Content-Type": "application/json" }, body: JSON.stringify({ comment: "New" }) });
+	assert.equal(foreign.status, 403);
+	assert.equal(readFileSync(path, "utf8"), before, "no refused edit writes comments.json");
+});

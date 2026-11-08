@@ -8539,3 +8539,81 @@ test("canvas-layout S15: the docs describe Settings, Appearance with the theme a
 	for (const part of ["**Gentle**", "**Neutral**", "`gentle-design:theme`", "**Match the browser**", "`gentle-design:language`"]) assert.ok(appearance.includes(part), `Appearance mentions ${part}`);
 	assert.ok(!section.includes("globe"), "no globe button is described");
 });
+
+test("composer layout: the popover is wide enough for its three actions on one row, Implement only this sits on the left and Cancel and Send stay together on the right", () => {
+	const css = read("canvas.css");
+	assert.match(css, /\.gd-popover \{[^}]*width: min\(420px, calc\(100vw - 24px\)\);/);
+	assert.match(css, /\.gd-popover-actions #gd-popover-part \{[^}]*order: -1;[^}]*margin-right: auto;/);
+	assert.match(css, /\.gd-popover-feedback \{[^}]*order: -2;/);
+});
+
+test("canvas-layout S17: only an open, unsent comment has Edit; it edits the text in place, Save posts it and Cancel or a failure keeps the stored text", async () => {
+	const canvas = await loadRail(300, commentsDoc(comment("c1", "01-a.html"), comment("c2", "01-a.html", "open", { sentAt: "2026-11-08T10:00:00.000Z" }), comment("c3", "01-a.html", "resolved")));
+	canvas.document.getElementById("gd-filter-all")?.dispatch("click");
+	const list = canvas.document.getElementById("gd-comment-list");
+	const card = (id: string) => withClass(list, "gd-comment-item").find((element) => element.dataset.id === id)!;
+	const edit = (id: string) => withClass(card(id), "gd-comment-edit");
+	assert.equal(edit("c1").length, 1, "the waiting comment has Edit");
+	assert.equal(edit("c1")[0].textContent, "Edit");
+	assert.equal(edit("c1")[0].getAttribute("aria-label"), "Edit comment 1");
+	assert.equal(edit("c2").length, 0, "a sent comment has no Edit");
+	if (card("c3")) assert.equal(edit("c3").length, 0, "a resolved comment has no Edit");
+
+	edit("c1")[0].dispatch("click");
+	const field = () => withClass(card("c1"), "gd-comment-editor")[0];
+	assert.equal(field().localName, "textarea");
+	assert.equal(field().value, "Text of c1");
+	assert.equal(field().getAttribute("maxlength"), "2000");
+	assert.equal(withClass(card("c1"), "gd-comment-text").length, 0, "the text becomes the editor");
+	const save = () => withClass(card("c1"), "gd-comment-save")[0];
+	const cancel = () => withClass(card("c1"), "gd-comment-cancel")[0];
+	assert.equal(save().textContent, "Save");
+	assert.equal(cancel().textContent, "Cancel");
+
+	// An empty draft cannot be saved.
+	field().value = "   ";
+	field().dispatch("input");
+	assert.equal(save().disabled, true);
+
+	// Cancel discards the draft and posts nothing.
+	const posted = canvas.posts.length;
+	cancel().dispatch("click");
+	assert.equal(withClass(card("c1"), "gd-comment-editor").length, 0);
+	assert.equal(texts(card("c1"), "gd-comment-text")[0], "Text of c1");
+	assert.equal(canvas.posts.length, posted);
+
+	// A re-render while editing (a comments.json change) keeps the draft.
+	edit("c1")[0].dispatch("click");
+	field().value = "Bigger title";
+	field().dispatch("input");
+	await canvas.serverEvent("change", { slug: "alpha", file: "comments.json" });
+	assert.equal(field().value, "Bigger title");
+
+	// A refused save keeps the editor and the draft, with the reason in the card.
+	canvas.replies["/t/api/designs/alpha/comments/c1/text"] = { __http: 409, error: "comment-sent" };
+	save().dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.deepEqual(canvas.posts.at(-1), { url: "/t/api/designs/alpha/comments/c1/text", body: { comment: "Bigger title" } });
+	assert.equal(field().value, "Bigger title");
+	assert.match(texts(withClass(card("c1"), "gd-alert")[0], "gd-alert-text")[0], /already sent/i);
+
+	// A saved edit closes the editor and shows the new text.
+	canvas.replies["/t/api/designs/alpha/comments/c1/text"] = { ok: true };
+	canvas.replies["/t/api/designs/alpha/comments"] = { comments: [comment("c1", "01-a.html", "open", { comment: "Bigger title" })] };
+	save().dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.equal(withClass(card("c1"), "gd-comment-editor").length, 0);
+	assert.equal(texts(card("c1"), "gd-comment-text")[0], "Bigger title");
+	assert.equal(withClass(card("c1"), "gd-alert").filter((alert) => !alert.hidden).length, 0);
+	assert.equal(canvas.document.getElementById("gd-toast").textContent, "Comment updated");
+});
+
+test("canvas-layout S17: Edit, its editor and its messages speak Spanish", async () => {
+	const spanish = await loadLang({ browser: "es", replies: commentsDoc(comment("c1", "01-a.html")) });
+	const list = spanish.document.getElementById("gd-comment-list");
+	const [button] = withClass(list, "gd-comment-edit");
+	assert.deepEqual([button.textContent, button.getAttribute("aria-label")], ["Editar", "Editar comentario 1"]);
+	button.dispatch("click");
+	assert.deepEqual([withClass(list, "gd-comment-save")[0].textContent, withClass(list, "gd-comment-cancel")[0].textContent], ["Guardar", "Cancelar"]);
+	assert.equal(withClass(list, "gd-comment-editor")[0].getAttribute("aria-label"), "Texto del comentario 1");
+});

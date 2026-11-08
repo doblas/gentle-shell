@@ -171,6 +171,7 @@ function storeFailure(error: unknown): never {
 	if (error.code === "invalid-file") throw new HttpError(422, "invalid-comments", { error: "invalid-comments", reason: error.message });
 	if (error.code === "limit") throw new HttpError(409, "too-many-comments", { error: "too-many-comments", reason: error.message });
 	if (error.code === "invalid-input") throw new HttpError(400, "invalid-comment", { error: "invalid-comment", reason: error.message });
+	if (error.code === "locked") throw new HttpError(409, "comment-sent", { error: "comment-sent", reason: error.message });
 	throw new HttpError(500, "internal");
 }
 
@@ -876,6 +877,16 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		reply(res, 200, { ok: true, comment: updated[0] });
 	}
 
+	async function changeText(req: IncomingMessage, res: ServerResponse, slug: string, id: string): Promise<void> {
+		const body = await readJsonObject(req);
+		if (typeof body.comment !== "string") throw new HttpError(400, "invalid-comment");
+		const comment = body.comment.replace(/\r\n?/g, "\n").trim();
+		if (comment.length < 1 || comment.length > LIMITS.comment) throw new HttpError(400, "invalid-comment");
+		// Inside the delivery lock, so an edit never lands between a send-all's read and its markSent.
+		const updated = await exclusive(slug, () => store.setText(slug, id, comment)).catch(storeFailure);
+		reply(res, 200, { ok: true, comment: updated });
+	}
+
 	function broadcast(chunk: string): void {
 		for (const client of clients) client.write(chunk);
 	}
@@ -991,6 +1002,10 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		if (rest.length === 6 && rest[5] === "status") {
 			const id = safeSegment(rest[4]);
 			return id && isDesignCommentId(id) ? (req, res) => changeStatus(req, res, slug, id) : undefined;
+		}
+		if (rest.length === 6 && rest[5] === "text") {
+			const id = safeSegment(rest[4]);
+			return id && isDesignCommentId(id) ? (req, res) => changeText(req, res, slug, id) : undefined;
 		}
 		return undefined;
 	}

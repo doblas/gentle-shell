@@ -99,7 +99,7 @@ export type DesignCommentInput = { file: string; selector: string; excerpt: stri
 
 export type DesignScreenshot = { path: string; mimeType: string; data: Buffer };
 
-export type DesignCommentsErrorCode = "not-found" | "invalid-file" | "invalid-input" | "limit" | "id-exhausted";
+export type DesignCommentsErrorCode = "not-found" | "invalid-file" | "invalid-input" | "limit" | "id-exhausted" | "locked";
 
 export class DesignCommentsError extends Error {
 	readonly code: DesignCommentsErrorCode;
@@ -123,6 +123,8 @@ export interface DesignCommentStore {
 	setStatus(slug: string, ids: readonly string[], status: DesignCommentStatus, options?: { note?: string }): Promise<{ updated: StoredDesignComment[]; unknown: string[] }>;
 	/** Stamps sentAt on comments that have none yet. */
 	markSent(slug: string, ids: readonly string[]): Promise<StoredDesignComment[]>;
+	/** Replaces the text of an open comment not sent yet; `locked` once it was sent or resolved, `not-found` for an unknown id. */
+	setText(slug: string, id: string, text: string): Promise<StoredDesignComment>;
 	listOpen(slug: string, file?: string): Promise<StoredDesignComment[]>;
 	/** The screenshot of comment `id`, or undefined when there is no such comment, it has none, or the file is gone. */
 	readScreenshot(slug: string, id: string): Promise<DesignScreenshot | undefined>;
@@ -468,6 +470,21 @@ export function createDesignCommentStore(designRoot: string, deps: DesignComment
 					updated.push(comment);
 				}
 				return { result: updated, write: updated.length > 0 };
+			});
+		},
+
+		async setText(slug, id, text) {
+			if (typeof text !== "string" || text.length < 1 || text.length > DESIGN_COMMENT_LIMITS.comment) {
+				throw new DesignCommentsError("invalid-input", `comment must have 1 to ${DESIGN_COMMENT_LIMITS.comment} characters`);
+			}
+			return mutate(slug, (document) => {
+				const comment = document.comments.find((candidate) => candidate.id === id);
+				if (!comment) throw new DesignCommentsError("not-found", `design/${slug} has no comment ${id}`);
+				// The agent already has the text of a sent comment, and a resolved one is done.
+				if (comment.sentAt !== null || comment.status !== "open") throw new DesignCommentsError("locked", `comment ${id} was already sent or resolved, so its text can no longer change`);
+				const write = comment.comment !== text;
+				comment.comment = text;
+				return { result: comment, write };
 			});
 		},
 

@@ -1649,6 +1649,17 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 
 .gd-comment-actions button { min-height: 30px; padding: 2px 10px; font-size: 12px; color: var(--text-muted); }
+.gd-comment-actions { gap: 6px; }
+.gd-comment-actions button.gd-primary { color: var(--bg); }
+
+/* Editing an unsent comment in place (canvas-layout S17). */
+.gd-comment-editor {
+	display: block;
+	width: calc(100% - 24px);
+	margin: 0 12px 8px;
+	padding: 8px;
+	resize: vertical;
+}
 
 .gd-empty {
 	position: absolute;
@@ -1663,7 +1674,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .gd-popover {
 	position: fixed;
 	z-index: 10;
-	width: min(360px, calc(100vw - 24px));
+	width: min(420px, calc(100vw - 24px));
 	padding: 12px;
 	background: var(--surface);
 	border: 1px solid var(--border);
@@ -1728,8 +1739,13 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .gd-popover-actions > button { flex: none; white-space: nowrap; }
 
+/* One row: Implement only this on the left, Cancel and Send together on the right (the DOM order stays Cancel,
+   Implement only this, Send for the keyboard). */
+.gd-popover-actions #gd-popover-part { order: -1; margin-right: auto; }
+
 /* The message takes its own row above the buttons, so it never squeezes them. */
 .gd-popover-feedback {
+	order: -2;
 	display: flex;
 	flex: 1 1 100%;
 	flex-wrap: wrap;
