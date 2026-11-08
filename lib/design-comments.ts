@@ -123,8 +123,8 @@ export interface DesignCommentStore {
 	setStatus(slug: string, ids: readonly string[], status: DesignCommentStatus, options?: { note?: string }): Promise<{ updated: StoredDesignComment[]; unknown: string[] }>;
 	/** Stamps sentAt on comments that have none yet. */
 	markSent(slug: string, ids: readonly string[]): Promise<StoredDesignComment[]>;
-	/** Replaces the text of an open comment not sent yet; `locked` once it was sent or resolved, `not-found` for an unknown id. */
-	setText(slug: string, id: string, text: string): Promise<StoredDesignComment>;
+	/** Replaces the text of an open comment, sent or not, and returns the text it had; `locked` when resolved, `not-found` for an unknown id. */
+	setText(slug: string, id: string, text: string): Promise<{ comment: StoredDesignComment; previous: string }>;
 	listOpen(slug: string, file?: string): Promise<StoredDesignComment[]>;
 	/** The screenshot of comment `id`, or undefined when there is no such comment, it has none, or the file is gone. */
 	readScreenshot(slug: string, id: string): Promise<DesignScreenshot | undefined>;
@@ -480,11 +480,11 @@ export function createDesignCommentStore(designRoot: string, deps: DesignComment
 			return mutate(slug, (document) => {
 				const comment = document.comments.find((candidate) => candidate.id === id);
 				if (!comment) throw new DesignCommentsError("not-found", `design/${slug} has no comment ${id}`);
-				// The agent already has the text of a sent comment, and a resolved one is done.
-				if (comment.sentAt !== null || comment.status !== "open") throw new DesignCommentsError("locked", `comment ${id} was already sent or resolved, so its text can no longer change`);
-				const write = comment.comment !== text;
+				// A resolved comment is done; reopen it to change it.
+				if (comment.status !== "open") throw new DesignCommentsError("locked", `comment ${id} is resolved, so its text can no longer change; reopen it first`);
+				const previous = comment.comment;
 				comment.comment = text;
-				return { result: comment, write };
+				return { result: { comment, previous }, write: previous !== text };
 			});
 		},
 

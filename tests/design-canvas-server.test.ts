@@ -74,7 +74,7 @@ function fixture(t: TestContext) {
 	return { root, outside };
 }
 
-async function start(t: TestContext, extra: { initialSlug?: string; onImplement?: DesignCanvasServerOptions["onImplement"]; onVariant?: DesignCanvasServerOptions["onVariant"]; onImplementPart?: DesignCanvasServerOptions["onImplementPart"] } = {}) {
+async function start(t: TestContext, extra: { initialSlug?: string; onComment?: DesignCanvasServerOptions["onComment"]; onImplement?: DesignCanvasServerOptions["onImplement"]; onVariant?: DesignCanvasServerOptions["onVariant"]; onImplementPart?: DesignCanvasServerOptions["onImplementPart"] } = {}) {
 	const { root } = fixture(t);
 	const comments: DesignComment[] = [];
 	const batches: DesignComment[][] = [];
@@ -1592,8 +1592,8 @@ test("canvas-layout S3: saving the layout streams one change for layout.json", a
 	await events.waitFor(/event: change\ndata: \{"slug":"alpha","file":"layout\.json"\}\n\n/);
 });
 
-test("canvas-layout S17: the text route edits an open, unsent comment and refuses sent, resolved, unknown, invalid and cross-origin edits without writing", async (t) => {
-	const { port, root } = await start(t);
+test("canvas-layout S17: the text route edits an open comment; a changed sent one reaches the session as an edit, an unsent one waits, a resolved, unknown, invalid or cross-origin edit is refused without writing", async (t) => {
+	const { port, root, comments } = await start(t);
 	await postComment(port, { ...VALID, mode: "collect" });
 	await postComment(port, { ...VALID, mode: "collect" });
 	await postComment(port, { ...VALID, mode: "collect" });
@@ -1607,14 +1607,27 @@ test("canvas-layout S17: the text route edits an open, unsent comment and refuse
 	const edited = await postJson(port, `api/designs/alpha/comments/${open.id}/text`, { comment: "  Make it\r\nmuch bigger  " });
 	assert.equal(edited.status, 200);
 	assert.equal(JSON.parse(edited.body).comment.comment, "Make it\nmuch bigger", "line endings normalized and trimmed like a new comment");
+	assert.equal(JSON.parse(edited.body).sent, false, "an unsent comment waits for Send all");
 	assert.equal(storedComments(root)[0].comment, "Make it\nmuch bigger");
+	assert.equal(comments.length, 0, "nothing reaches the session for an unsent comment");
+
+	const resent = await postJson(port, `api/designs/alpha/comments/${sent.id}/text`, { comment: "Smaller" });
+	assert.equal(resent.status, 200);
+	assert.equal(JSON.parse(resent.body).sent, true);
+	assert.equal(storedComments(root)[1].comment, "Smaller");
+	assert.equal(storedComments(root)[1].sentAt, "2026-11-08T10:00:00.000Z", "it stays sent");
+	assert.equal(comments.length, 1);
+	assert.deepEqual([comments[0].id, comments[0].comment, comments[0].edited], [sent.id, "Smaller", { previous: "Make it bigger" }]);
+	const same = await postJson(port, `api/designs/alpha/comments/${sent.id}/text`, { comment: "Smaller" });
+	assert.deepEqual([same.status, JSON.parse(same.body).sent], [200, false]);
+	assert.equal(comments.length, 1, "an unchanged text is not sent again");
+
 	const before = readFileSync(path, "utf8");
 	const refusal = async (id: string, body: unknown) => {
 		const reply = await postJson(port, `api/designs/alpha/comments/${id}/text`, body);
 		return [reply.status, JSON.parse(reply.body || "{}").error];
 	};
-	assert.deepEqual(await refusal(sent.id, { comment: "New" }), [409, "comment-sent"]);
-	assert.deepEqual(await refusal(resolved.id, { comment: "New" }), [409, "comment-sent"]);
+	assert.deepEqual(await refusal(resolved.id, { comment: "New" }), [409, "comment-resolved"]);
 	assert.deepEqual(await refusal("zzzzzz", { comment: "New" }), [404, "not-found"]);
 	assert.deepEqual(await refusal(open.id, { comment: "   " }), [400, "invalid-comment"]);
 	assert.deepEqual(await refusal(open.id, { comment: "x".repeat(2001) }), [400, "invalid-comment"]);
@@ -1622,4 +1635,27 @@ test("canvas-layout S17: the text route edits an open, unsent comment and refuse
 	const foreign = await rawRequest(port, `/${TOKEN}/api/designs/alpha/comments/${open.id}/text`, { method: "POST", headers: { Origin: "http://evil.example", "Content-Type": "application/json" }, body: JSON.stringify({ comment: "New" }) });
 	assert.equal(foreign.status, 403);
 	assert.equal(readFileSync(path, "utf8"), before, "no refused edit writes comments.json");
+	assert.equal(comments.length, 1);
+});
+
+test("canvas-layout S17: when the session refuses the edit of a sent comment, the new text stays saved and the reply says it was not sent", async (t) => {
+	const { port, root } = await start(t, { onComment: () => { throw new Error("offline"); } });
+	await postComment(port, { ...VALID, mode: "collect" });
+	const [saved] = storedComments(root);
+	const path = join(root, "alpha", "comments.json");
+	const document = JSON.parse(readFileSync(path, "utf8"));
+	document.comments[0].sentAt = "2026-11-08T10:00:00.000Z";
+	writeFileSync(path, JSON.stringify(document));
+	const reply = await postJson(port, `api/designs/alpha/comments/${saved.id}/text`, { comment: "Smaller" });
+	assert.equal(reply.status, 500);
+	assert.deepEqual(JSON.parse(reply.body), { error: "edit-not-delivered", id: saved.id, saved: true, sent: false });
+	assert.equal(storedComments(root)[0].comment, "Smaller");
+});
+
+test("canvas-layout S17: an edited comment's message names it as an edit and quotes the previous text", () => {
+	const text = formatDesignComment({ id: "k3x9p2", slug: "landing", file: "02-bold.html", selector: "h1", excerpt: "", comment: "Make it shorter.", edited: { previous: "Make it bigger." } });
+	assert.ok(text.startsWith("Design comment edited for design/landing/02-bold.html\n"));
+	assert.ok(text.includes("\nComment (edited; it replaces the text you received earlier for this id):\nMake it shorter.\n"));
+	assert.ok(text.includes("\nPrevious text:\nMake it bigger.\n"));
+	assert.ok(!formatDesignComment({ id: "k3x9p2", slug: "landing", file: "02-bold.html", selector: "h1", excerpt: "", comment: "x" }).includes("edited"));
 });

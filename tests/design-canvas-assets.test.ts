@@ -8547,7 +8547,7 @@ test("composer layout: the popover is wide enough for its three actions on one r
 	assert.match(css, /\.gd-popover-feedback \{[^}]*order: -2;/);
 });
 
-test("canvas-layout S17: only an open, unsent comment has Edit; it edits the text in place, Save posts it and Cancel or a failure keeps the stored text", async () => {
+test("canvas-layout S17: every open comment, sent or not, has Edit; it edits the text in place, Save posts it and Cancel or a failure keeps the stored text", async () => {
 	const canvas = await loadRail(300, commentsDoc(comment("c1", "01-a.html"), comment("c2", "01-a.html", "open", { sentAt: "2026-11-08T10:00:00.000Z" }), comment("c3", "01-a.html", "resolved")));
 	canvas.document.getElementById("gd-filter-all")?.dispatch("click");
 	const list = canvas.document.getElementById("gd-comment-list");
@@ -8556,7 +8556,7 @@ test("canvas-layout S17: only an open, unsent comment has Edit; it edits the tex
 	assert.equal(edit("c1").length, 1, "the waiting comment has Edit");
 	assert.equal(edit("c1")[0].textContent, "Edit");
 	assert.equal(edit("c1")[0].getAttribute("aria-label"), "Edit comment 1");
-	assert.equal(edit("c2").length, 0, "a sent comment has no Edit");
+	assert.equal(edit("c2").length, 1, "a sent comment has Edit too");
 	if (card("c3")) assert.equal(edit("c3").length, 0, "a resolved comment has no Edit");
 
 	edit("c1")[0].dispatch("click");
@@ -8590,22 +8590,36 @@ test("canvas-layout S17: only an open, unsent comment has Edit; it edits the tex
 	assert.equal(field().value, "Bigger title");
 
 	// A refused save keeps the editor and the draft, with the reason in the card.
-	canvas.replies["/t/api/designs/alpha/comments/c1/text"] = { __http: 409, error: "comment-sent" };
+	canvas.replies["/t/api/designs/alpha/comments/c1/text"] = { __http: 409, error: "comment-resolved" };
 	save().dispatch("click");
 	for (let i = 0; i < 5; i++) await flush();
 	assert.deepEqual(canvas.posts.at(-1), { url: "/t/api/designs/alpha/comments/c1/text", body: { comment: "Bigger title" } });
 	assert.equal(field().value, "Bigger title");
-	assert.match(texts(withClass(card("c1"), "gd-alert")[0], "gd-alert-text")[0], /already sent/i);
+	assert.match(texts(withClass(card("c1"), "gd-alert")[0], "gd-alert-text")[0], /resolved/i);
 
 	// A saved edit closes the editor and shows the new text.
 	canvas.replies["/t/api/designs/alpha/comments/c1/text"] = { ok: true };
-	canvas.replies["/t/api/designs/alpha/comments"] = { comments: [comment("c1", "01-a.html", "open", { comment: "Bigger title" })] };
+	canvas.replies["/t/api/designs/alpha/comments"] = { comments: [comment("c1", "01-a.html", "open", { comment: "Bigger title" }), comment("c2", "01-a.html", "open", { sentAt: "2026-11-08T10:00:00.000Z" })] };
 	save().dispatch("click");
 	for (let i = 0; i < 5; i++) await flush();
 	assert.equal(withClass(card("c1"), "gd-comment-editor").length, 0);
 	assert.equal(texts(card("c1"), "gd-comment-text")[0], "Bigger title");
 	assert.equal(withClass(card("c1"), "gd-alert").filter((alert) => !alert.hidden).length, 0);
 	assert.equal(canvas.document.getElementById("gd-toast").textContent, "Comment updated");
+
+	// A sent comment's edit reaches the session, and the toast says so; a failed delivery says the text is saved.
+	canvas.replies["/t/api/designs/alpha/comments/c2/text"] = { ok: true, sent: true };
+	edit("c2")[0].dispatch("click");
+	withClass(card("c2"), "gd-comment-save")[0].dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.equal(canvas.document.getElementById("gd-toast").textContent, "Comment updated and sent to the session");
+	canvas.replies["/t/api/designs/alpha/comments"] = { comments: [comment("c2", "01-a.html", "open", { sentAt: "2026-11-08T10:00:00.000Z" })] };
+	await canvas.serverEvent("change", { slug: "alpha", file: "comments.json" });
+	canvas.replies["/t/api/designs/alpha/comments/c2/text"] = { __http: 500, error: "edit-not-delivered", saved: true, sent: false };
+	edit("c2")[0].dispatch("click");
+	withClass(card("c2"), "gd-comment-save")[0].dispatch("click");
+	for (let i = 0; i < 5; i++) await flush();
+	assert.match(texts(withClass(card("c2"), "gd-alert")[0], "gd-alert-text")[0], /saved, but the session did not receive/i);
 });
 
 test("canvas-layout S17: Edit, its editor and its messages speak Spanish", async () => {

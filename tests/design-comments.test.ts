@@ -344,7 +344,7 @@ test("S5: a malformed resolution in an existing comments.json is an invalid-file
 	assert.deepEqual((await store.read("alpha")).comments.map((comment) => comment.resolution), ["Done.", undefined]);
 });
 
-test("canvas-layout S17: setText changes the text of an open, unsent comment and refuses sent, resolved, unknown and invalid ones without writing", async (t) => {
+test("canvas-layout S17: setText changes the text of an open comment, sent or not, returns the previous text and refuses resolved, unknown and invalid ones without writing", async (t) => {
 	const root = designRoot(t);
 	const store = fixedStore(root);
 	const a = await store.add("alpha", INPUT);
@@ -353,14 +353,16 @@ test("canvas-layout S17: setText changes the text of an open, unsent comment and
 	await store.markSent("alpha", [sent.id]);
 	await store.setStatus("alpha", [resolved.id], "resolved");
 	const edited = await store.setText("alpha", a.id, "Make it much bigger");
-	assert.equal(edited.comment, "Make it much bigger");
-	assert.equal(edited.sentAt, null);
-	assert.equal(edited.createdAt, FIXED.toISOString(), "the creation time stays");
+	assert.equal(edited.comment.comment, "Make it much bigger");
+	assert.equal(edited.previous, "Make it bigger");
+	assert.equal(edited.comment.sentAt, null);
+	assert.equal(edited.comment.createdAt, FIXED.toISOString(), "the creation time stays");
+	const resent = await store.setText("alpha", sent.id, "Smaller");
+	assert.deepEqual([resent.comment.comment, resent.previous, resent.comment.sentAt], ["Smaller", "Make it bigger", FIXED.toISOString()], "a sent comment can change and keeps its sentAt");
 	const path = join(root, "alpha", "comments.json");
 	const before = readFileSync(path, "utf8");
 	assert.equal(JSON.parse(before).comments[0].comment, "Make it much bigger");
 	const refused = (code: string) => (error: unknown) => error instanceof DesignCommentsError && error.code === code;
-	await assert.rejects(store.setText("alpha", sent.id, "New"), refused("locked"));
 	await assert.rejects(store.setText("alpha", resolved.id, "New"), refused("locked"));
 	await assert.rejects(store.setText("alpha", "nope00", "New"), refused("not-found"));
 	await assert.rejects(store.setText("alpha", a.id, ""), refused("invalid-input"));

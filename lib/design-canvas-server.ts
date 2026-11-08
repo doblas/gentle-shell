@@ -89,7 +89,7 @@ const CANVAS_CSP = [
 export type DesignCommentScreenshot = { path: string; mimeType: string; data?: string };
 
 /** A comment as delivered to the session; `id` names it in design/<slug>/comments.json. */
-export type DesignComment = { id: string; slug: string; file: string; selector: string; excerpt: string; comment: string; screenshot?: DesignCommentScreenshot; viewport?: DesignViewport };
+export type DesignComment = { id: string; slug: string; file: string; selector: string; excerpt: string; comment: string; screenshot?: DesignCommentScreenshot; viewport?: DesignViewport; /** Set when the canvas edits a comment already sent (canvas-layout S17). */ edited?: { previous: string } };
 
 /** Session message content: plain text, or text followed by the attached screenshots. */
 export type DesignSessionContent = string | Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
@@ -171,7 +171,7 @@ function storeFailure(error: unknown): never {
 	if (error.code === "invalid-file") throw new HttpError(422, "invalid-comments", { error: "invalid-comments", reason: error.message });
 	if (error.code === "limit") throw new HttpError(409, "too-many-comments", { error: "too-many-comments", reason: error.message });
 	if (error.code === "invalid-input") throw new HttpError(400, "invalid-comment", { error: "invalid-comment", reason: error.message });
-	if (error.code === "locked") throw new HttpError(409, "comment-sent", { error: "comment-sent", reason: error.message });
+	if (error.code === "locked") throw new HttpError(409, "comment-resolved", { error: "comment-resolved", reason: error.message });
 	throw new HttpError(500, "internal");
 }
 
@@ -242,7 +242,7 @@ export function designCommentBatchContent(batch: readonly DesignComment[]): Desi
 export function formatDesignComment(comment: DesignComment): string {
 	const artboard = `design/${comment.slug}/${comment.file}`;
 	return [
-		`Design comment for ${artboard}`,
+		`Design comment${comment.edited ? " edited" : ""} for ${artboard}`,
 		"",
 		`Design: ${comment.slug}`,
 		`Artboard: ${artboard}`,
@@ -252,8 +252,9 @@ export function formatDesignComment(comment: DesignComment): string {
 		...(comment.viewport ? [viewportLine(comment.viewport)] : []),
 		...(comment.screenshot ? [screenshotLine(comment.screenshot, comment.screenshot.data !== undefined)] : []),
 		"",
-		"Comment:",
+		comment.edited ? "Comment (edited; it replaces the text you received earlier for this id):" : "Comment:",
 		comment.comment,
+		...(comment.edited ? ["", "Previous text:", comment.edited.previous] : []),
 		"",
 		`Edit only the artboard ${artboard}, following the gentle-design skill.`,
 		`When it is applied, ${resolveInstruction(comment.slug, [comment.id])}`,
@@ -883,8 +884,17 @@ export async function startDesignCanvasServer(options: DesignCanvasServerOptions
 		const comment = body.comment.replace(/\r\n?/g, "\n").trim();
 		if (comment.length < 1 || comment.length > LIMITS.comment) throw new HttpError(400, "invalid-comment");
 		// Inside the delivery lock, so an edit never lands between a send-all's read and its markSent.
-		const updated = await exclusive(slug, () => store.setText(slug, id, comment)).catch(storeFailure);
-		reply(res, 200, { ok: true, comment: updated });
+		return exclusive(slug, async () => {
+			const { comment: updated, previous } = await store.setText(slug, id, comment).catch(storeFailure);
+			// The session already has a sent comment's old text: a changed one goes to it as an edit.
+			if (updated.sentAt === null || previous === updated.comment) return reply(res, 200, { ok: true, comment: updated, sent: false });
+			try {
+				await options.onComment({ ...(await toDesignComment(slug, updated)), edited: { previous } });
+			} catch {
+				throw new HttpError(500, "edit-not-delivered", { error: "edit-not-delivered", id, saved: true, sent: false });
+			}
+			reply(res, 200, { ok: true, comment: updated, sent: true });
+		});
 	}
 
 	function broadcast(chunk: string): void {

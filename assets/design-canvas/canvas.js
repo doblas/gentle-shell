@@ -122,7 +122,7 @@
 			"appearance.theme": "Theme",
 			"appearance.language": "Language",
 			"theme.gentle": "Gentle",
-			"theme.gentle.hint": "Dark plum with the pink accent",
+			"theme.gentle.hint": "Gentleman style",
 			"theme.neutral": "Neutral",
 			"theme.neutral.hint": "Dark gray with a light-gray accent",
 			"theme.note": "The theme changes the canvas only; the directions keep their own design. Saved in this browser.",
@@ -225,6 +225,7 @@
 			"comment.editAria": "Edit comment {number}",
 			"comment.editLabel": "Text of comment {number}",
 			"comment.updated": "Comment updated",
+			"comment.updatedSent": "Comment updated and sent to the session",
 			"comment.status.open": "open",
 			"comment.status.resolved": "resolved",
 			"pin.aria": "Comment {number} ({status}): {text}",
@@ -506,7 +507,8 @@
 			"reason.body-too-large": "The request was too large. Remove the screenshot or shorten the comment, then try again with something smaller.",
 			"reason.file-too-large": "That file is too large for the canvas to show. Make the artboard or asset smaller.",
 			"reason.not-found": "That item no longer exists. Reload the canvas to see the current state.",
-			"reason.comment-sent": "This comment was already sent or resolved, so its text can no longer change.",
+			"reason.comment-resolved": "This comment is resolved, so its text can no longer change. Reopen it to edit it.",
+			"reason.edit-not-delivered": "The new text is saved, but the session did not receive the change. Check that the session is running, then save again.",
 			"reason.too-many-streams": "Too many canvas tabs are open. Close the ones you do not use, then reload this one.",
 			"reason.internal": "An unexpected error happened in the canvas server. Try again; if it keeps failing, reopen it: open the canvas from your session with /gentle:design open.",
 			"reason.forbidden": "The server refused this request. Reload the canvas page, or reopen it with /gentle:design open.",
@@ -544,7 +546,7 @@
 			"appearance.theme": "Tema",
 			"appearance.language": "Idioma",
 			"theme.gentle": "Gentle",
-			"theme.gentle.hint": "Ciruela oscuro con el acento rosa",
+			"theme.gentle.hint": "Estilo Gentleman",
 			"theme.neutral": "Neutro",
 			"theme.neutral.hint": "Gris oscuro con un acento gris claro",
 			"theme.note": "El tema cambia solo el canvas; las propuestas conservan su propio diseño. Se guarda en este navegador.",
@@ -647,6 +649,7 @@
 			"comment.editAria": "Editar comentario {number}",
 			"comment.editLabel": "Texto del comentario {number}",
 			"comment.updated": "Comentario actualizado",
+			"comment.updatedSent": "Comentario actualizado y enviado a la sesión",
 			"comment.status.open": "abierto",
 			"comment.status.resolved": "resuelto",
 			"pin.aria": "Comentario {number} ({status}): {text}",
@@ -928,7 +931,8 @@
 			"reason.body-too-large": "La solicitud era demasiado grande. Quita la captura o acorta el comentario y vuelve a intentarlo con algo más pequeño.",
 			"reason.file-too-large": "Ese archivo es demasiado grande para que el canvas lo muestre. Reduce el tamaño del artboard o del recurso.",
 			"reason.not-found": "Ese elemento ya no existe. Recarga el canvas para ver el estado actual.",
-			"reason.comment-sent": "Este comentario ya se envió o se resolvió, así que su texto ya no puede cambiar.",
+			"reason.comment-resolved": "Este comentario está resuelto, así que su texto ya no puede cambiar. Reábrelo para editarlo.",
+			"reason.edit-not-delivered": "El texto nuevo está guardado, pero la sesión no recibió el cambio. Comprueba que la sesión esté en marcha y vuelve a guardar.",
 			"reason.too-many-streams": "Hay demasiadas pestañas del canvas abiertas. Cierra las que no uses y recarga esta.",
 			"reason.internal": "Ocurrió un error inesperado en el servidor del canvas. Inténtalo de nuevo; si sigue fallando, vuelve a abrirlo: abre el canvas desde tu sesión con /gentle:design open.",
 			"reason.forbidden": "El servidor rechazó esta solicitud. Recarga la página del canvas o vuelve a abrirla con /gentle:design open.",
@@ -5128,8 +5132,8 @@
 			const file = document.createElement("span");
 			file.className = "gd-comment-file";
 			file.textContent = comment.file;
-			// An open comment not sent yet can still change (canvas-layout S17): its text becomes an editor outside the button.
-			const editable = comment.status === "open" && !comment.sentAt;
+			// An open comment can still change (canvas-layout S17): its text becomes an editor outside the button.
+			const editable = comment.status === "open";
 			if (!editable) state.editing.delete(comment.id);
 			const editing = editable && state.editing.has(comment.id);
 			show.append(meta);
@@ -5319,7 +5323,7 @@
 			els.list.querySelector(`[data-id="${CSS.escape(id)}"] .gd-comment-editor`)?.focus();
 		} else {
 			state.editing.delete(id);
-			showToast(t("comment.updated"), false);
+			showToast(t(reply.body.sent ? "comment.updatedSent" : "comment.updated"), false);
 		}
 		await loadComments();
 	}
