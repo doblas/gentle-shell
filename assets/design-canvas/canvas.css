@@ -2296,6 +2296,9 @@ kbd {
 .gd-setting input { flex: none; margin: 0; }
 .gd-setting input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .gd-setting-text { display: flex; flex-direction: column; }
+/* The Gentleman mustache (github.com/Gentleman-Programming) beside the Gentle theme (canvas-layout S18): filled, like the rose. */
+.gd-theme-name { display: inline-flex; align-items: center; gap: 8px; }
+.gd-mustache { width: 30px; height: 10px; fill: var(--accent); stroke: none; }
 
 .gd-setting-hint {
 	color: var(--text-muted);

@@ -8631,3 +8631,14 @@ test("canvas-layout S17: Edit, its editor and its messages speak Spanish", async
 	assert.deepEqual([withClass(list, "gd-comment-save")[0].textContent, withClass(list, "gd-comment-cancel")[0].textContent], ["Guardar", "Cancelar"]);
 	assert.equal(withClass(list, "gd-comment-editor")[0].getAttribute("aria-label"), "Texto del comentario 1");
 });
+
+test("canvas-layout S18: Appearance names the Gentle theme Gentleman style, with the Gentleman mustache beside it", () => {
+	const html = read("index.html");
+	assert.match(html, /<symbol id="i-mustache" viewBox="0 0 355 122"><path d="M[^"]+Z"\/><\/symbol>/);
+	assert.match(html, /<span class="gd-theme-name"><svg class="gd-i gd-mustache" aria-hidden="true"><use href="#i-mustache"\/><\/svg><span data-i18n="theme.gentle">Gentle<\/span><\/span><span class="gd-setting-hint" data-i18n="theme.gentle.hint">Gentleman style<\/span>/);
+	const css = read("canvas.css");
+	assert.match(css, /\.gd-mustache \{[^}]*fill: var\(--accent\);[^}]*stroke: none;/);
+	const { en, es } = loadCatalog();
+	assert.equal(en["theme.gentle.hint"], "Gentleman style");
+	assert.equal(es["theme.gentle.hint"], "Estilo Gentleman");
+});
