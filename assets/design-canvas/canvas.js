@@ -1198,6 +1198,8 @@
 		system: null,
 		systemBoard: null,
 		zoom: 1,
+		// True while the view is the one Fit gave; a resize then fits again (refit).
+		fitted: false,
 		x: FIT_PADDING,
 		y: FIT_PADDING,
 		commenting: false,
@@ -1399,6 +1401,7 @@
 		state.x = px - (px - state.x) * (zoom / state.zoom);
 		state.y = py - (py - state.y) * (zoom / state.zoom);
 		state.zoom = zoom;
+		state.fitted = false;
 		applyView();
 		closePopover();
 	}
@@ -1411,6 +1414,7 @@
 	function panBy(dx, dy) {
 		state.x += dx;
 		state.y += dy;
+		state.fitted = false;
 		applyView();
 		closePopover();
 	}
@@ -1427,6 +1431,7 @@
 		state.zoom = zoom;
 		state.x = (rect.width - width * zoom) / 2;
 		state.y = Math.max(FIT_PADDING, (rect.height - height * zoom) / 2);
+		state.fitted = true;
 		applyView();
 		closePopover();
 	}
@@ -1553,6 +1558,14 @@
 	};
 	els.minimapMap.addEventListener("pointerup", endMinimapDrag);
 	els.minimapMap.addEventListener("pointercancel", endMinimapDrag);
+
+	/**
+	 * A fitted overview follows the viewport's size (a window that opens small, the comments panel); a zoom or pan of yours stays.
+	 * While a comment is being written it waits, since fit() closes the comment box; the next size change fits again.
+	 */
+	function refit() {
+		if (state.fitted && !state.focus && els.popover.hidden) fit();
+	}
 
 	function wheelPixels(delta, mode) {
 		return mode === 1 ? delta * 16 : mode === 2 ? delta * 400 : delta;
@@ -5274,6 +5287,8 @@
 	function setPanel(show) {
 		els.panel.hidden = !show;
 		els.panelToggle.setAttribute("aria-pressed", String(show));
+		// The viewport changes size with the panel; without ResizeObserver nothing else reports it.
+		if (typeof ResizeObserver !== "function") viewportResized();
 	}
 
 	els.panelToggle.addEventListener("click", () => setPanel(els.panel.hidden));
@@ -5855,11 +5870,15 @@
 	window.addEventListener("resize", renderMinimap);
 	window.addEventListener("resize", updateTabFades);
 	window.addEventListener("resize", placeGuide);
-	// The viewport also changes size when the comments panel opens or closes.
-	if (typeof ResizeObserver === "function") new ResizeObserver(() => { centerFocus(); renderMinimap(); }).observe(els.viewport);
+	// The viewport also changes size when the comments panel opens or closes (setPanel).
+	function viewportResized() {
+		centerFocus();
+		refit();
+	}
+	if (typeof ResizeObserver === "function") new ResizeObserver(() => { viewportResized(); renderMinimap(); }).observe(els.viewport);
 	// Fires once on observe, then when fonts or the panel change the row: the fades are right from the first layout.
 	if (typeof ResizeObserver === "function") new ResizeObserver(updateTabFades).observe(els.tabs);
-	else window.addEventListener("resize", () => centerFocus());
+	else window.addEventListener("resize", viewportResized);
 
 	// index.html starts them hidden; the menus are built when they open. The guide too, until it opens.
 	els.menu.hidden = true;
