@@ -38,3 +38,6 @@ tmp/
 # gentle-design local artifacts (canvas screenshots and version snapshots)
 design/*/showcase/
 design/*/.history/
+
+# Scratch directories written by the herdr activity tests
+odd/work/

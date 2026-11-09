@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { getEventListeners } from "node:events";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import test from "node:test";
 import type { Api, AssistantMessage, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import type { completeSimple } from "@earendil-works/pi-ai/compat";
@@ -221,6 +223,11 @@ test("refuses when the reviewer attempts a tool call", async () => {
 	assert.equal(refused.code, INPROCESS_REVIEWER_FAILURE.TOOL_CALL_ATTEMPTED);
 });
 
+function withoutRunTiming(evidence: Record<string, unknown> | undefined): Record<string, unknown> {
+	const { durationMs, authDurationMs, completionDurationMs, ...facts } = evidence ?? {};
+	return facts;
+}
+
 test("refuses empty assistant text with safe completion evidence", async () => {
 	const assistant = assistantText("", { content: [], stopReason: "stop" });
 	const outcome = await runInProcessReviewer(baseRequest(), {
@@ -229,9 +236,11 @@ test("refuses empty assistant text with safe completion evidence", async () => {
 	});
 	const refused = expectRefused(outcome);
 	assert.equal(refused.code, INPROCESS_REVIEWER_FAILURE.EMPTY_OUTPUT);
-	assert.deepEqual(refused.evidence, {
+	assert.deepEqual(withoutRunTiming(refused.evidence), {
+		phase: "completion", provider: "openai",
 		reviewerModel: "openai/gpt-5", stopReason: "stop",
 		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 		content: { blocks: 0, textBlocks: 0, thinkingBlocks: 0, textChars: 0, thinkingChars: 0 },
 	});
 });
@@ -249,7 +258,8 @@ test("empty-output diagnostics allowlist facts, not provider secrets, and comple
 	}));
 	assert.equal(refused.code, INPROCESS_REVIEWER_FAILURE.EMPTY_OUTPUT);
 	assert.equal(calls.length, 1);
-	assert.deepEqual(refused.evidence, {
+	assert.deepEqual(withoutRunTiming(refused.evidence), {
+		phase: "completion", provider: "nan",
 		reviewerModel: "nan/deepseek-v4-flash", stopReason: "length",
 		usage: { input: 12, output: 64, reasoning: 64, cacheRead: 0, cacheWrite: 0, totalTokens: 76 },
 		content: { blocks: 2, textBlocks: 1, thinkingBlocks: 1, textChars: 0, thinkingChars: 16 },
@@ -377,6 +387,166 @@ test("refuses with ABORTED when the provider resolves partial text after the cal
 });
 
 // ---------------------------------------------------------------------------
+// Host deadlines must settle even when an auth/provider implementation ignores
+// cancellation. The independent watchdog makes a broken implementation fail
+// without leaving this suite waiting indefinitely.
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (reason: unknown) => void;
+	const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+	return { promise, resolve, reject };
+}
+// Capture real timers before per-test mocks: a broken handshake must still
+// fail independently even while the reviewer deadline is driven manually.
+const watchdogSetTimeout = setTimeout;
+const watchdogClearTimeout = clearTimeout;
+async function bounded<T>(promise: Promise<T>): Promise<T> {
+	let timer: ReturnType<typeof setTimeout>;
+	try {
+		return await Promise.race([promise, new Promise<never>((_, reject) => {
+			timer = watchdogSetTimeout(() => reject(new Error("reviewer did not settle within the independent 250ms watchdog")), 250);
+		})]);
+	} finally { watchdogClearTimeout(timer!); }
+}
+
+test("host deadline bounds authentication that never resolves", async () => {
+	let completions = 0;
+	const outcome = await bounded(runInProcessReviewer(baseRequest({ timeoutMs: 15 }), {
+		registry: fakeRegistry([fakeModel()], async () => await new Promise(() => {})),
+		complete: (async () => { completions++; return assistantText("must not run"); }) as typeof completeSimple,
+	}));
+	assert.equal(expectRefused(outcome).code, INPROCESS_REVIEWER_FAILURE.TIMED_OUT);
+	assert.equal(completions, 0);
+});
+
+test("host deadline skips auth and dispatch for an already cancelled caller", async () => {
+	const caller = new AbortController(); caller.abort();
+	let authentications = 0, completions = 0;
+	const outcome = await runInProcessReviewer(baseRequest({ signal: caller.signal }), {
+		registry: fakeRegistry([fakeModel()], async () => { authentications++; return { ok: true, apiKey: "fixture" }; }),
+		complete: (async () => { completions++; return assistantText("must not run"); }) as typeof completeSimple,
+	});
+	assert.equal(expectRefused(outcome).code, INPROCESS_REVIEWER_FAILURE.ABORTED);
+	assert.equal(authentications, 0); assert.equal(completions, 0);
+});
+
+for (const stop of ["caller", "deadline"] as const) {
+	test(`host deadline does not dispatch after late authentication following ${stop}`, async () => {
+		const auth = deferred<Awaited<ReturnType<InProcessReviewerRegistry["getApiKeyAndHeaders"]>>>();
+		const caller = new AbortController();
+		let completions = 0;
+		const pending = runInProcessReviewer(baseRequest({ signal: caller.signal, timeoutMs: stop === "deadline" ? 15 : 30_000 }), {
+			registry: fakeRegistry([fakeModel()], () => auth.promise),
+			complete: (async () => { completions++; return assistantText("must not run"); }) as typeof completeSimple,
+		});
+		if (stop === "caller") caller.abort();
+		try {
+			const outcome = await bounded(pending);
+			assert.equal(expectRefused(outcome).code, stop === "caller" ? INPROCESS_REVIEWER_FAILURE.ABORTED : INPROCESS_REVIEWER_FAILURE.TIMED_OUT);
+		} finally { auth.resolve({ ok: true, apiKey: "fixture" }); }
+		await nextTurn();
+		assert.equal(completions, 0);
+	});
+}
+
+for (const composed of [false, true]) {
+	for (const late of ["fulfill", "reject"] as const) {
+		test(`host deadline settles non-cooperative ${composed ? "composed" : "compat"} completion and consumes late ${late}`, { timeout: 5_000 }, async t => {
+			let clock = 0;
+			t.mock.method(performance, "now", () => clock);
+			t.mock.timers.enable({ apis: ["setTimeout"] });
+			const completion = deferred<AssistantMessage>(), entered = deferred<void>();
+			const registry = fakeRegistry([fakeModel()]);
+			let calls = 0, providerSignal: AbortSignal | undefined;
+			const complete = (async (_model, _context, options) => { calls++; providerSignal = options?.signal; entered.resolve(); return await completion.promise; }) as typeof completeSimple;
+			if (composed) registry.getProvider = () => ({ streamSimple: (model, context, options) => ({ result: () => complete(model, context, options) }) });
+			const pending = runInProcessReviewer(baseRequest({ timeoutMs: 15 }), { registry, complete });
+			try {
+				// This test targets a completion already dispatched. Contention
+				// before auth/dispatch must not expire its deadline accidentally.
+				await bounded(entered.promise);
+				assert.equal(calls, 1);
+				clock = 15; t.mock.timers.tick(15);
+				const outcome = await bounded(pending);
+				assert.equal(expectRefused(outcome).code, INPROCESS_REVIEWER_FAILURE.TIMED_OUT);
+				assert.equal(providerSignal?.aborted, true); assert.equal(calls, 1);
+			} finally {
+				if (late === "fulfill" || calls === 0) completion.resolve(assistantText("late text must never be admitted"));
+				else completion.reject(new Error("late provider rejection must be consumed"));
+			}
+			await nextTurn();
+		});
+	}
+	test(`host deadline bounds caller cancellation of a non-cooperative ${composed ? "composed" : "compat"} completion`, async () => {
+		const completion = deferred<AssistantMessage>(), entered = deferred<void>();
+		const caller = new AbortController(), registry = fakeRegistry([fakeModel()]);
+		let providerSignal: AbortSignal | undefined;
+		const complete = (async (_model, _context, options) => { providerSignal = options?.signal; entered.resolve(); return await completion.promise; }) as typeof completeSimple;
+		if (composed) registry.getProvider = () => ({ streamSimple: (model, context, options) => ({ result: () => complete(model, context, options) }) });
+		const pending = runInProcessReviewer(baseRequest({ signal: caller.signal }), { registry, complete });
+		try {
+			await bounded(entered.promise);
+			caller.abort();
+			assert.equal(expectRefused(await bounded(pending)).code, INPROCESS_REVIEWER_FAILURE.ABORTED);
+			assert.equal(providerSignal?.aborted, true);
+			assert.equal(getEventListeners(caller.signal, "abort").length, 0);
+			assert.equal(getEventListeners(providerSignal!, "abort").length, 0);
+		} finally { caller.abort(); completion.resolve(assistantText("late text")); }
+		await nextTurn();
+	});
+}
+
+test("host deadline checks monotonic elapsed time after auth before the timer can run", async t => {
+	let clock = 0, calls = 0;
+	t.mock.method(performance, "now", () => clock);
+	const auth = deferred<Awaited<ReturnType<InProcessReviewerRegistry["getApiKeyAndHeaders"]>>>();
+	const pending = runInProcessReviewer(baseRequest({ timeoutMs: 100 }), {
+		registry: fakeRegistry([fakeModel()], () => auth.promise),
+		complete: (async () => { calls++; return assistantText("must not run"); }) as typeof completeSimple,
+	});
+	clock = 101;
+	auth.resolve({ ok: true, apiKey: "fixture" });
+	assert.equal(expectRefused(await bounded(pending)).code, INPROCESS_REVIEWER_FAILURE.TIMED_OUT);
+	assert.equal(calls, 0);
+});
+
+test("host deadline takes precedence when caller cancellation is observed after expiry", async t => {
+	let clock = 0;
+	t.mock.method(performance, "now", () => clock);
+	const caller = new AbortController();
+	const pending = runInProcessReviewer(baseRequest({ timeoutMs: 100, signal: caller.signal }), {
+		registry: fakeRegistry([fakeModel()], async () => await new Promise(() => {})), complete: unreachableComplete,
+	});
+	clock = 100;
+	caller.abort();
+	assert.equal(expectRefused(await bounded(pending)).code, INPROCESS_REVIEWER_FAILURE.TIMED_OUT);
+});
+
+test("host deadline removes its caller listener when authentication throws", async () => {
+	const caller = new AbortController(), expected = new Error("auth fixture");
+	await assert.rejects(runInProcessReviewer(baseRequest({ signal: caller.signal }), {
+		registry: fakeRegistry([fakeModel()], async () => { throw expected; }), complete: unreachableComplete,
+	}), error => error === expected);
+	assert.equal(getEventListeners(caller.signal, "abort").length, 0);
+});
+
+test("host deadline cleans caller/provider listeners and its timer after success", async t => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const caller = new AbortController();
+	let providerSignal: AbortSignal | undefined;
+	const outcome = await runInProcessReviewer(baseRequest({ signal: caller.signal }), {
+		registry: fakeRegistry([fakeModel()]),
+		complete: (async (_model, _context, options) => { providerSignal = options?.signal; return assistantText("done"); }) as typeof completeSimple,
+	});
+	assert.equal(expectText(outcome).text, "done");
+	assert.equal(getEventListeners(caller.signal, "abort").length, 0);
+	assert.equal(getEventListeners(providerSignal!, "abort").length, 0);
+	t.mock.timers.tick(30_000);
+	assert.equal(providerSignal?.aborted, false, "a completed call must not retain a deadline timer");
+	caller.abort();
+	assert.equal(providerSignal?.aborted, false, "a completed call must detach its caller signal");
+});
+
 // Exact Context passed to complete
 // ---------------------------------------------------------------------------
 
@@ -395,6 +565,100 @@ test("passes exactly one user message with the verbatim prompt, no systemPrompt,
 	assert.ok(!("systemPrompt" in calls[0]!.context));
 	assert.ok(!("tools" in calls[0]!.context));
 });
+
+// ---------------------------------------------------------------------------
+// Resolved auth context — synthetic OAuth-like endpoint and provider env
+// ---------------------------------------------------------------------------
+
+for (const dispatch of ["composed provider", "compatibility complete"] as const) {
+	function captureDispatch() {
+		const provider = capturingProvider(assistantText("ok"));
+		const compatibility = capturingComplete(assistantText("ok"));
+		return {
+			getProvider: dispatch === "composed provider" ? provider.getProvider : undefined,
+			complete: dispatch === "composed provider" ? unreachableComplete : compatibility.complete,
+			calls: dispatch === "composed provider" ? provider.calls : compatibility.calls,
+		};
+	}
+
+	test(`${dispatch} preserves the registry's exchanged key, headers, account endpoint, and env`, async () => {
+		const original = Object.freeze(fakeModel({ provider: "github-copilot", baseUrl: "https://api.individual.githubcopilot.com" }));
+		const snapshot = { ...original };
+		const baseUrl = "https://api.synthetic-account.githubcopilot.com";
+		const headers = Object.freeze({ "x-synthetic-auth": "registry-header", "x-suppress-default": null });
+		const env = Object.freeze({ RDD_SYNTHETIC_PROVIDER_REGION: "test-region" });
+		const ambientBefore = process.env.RDD_SYNTHETIC_PROVIDER_REGION;
+		const { getProvider, complete, calls } = captureDispatch();
+		const outcome = await runInProcessReviewer(baseRequest({ selection: "github-copilot/gpt-5" }), {
+			registry: {
+				...fakeRegistry([original], async (resolvedModel) => {
+					assert.equal(resolvedModel, original, "auth must resolve against the registry model");
+					return { ok: true, apiKey: "synthetic-exchanged-access-token", headers, baseUrl, env };
+				}),
+				...(getProvider === undefined ? {} : { getProvider }),
+			},
+			complete,
+		});
+		assert.equal(expectText(outcome).reviewerModel, "github-copilot/gpt-5");
+		assert.equal(calls.length, 1);
+		assert.deepEqual(calls[0]!.model, { ...snapshot, baseUrl });
+		assert.notEqual(calls[0]!.model, original, "the endpoint override needs a request-local model");
+		assert.equal(calls[0]!.options?.apiKey, "synthetic-exchanged-access-token");
+		assert.equal(calls[0]!.options?.headers, headers);
+		assert.equal(calls[0]!.options?.env, env);
+		assert.deepEqual(original, snapshot, "shared registry state must remain unchanged");
+		assert.equal(process.env.RDD_SYNTHETIC_PROVIDER_REGION, ambientBefore, "env must be forwarded, not installed globally");
+	});
+
+	test(`${dispatch} forwards env without an endpoint override`, async () => {
+		const original = Object.freeze(fakeModel());
+		const env = Object.freeze({ RDD_SYNTHETIC_PROVIDER_REGION: "env-only-region" });
+		const { getProvider, complete, calls } = captureDispatch();
+		expectText(await runInProcessReviewer(baseRequest(), {
+			registry: {
+				...fakeRegistry([original], async () => ({ ok: true, apiKey: "synthetic-key", env })),
+				...(getProvider === undefined ? {} : { getProvider }),
+			},
+			complete,
+		}));
+		assert.equal(calls[0]!.model, original);
+		assert.equal(calls[0]!.options?.env, env);
+	});
+
+	test(`${dispatch} preserves model defaults and omits unresolved env`, async () => {
+		const original = Object.freeze(fakeModel());
+		const { getProvider, complete, calls } = captureDispatch();
+		expectText(await runInProcessReviewer(baseRequest(), {
+			registry: { ...fakeRegistry([original]), ...(getProvider === undefined ? {} : { getProvider }) },
+			complete,
+		}));
+		assert.equal(calls[0]!.model, original);
+		assert.equal(calls[0]!.model.baseUrl, "https://api.openai.com");
+		assert.ok(!("env" in (calls[0]!.options ?? {})));
+	});
+
+	for (const routedToOpenCode of [true, false]) {
+		test(`${dispatch} uses the resolved endpoint for attribution when routed ${routedToOpenCode ? "to" : "away from"} OpenCode`, async () => {
+			const original = Object.freeze(fakeModel({
+				provider: "custom",
+				baseUrl: routedToOpenCode ? "https://default.invalid" : "https://opencode.ai/v1",
+			}));
+			const baseUrl = routedToOpenCode ? "https://opencode.ai/v1" : "https://account.invalid/v1";
+			const { getProvider, complete, calls } = captureDispatch();
+			expectText(await runInProcessReviewer(baseRequest({ selection: "custom/gpt-5", sessionId: "ses-synthetic" }), {
+				registry: {
+					...fakeRegistry([original], async () => ({ ok: true, apiKey: "synthetic-key", baseUrl })),
+					...(getProvider === undefined ? {} : { getProvider }),
+				},
+				complete,
+			}));
+			assert.deepEqual(calls[0]!.options?.headers, routedToOpenCode
+				? { "x-opencode-session": "ses-synthetic", "x-opencode-client": "pi" }
+				: undefined);
+			assert.equal(calls[0]!.model.baseUrl, baseUrl);
+		});
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Thinking mapping
@@ -469,6 +733,34 @@ for (const { name, model, selection } of OPENCODE_ATTRIBUTION_TESTS) {
 		assert.ok(!("headers" in (calls[0]!.options ?? {})), "a missing session id must never invent a header");
 	});
 }
+
+test("each completion carries its own sessionId, never the parent session's", async () => {
+	const { complete, calls } = capturingComplete(assistantText("ok"));
+	const deps = { registry: fakeRegistry([fakeModel({ provider: "anthropic", id: "claude-sonnet-4" })]), complete };
+	expectText(await runInProcessReviewer(baseRequest({ selection: "anthropic/claude-sonnet-4", sessionId: "ses-live-1" }), deps));
+	expectText(await runInProcessReviewer(baseRequest({ selection: "anthropic/claude-sonnet-4", sessionId: "ses-live-1" }), deps));
+	assert.equal(calls.length, 2);
+	const [first, second] = calls.map((call) => call.options?.sessionId);
+	assert.ok(typeof first === "string" && first.length > 0);
+	assert.ok(typeof second === "string" && second.length > 0);
+	assert.notEqual(first, second);
+	assert.notEqual(first, "ses-live-1");
+	assert.notEqual(second, "ses-live-1");
+});
+
+test("an OpenCode model with a live parent keeps the parent id in the attribution header while options.sessionId stays synthetic", async () => {
+	const { complete, calls } = capturingComplete(assistantText("ok"));
+	const outcome = await runInProcessReviewer(baseRequest({ selection: "opencode/sonnet-4", sessionId: "ses-live-1" }), {
+		registry: fakeRegistry([fakeModel({ provider: "opencode", id: "sonnet-4", baseUrl: "https://opencode.ai" })]),
+		complete,
+	});
+	expectText(outcome);
+	assert.equal(calls.length, 1);
+	assert.equal(calls[0]!.options?.headers?.["x-opencode-session"], "ses-live-1");
+	const sessionId = calls[0]!.options?.sessionId;
+	assert.ok(typeof sessionId === "string" && sessionId.length > 0);
+	assert.notEqual(sessionId, "ses-live-1");
+});
 
 test("a non-OpenCode model adds no attribution headers and leaves the options unchanged", async () => {
 	const { complete, calls } = capturingComplete(assistantText("ok"));
@@ -591,7 +883,7 @@ test("refuses instead of falling back when getProvider returns undefined for a m
 	const refused = expectRefused(outcome);
 	assert.equal(refused.code, INPROCESS_REVIEWER_FAILURE.MODEL_NOT_FOUND);
 	assert.match(refused.message, /review-risk/);
-	assert.deepEqual(refused.evidence, { provider: "openai", api: "openai-responses" }, "the evidence separates this cause from a plain unresolved selection");
+	assert.deepEqual(withoutRunTiming(refused.evidence), { provider: "openai", api: "openai-responses", reviewerModel: "openai/gpt-5", phase: "configuration" }, "the evidence separates this cause from a plain unresolved selection");
 });
 
 // ---------------------------------------------------------------------------
@@ -711,7 +1003,9 @@ for (const transport of ["sse", "websocket", "websocket-cached", "auto", undefin
 				streamSimple: (model, context, options) => ({ result: () => captured.complete(model, context, options) }),
 			});
 			const outcome = await runInProcessReviewer(baseRequest({ transport }), { registry, complete: captured.complete });
-			assert.deepEqual(outcome, { kind: "text", text: "review result", reviewerModel: "openai/gpt-5" });
+			const { evidence, ...completion } = outcome;
+			assert.deepEqual(completion, { kind: "text", text: "review result", reviewerModel: "openai/gpt-5" });
+			assert.equal(evidence?.phase, "completion");
 			assert.equal(captured.calls.length, 1);
 			assert.equal(captured.calls[0]!.options?.transport, transport);
 			assert.equal(Object.hasOwn(captured.calls[0]!.options!, "transport"), transport !== undefined);

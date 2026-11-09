@@ -40,6 +40,7 @@ class FakeElement {
 	// Set by the canvas on buttons and inputs.
 	type = "";
 	rect: Rect = { left: 0, top: 0, width: 0, height: 0 };
+	capturedPointers: number[] = [];
 	contentWindow: { posted: any[]; postMessage(message: any): void } | null = null;
 	declare doc: FakeDocument;
 
@@ -105,7 +106,17 @@ class FakeElement {
 		return false;
 	}
 	matches(selector: string) {
-		return selector.startsWith(".") ? this.classes.has(selector.slice(1)) : this.localName === selector;
+		return selector.split(",").some((part) => {
+			const name = part.trim();
+			if (name === "[contenteditable]") return this.hasAttribute("contenteditable");
+			return name.startsWith(".") ? this.classes.has(name.slice(1)) : this.localName === name;
+		});
+	}
+	get isContentEditable(): boolean {
+		const value = this.getAttribute("contenteditable");
+		if (value === "" || value === "true" || value === "plaintext-only") return true;
+		if (value === "false") return false;
+		return this.parentElement?.isContentEditable ?? false;
 	}
 	closest(selector: string) {
 		for (let current: FakeElement | null = this; current; current = current.parentElement) if (current.matches(selector)) return current;
@@ -125,7 +136,7 @@ class FakeElement {
 	}
 	focus() { this.doc.activeElement = this; }
 	getBoundingClientRect() { return this.rect; }
-	setPointerCapture() {}
+	setPointerCapture(pointerId: number) { this.capturedPointers.push(pointerId); }
 	scrollLeft = 0;
 	scrollIntoView(_options?: unknown): unknown { return undefined; }
 }
@@ -490,6 +501,209 @@ test("a drag over an artboard moves it (canvas-layout S9), and in comment mode a
 	// canvas-ux-quick-wins S1: in the overview a click opens the direction; the element is picked inside it.
 	assert.equal(canvas.navMode.textContent, "Using: First · Shift+Esc to exit", "comment mode focuses instead of picking");
 	assert.ok(!first.frame.contentWindow!.posted.some((message) => message.type === "gd:pick-at"));
+});
+
+type CanvasFixture = Awaited<ReturnType<typeof loadCanvas>>;
+
+const panTargets: Array<[string, (canvas: CanvasFixture) => FakeElement]> = [
+	["viewport", (canvas) => canvas.viewport],
+	["gap between artboards", (canvas) => canvas.world],
+];
+
+for (const [name, targetOf] of panTargets) {
+	test(`navigation pan starts on ${name} without selecting`, async () => {
+		const canvas = await loadCanvas();
+		const target = targetOf(canvas);
+		const down = target.dispatch("pointerdown", { button: 0, pointerId: 7, clientX: 10, clientY: 10 });
+		canvas.viewport.dispatch("pointermove", { pointerId: 7, clientX: 45, clientY: 30 });
+		assert.equal(canvas.world.style.transform, "translate(83px, 68px) scale(1)");
+		assert.equal(down.defaultPrevented, true, "only an accepted pan suppresses the pointer default");
+		assert.deepEqual(canvas.viewport.capturedPointers, [7]);
+		assert.equal(canvas.viewport.classes.has("gd-panning"), true);
+		canvas.viewport.dispatch("pointerup", { button: 0, pointerId: 7, clientX: 45, clientY: 30 });
+		assert.equal(canvas.viewport.classes.has("gd-panning"), false);
+		assert.equal(canvas.navMode.textContent, NAV_CHIP, "a drag does not focus a shield");
+	});
+}
+
+// Where an artboard shows on screen at zoom 1: the world's translation plus its place in the world.
+function screenOf(canvas: CanvasFixture, board: { wrapper: FakeElement }) {
+	const [x, y] = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(canvas.world.style.transform)!.slice(1).map(Number);
+	return [x + parseFloat(board.wrapper.style.left), y + parseFloat(board.wrapper.style.top)];
+}
+
+// canvas-layout S9: a press on any part of an artboard that is not a control moves that artboard instead of panning.
+const moveTargets: Array<[string, (canvas: CanvasFixture) => FakeElement]> = [
+	["artboard gap", (canvas) => canvas.boards[0].wrapper],
+	["frame box", (canvas) => canvas.boards[0].frame.parentElement!],
+	["artboard title", (canvas) => canvas.boards[0].wrapper.children[0].children[0]],
+	["actions gap", (canvas) => canvas.boards[0].wrapper.children[0].children.find((child) => child.classes.has("gd-board-actions"))!],
+	["shield", (canvas) => canvas.boards[0].shield!],
+];
+
+for (const [name, targetOf] of moveTargets) {
+	test(`a drag on the ${name} moves the artboard without selecting text`, async () => {
+		const canvas = await loadCanvas();
+		const board = canvas.boards[0];
+		const others = canvas.boards.slice(1).map((other) => screenOf(canvas, other));
+		const from = screenOf(canvas, board);
+		const down = targetOf(canvas).dispatch("pointerdown", { button: 0, pointerId: 7, clientX: 10, clientY: 10 });
+		canvas.viewport.dispatch("pointermove", { pointerId: 7, clientX: 45, clientY: 30 });
+		assert.equal(down.defaultPrevented, true, "the press suppresses the pointer default");
+		assert.deepEqual(canvas.viewport.capturedPointers, [7]);
+		assert.equal(canvas.viewport.classes.has("gd-moving"), true);
+		canvas.viewport.dispatch("pointerup", { button: 0, pointerId: 7, clientX: 45, clientY: 30 });
+		assert.deepEqual(screenOf(canvas, board), [from[0] + 35, from[1] + 20], "the artboard followed the pointer");
+		assert.deepEqual(canvas.boards.slice(1).map((other) => screenOf(canvas, other)), others, "the canvas did not pan");
+		assert.equal(canvas.viewport.classes.has("gd-moving"), false);
+		assert.equal(canvas.navMode.textContent, NAV_CHIP, "a drag does not focus a shield");
+	});
+}
+
+test("navigation pan cancels a stale native drag and continues until pointerup", async () => {
+	const canvas = await loadCanvas();
+	const title = canvas.boards[0].wrapper.children[0].children[0];
+	assert.equal(title.dispatch("dragstart").defaultPrevented, true, "a native viewport drag is canceled even before a pan");
+	const down = canvas.world.dispatch("pointerdown", { button: 0, pointerId: 2, clientX: 10, clientY: 10 });
+	const dragstart = canvas.world.dispatch("dragstart");
+	assert.equal(dragstart.defaultPrevented, true, "an old selection cannot start a native drag");
+	assert.equal(down.defaultPrevented, true);
+	canvas.viewport.dispatch("pointermove", { pointerId: 2, clientX: 40, clientY: 25 });
+	assert.equal(canvas.world.style.transform, "translate(78px, 63px) scale(1)");
+	canvas.viewport.dispatch("pointerup", { pointerId: 2, clientX: 40, clientY: 25 });
+	assert.equal(canvas.viewport.classes.has("gd-panning"), false);
+});
+
+test("navigation pan leaves secondary buttons and interactive descendants to the browser", async () => {
+	const canvas = await loadCanvas();
+	const label = canvas.boards[0].wrapper.children[0];
+	const before = canvas.world.style.transform;
+	const secondary = label.dispatch("pointerdown", { button: 2, pointerId: 1, clientX: 10, clientY: 10 });
+	assert.equal(secondary.defaultPrevented, false);
+	canvas.viewport.dispatch("pointermove", { pointerId: 1, clientX: 40, clientY: 25 });
+	assert.equal(canvas.world.style.transform, before);
+	for (const name of ["button", "a", "input", "select", "textarea", "iframe", "editable", "plaintext-only"]) {
+		const control = canvas.document.createElement(name === "editable" || name === "plaintext-only" ? "div" : name);
+		if (name === "editable" || name === "plaintext-only") control.setAttribute("contenteditable", name === "editable" ? "true" : name);
+		const child = canvas.document.createElement("span");
+		control.append(child);
+		label.append(control);
+		const down = child.dispatch("pointerdown", { button: 0, pointerId: 3, clientX: 10, clientY: 10 });
+		assert.equal(down.defaultPrevented, false, `${name} pointer default`);
+		assert.equal(child.dispatch("dragstart").defaultPrevented, false, `${name} native drag default`);
+		canvas.viewport.dispatch("pointermove", { pointerId: 3, clientX: 40, clientY: 25 });
+		canvas.viewport.dispatch("pointerup", { pointerId: 3, clientX: 40, clientY: 25 });
+		assert.equal(canvas.world.style.transform, before, `${name} did not pan`);
+		assert.equal(canvas.viewport.classes.has("gd-panning"), false);
+	}
+	assert.deepEqual(canvas.viewport.capturedPointers, []);
+	const editable = canvas.document.createElement("div");
+	editable.setAttribute("contenteditable", "true");
+	const noneditable = canvas.document.createElement("div");
+	noneditable.setAttribute("contenteditable", "false");
+	editable.append(noneditable);
+	label.append(editable);
+	const from = screenOf(canvas, canvas.boards[0]);
+	assert.equal(noneditable.dispatch("pointerdown", { button: 0, pointerId: 6, clientX: 10, clientY: 10 }).defaultPrevented, true);
+	canvas.viewport.dispatch("pointermove", { pointerId: 6, clientX: 40, clientY: 25 });
+	canvas.viewport.dispatch("pointerup", { pointerId: 6, clientX: 40, clientY: 25 });
+	assert.deepEqual(screenOf(canvas, canvas.boards[0]), [from[0] + 30, from[1] + 15], "noneditable descendants still move the artboard");
+});
+
+test("navigation pan preserves implement controls, comment pins and toolbar zoom", async () => {
+	const comment = { id: "abc123", file: "01-a.html", selector: "h1", excerpt: "First", comment: "Update", status: "open", sentAt: null };
+	const canvas = await loadCanvas(300, { "/t/api/designs/alpha/comments": { comments: [comment] } });
+	const board = canvas.boards[0];
+	const label = board.wrapper.children[0];
+	const actions = label.children.find((child) => child.classes.has("gd-board-actions"))!;
+	const implement = actions.children.find((child) => child.classes.has("gd-implement"))!;
+	const start = implement.children.find((child) => child.classes.has("gd-implement-start"))!;
+	const before = canvas.world.style.transform;
+	assert.equal(start.dispatch("pointerdown", { button: 0, pointerId: 1, clientX: 10, clientY: 10 }).defaultPrevented, false);
+	canvas.viewport.dispatch("pointermove", { pointerId: 1, clientX: 30, clientY: 30 });
+	canvas.viewport.dispatch("pointerup", { pointerId: 1, clientX: 30, clientY: 30 });
+	assert.equal(canvas.world.style.transform, before);
+	start.dispatch("click");
+	const confirm = implement.children.find((child) => child.classes.has("gd-implement-confirm"))!;
+	assert.equal(confirm.hidden, false);
+	assert.equal(canvas.document.activeElement, confirm.children[1]);
+	// The text in the confirmation is not a control and can start a move of its artboard.
+	const from = screenOf(canvas, board);
+	const down = confirm.children[0].dispatch("pointerdown", { button: 0, pointerId: 2, clientX: 10, clientY: 10 });
+	canvas.viewport.dispatch("pointermove", { pointerId: 2, clientX: 20, clientY: 20 });
+	canvas.viewport.dispatch("pointerup", { pointerId: 2, clientX: 20, clientY: 20 });
+	assert.deepEqual(screenOf(canvas, board), [from[0] + 10, from[1] + 10]);
+	assert.equal(down.defaultPrevented, true);
+
+	canvas.message(board.frame.contentWindow, { type: "gd:pin-rects", rects: [{ id: comment.id, rect: { x: 10, y: 10, width: 30, height: 20 } }] });
+	const pins = board.frame.parentElement!.children.find((child) => child.classes.has("gd-pins"))!;
+	const pin = pins.children[0];
+	const beforePin = canvas.world.style.transform;
+	assert.equal(pin.dispatch("pointerdown", { button: 0, pointerId: 3, clientX: 10, clientY: 10 }).defaultPrevented, false);
+	canvas.viewport.dispatch("pointermove", { pointerId: 3, clientX: 40, clientY: 40 });
+	canvas.viewport.dispatch("pointerup", { pointerId: 3, clientX: 40, clientY: 40 });
+	assert.equal(canvas.world.style.transform, beforePin);
+	pin.dispatch("click");
+	assert.deepEqual(board.frame.contentWindow!.posted.at(-1), { type: "gd:highlight", id: comment.id });
+	assert.equal(canvas.document.getElementById("gd-comment-list").children[0].classes.has("gd-active"), true);
+	canvas.document.getElementById("gd-zoom-in").dispatch("click");
+	assert.equal(canvas.zoomLevel.textContent, "125%");
+});
+
+test("navigation pan does not cancel defaults or move the canvas in focus mode", async () => {
+	const canvas = await loadCanvas();
+	const board = canvas.boards[0];
+	click(board.shield!, 10, 10);
+	assert.equal(canvas.document.activeElement, board.frame);
+	const before = canvas.world.style.transform;
+	const title = board.wrapper.children[0].children[0];
+	const down = title.dispatch("pointerdown", { button: 0, pointerId: 5, clientX: 10, clientY: 10 });
+	assert.equal(down.defaultPrevented, false);
+	assert.equal(title.dispatch("dragstart").defaultPrevented, false);
+	assert.equal(board.frame.dispatch("pointerdown", { button: 0, pointerId: 8, clientX: 10, clientY: 10 }).defaultPrevented, false);
+	assert.equal(board.frame.dispatch("dragstart").defaultPrevented, false);
+	canvas.viewport.dispatch("pointermove", { pointerId: 5, clientX: 40, clientY: 25 });
+	canvas.viewport.dispatch("pointerup", { pointerId: 5, clientX: 40, clientY: 25 });
+	assert.equal(canvas.world.style.transform, before);
+	assert.equal(canvas.viewport.classes.has("gd-panning"), false);
+	assert.equal(canvas.document.activeElement, board.frame);
+});
+
+test("navigation pan preserves keyboard activation of the artboard shield", async () => {
+	const canvas = await loadCanvas();
+	const board = canvas.boards[0];
+	const key = board.shield!.dispatch("keydown", { key: "Enter" });
+	assert.equal(key.defaultPrevented, true);
+	assert.equal(canvas.document.activeElement, board.frame);
+	assert.match(canvas.navMode.textContent, /^Using: First/);
+	canvas.document.getElementById("gd-back").dispatch("click");
+	assert.equal(canvas.document.activeElement, canvas.viewport);
+	assert.equal(canvas.navMode.textContent, NAV_CHIP);
+});
+
+test("navigation pan ends on pointercancel without focusing the shield", async () => {
+	const canvas = await loadCanvas();
+	const shield = canvas.boards[0].shield!;
+	const down = shield.dispatch("pointerdown", { button: 0, pointerId: 4, clientX: 10, clientY: 10 });
+	assert.equal(down.defaultPrevented, true);
+	canvas.viewport.dispatch("pointercancel", { pointerId: 4, clientX: 10, clientY: 10 });
+	canvas.viewport.dispatch("pointermove", { pointerId: 4, clientX: 40, clientY: 25 });
+	assert.equal(canvas.world.style.transform, "translate(48px, 48px) scale(1)");
+	assert.equal(canvas.viewport.classes.has("gd-panning"), false);
+	assert.equal(canvas.navMode.textContent, NAV_CHIP);
+});
+
+test("navigation pan declares selection suppression without disabling editable text", () => {
+	const css = read("canvas.css");
+	const viewport = /\.gd-viewport\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+	assert.match(viewport, /(?:^|;)\s*-webkit-user-select:\s*none\s*;/);
+	assert.match(viewport, /(?:^|;)\s*user-select:\s*none\s*;/);
+	const editable = /\.gd-viewport input,\s*\.gd-viewport textarea,\s*\.gd-viewport \[contenteditable\]:not\(\[contenteditable="false"\]\)\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+	assert.match(editable, /(?:^|;)\s*-webkit-user-select:\s*text\s*;/);
+	assert.match(editable, /(?:^|;)\s*user-select:\s*text\s*;/);
+	const focused = /\.gd-viewport\.gd-focused\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+	assert.match(focused, /(?:^|;)\s*-webkit-user-select:\s*auto\s*;/);
+	assert.match(focused, /(?:^|;)\s*user-select:\s*auto\s*;/);
 });
 
 // S14: `open` while a canvas page is connected sends it a show event instead of opening a tab.
@@ -7721,8 +7935,8 @@ test("canvas-layout S9: holding Space pans from anywhere, over an artboard too, 
 test("canvas-layout S9: Space stays with fields, buttons, the comment box and an open artboard, and a Space on an artboard's shield still opens it", async () => {
 	const canvas = await loadRail(300, NO_LAYOUT);
 	const [first] = canvas.boards;
-	const editable = canvas.document.createElement("div") as FakeElement & { isContentEditable?: boolean };
-	editable.isContentEditable = true;
+	const editable = canvas.document.createElement("div");
+	editable.setAttribute("contenteditable", "true");
 	for (const target of [...["input", "textarea", "select", "button", "a"].map((tag) => canvas.document.createElement(tag)), editable]) {
 		assert.equal(keyAt(canvas, "keydown", " ", target).defaultPrevented, false, `${target.localName}: Space keeps its default`);
 		assert.ok(!canvas.viewport.classes.has("gd-space-pan"), target.localName);

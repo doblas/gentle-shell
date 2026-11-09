@@ -39,7 +39,6 @@
 	const LAYOUT_SYSTEM_KEY = "system";
 	const ARRANGEMENTS = ["row", "column", "grid"];
 	// Controls keep their own press: one on a button, link or field in an artboard header neither pans nor moves the artboard.
-	const CONTROL_TAGS = ["button", "a", "input", "select", "textarea", "label"];
 	// The minimap: its map box in CSS px (canvas.css gives .gd-minimap-map the same size) and the pad kept free around the blocks.
 	const MINIMAP = { width: 204, height: 96, pad: 6, minBlock: 2 };
 	const LIMITS = { selector: 500, excerpt: 300, comment: 2000, variant: 2000, pins: 500, tokens: 500, screenshotBytes: 5 * 1024 * 1024 };
@@ -1608,26 +1607,35 @@
 		handleWheel(event.deltaX, event.deltaY, event.deltaMode, event.ctrlKey || event.metaKey, event.shiftKey, event.clientX, event.clientY);
 	}, { passive: false });
 
-	const isControl = (target) => CONTROL_TAGS.some((tag) => target.closest(tag));
+	const CONTROL_TAGS = ["button", "a", "input", "select", "textarea", "label", "iframe"];
+	function interactiveTarget(target) {
+		const editable = target.closest("[contenteditable]");
+		return Boolean(target.closest(CONTROL_TAGS.join(", ")) || (editable && editable.isContentEditable));
+	}
 
-	// A press on any part of an artboard (its label header or its shield) moves that artboard and selects it
+	// A press on any part of an artboard that is not a control moves that artboard and selects it
 	// (canvas-layout S9, S10), saved once on release; a press on the background pans and clears the selection.
 	// A shield released without moving is a click on that artboard: focus mode, in Comment mode too
 	// (S1: elements are picked inside it). With Space held, every press pans and changes nothing else.
 	let drag = null;
 	els.viewport.addEventListener("pointerdown", (event) => {
-		if (state.focus || event.button !== 0 || isControl(event.target)) return;
+		if (state.focus || event.button !== 0 || interactiveTarget(event.target)) return;
 		const shield = event.target.closest(".gd-shield");
-		const label = event.target.closest(".gd-artboard-label");
-		if (!shield && event.target !== els.viewport && event.target !== els.world && !label) return;
+		const wrapper = event.target.closest(".gd-artboard");
+		if (!shield && !wrapper && event.target !== els.viewport && event.target !== els.world) return;
+		event.preventDefault();
 		const space = state.space;
 		if (space) space.used = true;
-		const board = space ? null : shield ? boardOfShield(shield) : label ? allBoards().find((candidate) => candidate.wrapper === label.parentElement) ?? null : null;
+		const board = space ? null : shield ? boardOfShield(shield) : wrapper ? allBoards().find((candidate) => candidate.wrapper === wrapper) ?? null : null;
 		const from = board ? state.layout.positions[layoutKey(board)] : null;
 		drag = { id: event.pointerId, x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, moved: false, board: shield ? board : null, mover: from ? { board, from } : null };
 		if (!space) selectBoard(drag.mover ? board : null);
 		els.viewport.setPointerCapture(event.pointerId);
 		els.viewport.classList.add(drag.mover ? "gd-moving" : "gd-panning");
+	});
+	// An old text selection can still initiate a native drag and cancel the pan.
+	els.viewport.addEventListener("dragstart", (event) => {
+		if (!state.focus && !interactiveTarget(event.target)) event.preventDefault();
 	});
 	els.viewport.addEventListener("pointermove", (event) => {
 		if (!drag || drag.id !== event.pointerId) return;

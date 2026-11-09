@@ -1,18 +1,21 @@
+import { pickModel, sharedCooldown, shouldFallBack, type ModelCooldown } from "./model-fallback-policy.ts";
+import type { FallbackChain } from "./model-fallback-store.ts";
+import { fallbackContinuePrompt } from "./model-fallback-notice.ts";
 import { isSessionChangeEvidence, type SessionChangeEvidence } from "./session-changes.ts";
-import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { DefaultPackageManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { tmpdir, userInfo } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve, win32 } from "node:path";
 import { Duplex, type Readable, type Writable } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 import { withoutInteractiveHost } from "./rpc-host.ts";
 import { gentlePiConfigHome } from "./agent-home.ts";
 import { resolveBackgroundSubagentsPolicy } from "./background-subagents-policy.ts";
 import { childPackageExtensionArgs } from "./child-package-injection.ts";
-import { AGENT_MODE, formatModelRef, type AgentDefinition, type AgentMode, type ModelRef } from "./agents-config.ts";
-import { CHILD_QUERY_MAX_INFLIGHT, CHILD_QUERY_TIMEOUT_MS, parseChildFrame, validChildMessage, validChildQueryId } from "./agents-messaging.ts";
+import { AGENT_MODE, formatModelRef, parseModelRef, type AgentDefinition, type AgentMode, type ModelRef } from "./agents-config.ts";
+import { CHILD_QUERY_MAX_INFLIGHT, CHILD_QUERY_TIMEOUT_MS, parseChildFrame, parseChildJobState, validChildMessage, validChildQueryId } from "./agents-messaging.ts";
 import { ParentStandingReviewPermissionBroker } from "./review-session-standing-permission-ipc.ts";
-import { isFinished, normalizeRpcEvent, ToolArgumentProgress, TASK_EVENT, TASK_STATUS, taskLabel, type AskRequest, type ChildResponseObservation, type TaskRecord, type TaskStore } from "./agents-protocol.ts";
+import { isFinished, normalizeRpcEvent, ToolArgumentProgress, TASK_EVENT, TASK_STATUS, taskLabel, type AskRequest, type ChildResponseObservation, type TaskRecord, type TaskStore, type TerminalErrorCategory } from "./agents-protocol.ts";
 import { WriterSurfaceRegistry, writerSurfaceConflictMessage } from "./writer-surfaces.ts";
 import { holdSubagentScratch, releaseSubagentScratch, SUBAGENT_SCRATCH_PREFIX } from "./session-scratch.ts";
 
@@ -64,6 +67,8 @@ export interface RunnerDeps {
 	pi: PiCommand;
 	resolvePi?(): PiCommand;
 	process?: ProcessControl;
+	/** Models that recently ran out; the process-wide registry when absent. */
+	cooldown?: ModelCooldown;
 }
 
 export interface RunnerLimits {
@@ -74,6 +79,8 @@ export interface RunnerLimits {
 	toolStallTimeoutMs?: number;
 	// Bounded asynchronous cleanup window allowed after settlement before escalating to SIGTERM/SIGKILL.
 	cleanupTimeoutMs?: number;
+	// One bounded drain granted when agent_settled arrives while a child background job still runs.
+	drainTimeoutMs?: number;
 }
 
 export interface AskAnswer {
@@ -120,6 +127,8 @@ export interface RunnerHooks {
 	onQuerySettled?(taskId: string, requestId: string, outcome: "replied" | "expired"): void;
 	// Parent-only observation of a paired successful filesystem tool, not prose.
 	onSuccessfulMutation?(task: TaskRecord, tool: { toolName: "write" | "edit"; toolCallId: string; path: string; evidence?: SessionChangeEvidence }): void | Promise<void>;
+	/** The child moved to the next model of its fallback chain and keeps going. */
+	onFallback?(task: TaskRecord, change: { from: string; to: string; category: TerminalErrorCategory; launch?: boolean }): void;
 }
 
 export interface TaskRequest {
@@ -132,6 +141,8 @@ export interface TaskRequest {
 	parentSessionId: string;
 	model: ModelRef | undefined;
 	thinking: string | undefined;
+	/** Ordered fallbacks for when `model` runs out or keeps failing; only models the user chose. */
+	fallbacks?: FallbackChain;
 	sessionDir: string;
 	resumeSessionPath: string | undefined;
 	env: NodeJS.ProcessEnv;
@@ -181,6 +192,7 @@ interface ProcessLike {
 	execPath: string;
 	argv: string[];
 	env: NodeJS.ProcessEnv;
+	platform?: NodeJS.Platform;
 }
 
 interface Pending {
@@ -199,6 +211,10 @@ interface PendingReply {
 interface LiveTask {
 	child: ChildLike;
 	sawRunEvent: boolean;
+	/** The category of the last failed final response, for the fallback decision. */
+	errorCategory?: TerminalErrorCategory;
+	/** Models this run already used or tried, so a chain never loops. */
+	triedModels?: Set<string>;
 	observations?: ChildObservationBuffer;
 	observationGuard?: () => boolean;
 	observationPreparation?: () => boolean;
@@ -215,6 +231,10 @@ interface LiveTask {
 	/** The child's own TMPDIR, removed when the child ends unless its exit is unconfirmed. */
 	scratchDir?: string;
 	cleanupDeadlineAt: number | undefined;
+	/** The child's last reported background-job state, if any (#2266). */
+	childJobState?: { running: number; pending: boolean };
+	/** One bounded post-settlement drain while the child's background jobs finish (#2266). */
+	drain?: { status: TaskRecord["status"]; error: string | null; cancel: () => void };
 	quarantined: boolean;
 	nextId: number;
 	permissionBroker?: ParentStandingReviewPermissionBroker;
@@ -241,6 +261,8 @@ export const MAX_INLINE_INSTRUCTIONS_BYTES = 1000;
 const MAX_TRANSPORT_PREFIX_CHARS = 64;
 const CHILD_MARKER = "GENTLE_PI_AGENTS_CHILD";
 const IPC_MARKER = "GENTLE_PI_AGENTS_OWNED_IPC";
+/** Forwarded to the child only when a declared `bash_background` admitted its policy (#2266). */
+export const CHILD_JOBS_ENV = "GENTLE_PI_AGENTS_CHILD_JOBS";
 const PARENT_NOTIFICATION_TOOL = "subagent_parent_message";
 /** The exact --tools list, so the child can report requested names Pi dropped silently (#1690). */
 export const REQUESTED_TOOLS_ENV = "GENTLE_PI_AGENTS_REQUESTED_TOOLS";
@@ -250,6 +272,8 @@ const GROUP_CONFIRM_MS = 25;
 const GROUP_CONFIRM_DEADLINE_MS = 1_000;
 const QUARANTINE_PROBE_MS = 1_000;
 export const DEFAULT_CLEANUP_TIMEOUT_MS = 5_000;
+// One bounded drain window for a child's own background jobs at settlement (#2266).
+export const DEFAULT_DRAIN_TIMEOUT_MS = 5_000;
 const QUERY_REJECTION_ERRORS = new Set([
 	"invalid child IPC frame",
 	"invalid child IPC correlation",
@@ -340,16 +364,124 @@ export function childArguments(request: TaskRequest, instructionsPath?: string):
 	return args;
 }
 
-// Reuse the running pi entry while it exists; upgrades may remove it.
-// GENTLE_PI_AGENTS_PI overrides it with a command line.
-export function piCommand(proc: ProcessLike = process, exists: (path: string) => boolean = existsSync): PiCommand {
+/**
+ * Resolves the underlying JavaScript entry point targeted by a Windows .cmd or .bat shim.
+ *
+ * Scans the shim text for referenced .js/.mjs/.cjs files (such as npm or pnpm cmd-shims)
+ * or inspects adjacent package metadata without invoking cmd.exe or a shell.
+ */
+export function resolvePiScriptFromCmd(
+	cmdPath: string,
+	exists: (path: string) => boolean = existsSync,
+	readFile: (path: string) => string = (p) => readFileSync(p, "utf8"),
+): string | undefined {
+	const baseDir = win32.dirname(cmdPath);
+	let text = "";
+	try {
+		text = readFile(cmdPath);
+	} catch {
+		text = "";
+	}
+
+	if (text) {
+		const targetMatch = /^#\s*cmd-shim-target\s*=\s*([^\r\n]+)$/m.exec(text);
+		if (targetMatch) {
+			const candidate = targetMatch[1].trim();
+			const resolved = win32.isAbsolute(candidate) ? candidate : win32.resolve(baseDir, candidate);
+			if (exists(resolved)) return resolved;
+		}
+
+		const scriptMatches = text.matchAll(/(?:["'])([^"']+\.[cm]?js)(?:["'])|(?:^|\s)((?:%~?dp0|%dp0%)\\?[^\s"']+\.[cm]?js)(?:\s|$)/gi);
+		for (const m of scriptMatches) {
+			const raw = (m[1] ?? m[2])?.trim();
+			if (!raw) continue;
+			const stripped = raw.replace(/^(?:%~?dp0|%dp0%)\\?/i, "");
+			const candidate = /^(?:%~?dp0|%dp0%)/i.test(raw) || !win32.isAbsolute(stripped)
+				? win32.resolve(baseDir, stripped)
+				: stripped;
+			if (exists(candidate)) return candidate;
+		}
+	}
+
+	const standardPaths = [
+		win32.join(baseDir, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"),
+		win32.join(baseDir, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "bundle", "cli.js"),
+		win32.join(baseDir, "pi-launcher.js"),
+		win32.join(baseDir, "dist", "cli.js"),
+		win32.join(baseDir, "dist", "bundle", "cli.js"),
+	];
+	for (const candidate of standardPaths) {
+		if (exists(candidate)) return candidate;
+	}
+
+	return undefined;
+}
+
+/**
+ * Searches the Windows PATH and known locations for an installed pi command,
+ * resolving .cmd shims to their direct Node script entry points to avoid cmd.exe shell invocation.
+ */
+export function findWindowsPiCommand(
+	proc: ProcessLike = process,
+	exists: (path: string) => boolean = existsSync,
+	readFile: (path: string) => string = (p) => readFileSync(p, "utf8"),
+): PiCommand | undefined {
+	const pathEnv = proc.env.Path ?? proc.env.PATH ?? "";
+	for (const entry of pathEnv.split(";")) {
+		const dir = entry.length >= 2 && entry.startsWith('"') && entry.endsWith('"')
+			? entry.slice(1, -1)
+			: entry;
+		if (!dir) continue;
+
+		const candidateExe = win32.join(dir, "pi.exe");
+		if (exists(candidateExe)) {
+			return { command: candidateExe, args: [] };
+		}
+
+		for (const ext of [".cmd", ".bat"]) {
+			const candidateCmd = win32.join(dir, `pi${ext}`);
+			if (exists(candidateCmd)) {
+				const script = resolvePiScriptFromCmd(candidateCmd, exists, readFile);
+				if (script) {
+					return { command: proc.execPath, args: [script] };
+				}
+			}
+		}
+	}
+	return undefined;
+}
+
+/**
+ * Resolves the pi invocation command for subagent execution.
+ *
+ * Reuses the running pi CLI entry point while it exists on disk.
+ * When the running entry point disappears (e.g. after a package upgrade on Windows),
+ * re-resolves the current installation from PATH and returns Node plus the target script
+ * so arguments are never passed through an unescaped shell wrapper.
+ */
+export function piCommand(
+	proc: ProcessLike = process,
+	exists: (path: string) => boolean = existsSync,
+	readFile: (path: string) => string = (p) => readFileSync(p, "utf8"),
+): PiCommand {
 	const override = proc.env.GENTLE_PI_AGENTS_PI?.trim();
 	if (override) {
 		const [command, ...args] = override.split(/\s+/);
+		if (/\.(?:cmd|bat)$/i.test(command) && exists(command)) {
+			const script = resolvePiScriptFromCmd(command, exists, readFile);
+			if (script) return { command: proc.execPath, args: [script, ...args] };
+		}
 		return { command, args };
 	}
 	const entry = proc.argv[1];
 	if (entry && /(^|[\\/])cli\.js$/.test(entry) && exists(entry)) return { command: proc.execPath, args: [entry] };
+	const isWin32 = proc.platform !== undefined
+		? proc.platform === "win32"
+		: (proc === process ? process.platform === "win32" : /^[a-zA-Z]:\\/i.test(proc.execPath) || /\\/.test(proc.execPath));
+	if (isWin32) {
+		const resolved = findWindowsPiCommand(proc, exists, readFile);
+		if (resolved) return resolved;
+	}
 	return { command: "pi", args: [] };
 }
 
@@ -565,7 +697,10 @@ export class AgentRunner {
 				this.finish(id, TASK_STATUS.FAILED, `could not start pi: explicit tool bash_background requires background-subagents policy on. Set ${file} to {"schema":"gentle-pi.background-subagents/v1","policy":"on"}; inspect or change policy with /gentle:background-subagents enable|disable|status.`);
 				return;
 			}
-		}
+			// Admission passed: the child registers its own private job tools and is
+			// trusted to report job state for the settlement drain.
+			env[CHILD_JOBS_ENV] = "1";
+		} else delete env[CHILD_JOBS_ENV];
 		if (tools !== undefined) env[REQUESTED_TOOLS_ENV] = tools;
 		else delete env[REQUESTED_TOOLS_ENV];
 		let instructionsTransportDir: string | undefined;
@@ -604,9 +739,10 @@ export class AgentRunner {
 			if (this.processControl.platform === "win32") { env.TMP = scratchDir; env.TEMP = scratchDir; }
 		} catch { scratchDir = undefined; }
 		let child: ChildLike;
+		const launch = this.launchRequest(id, request);
 		try {
 			const pi = this.deps.resolvePi?.() ?? this.deps.pi;
-			child = this.deps.spawn(pi.command, [...pi.args, ...childArguments(request, instructionsTransportPath)], {
+			child = this.deps.spawn(pi.command, [...pi.args, ...childArguments(launch.request, instructionsTransportPath)], {
 				cwd: request.cwd,
 				env,
 				detached,
@@ -622,6 +758,7 @@ export class AgentRunner {
 			this.finish(id, TASK_STATUS.FAILED, `could not start pi: ${error instanceof Error ? error.message : String(error)}`);
 			return;
 		}
+		launch.announce?.();
 		const processGroup = detached && typeof child.pid === "number" && child.pid > 0 ? child.pid : undefined;
 		const live: LiveTask = { child, sawRunEvent: false, mutationStarts: new Map(), inFlightTools: new Map(), argumentProgress: new ToolArgumentProgress(), pending: new Map(), queries: new Map(), replies: new Map(), cancelStall: () => {}, cancelGrace: () => {}, processGroup, terminal: undefined, childExit: undefined, childExitSignal: undefined, instructionsTransportDir, scratchDir, cleanupDeadlineAt: undefined, quarantined: false, nextId: 0, ipcClosed: false, acknowledgedIpcIds: new Set(), acknowledgedIpcOrder: [], stderrTail: "" };
 		if (request.prepareResponseObservations) {
@@ -725,6 +862,90 @@ export class AgentRunner {
 		}, budget);
 	}
 
+	/** The request a child starts with: a primary model that is cooling down gives way to its first usable fallback. */
+	private launchRequest(id: string, request: TaskRequest): { request: TaskRequest; announce?: () => void } {
+		const chain = request.fallbacks ?? [];
+		if (!chain.length || !request.model) return { request };
+		const cooldown = this.deps.cooldown ?? sharedCooldown();
+		const now = this.deps.now();
+		const primary = formatModelRef(request.model);
+		const pick = pickModel(primary, chain, { cooldown, now });
+		const model = pick?.fallback && pick.model ? parseModelRef(pick.model) : undefined;
+		if (!model?.provider || !pick?.model) return { request };
+		const updated = this.store.update(id, { model: pick.model, fallbackFrom: primary, ...(pick.thinking ? { thinking: pick.thinking } : {}) });
+		const category = cooldown.reason(primary, now);
+		const to = pick.model;
+		// Announced by the caller once the child actually started.
+		const announce = () => {
+			try { if (updated && category) this.hooks.onFallback?.(this.store.get(id) ?? updated, { from: primary, to, category, launch: true }); }
+			catch { /* A notice failure must not stop the launch. */ }
+		};
+		return { request: { ...request, model, thinking: pick.thinking ?? request.thinking }, announce };
+	}
+
+	/**
+	 * After a failed final response, moves the live child to the next usable
+	 * model of its chain and asks it to continue the same conversation. False
+	 * when the error would repeat on any model or nothing is left: the caller
+	 * then fails the task as before.
+	 */
+	private fallBack(id: string, request: TaskRequest, live: LiveTask): boolean {
+		const chain = request.fallbacks ?? [];
+		const category = live.errorCategory;
+		if (!chain.length || live.terminal || !shouldFallBack(category)) return false;
+		const cooldown = this.deps.cooldown ?? sharedCooldown();
+		const now = this.deps.now();
+		const task = this.store.get(id);
+		const current = task?.model && task.model !== "default" ? task.model : request.model ? formatModelRef(request.model) : undefined;
+		const tried = (live.triedModels ??= new Set());
+		if (current) {
+			tried.add(current);
+			cooldown.mark(current, category!, now);
+		}
+		// The next selectable step: one with a provider, untried and not cooling down.
+		const next = () => {
+			for (;;) {
+				const pick = pickModel(current, chain, { cooldown, now: this.deps.now(), tried });
+				if (!pick?.fallback || !pick.model) return undefined;
+				tried.add(pick.model);
+				if (parseModelRef(pick.model)?.provider) return pick;
+			}
+		};
+		let pick = next();
+		if (!pick) return false;
+		live.errorCategory = undefined;
+		this.store.update(id, { error: null, result: null, lastStep: `↪ ${pick.model}` });
+		const alive = () => this.live.get(id) === live && !live.terminal;
+		const fail = (reason: string) => { if (alive()) this.settleOrderly(id, TASK_STATUS.FAILED, reason); };
+		void (async () => {
+			// Pi may refuse a step (no key, unknown model): the next one gets its turn.
+			for (;;) {
+				const target = parseModelRef(pick.model!)!;
+				const switched = await this.send(id, { type: "set_model", provider: target.provider, modelId: target.id });
+				if (!alive()) return;
+				if (switched.success !== false) break;
+				const refused = `could not switch to ${pick.model}: ${String(switched.error ?? "rejected")}`;
+				const following = next();
+				if (!following) return fail(refused);
+				pick = following;
+				this.store.update(id, { lastStep: `↪ ${pick.model}` });
+			}
+			const to = pick.model!;
+			// Pi accepted the model: the record follows at once, even if the run stops next.
+			const level = pick.thinking ?? request.thinking;
+			this.store.update(id, { model: to, fallbackFrom: this.store.get(id)?.fallbackFrom ?? current ?? "default", ...(level ? { thinking: level } : {}) });
+			// A step without its own effort runs at the agent's configured effort, not the previous step's.
+			if (level) await this.send(id, { type: "set_thinking_level", level });
+			if (!alive()) return;
+			const updated = this.store.get(id);
+			try { if (updated) this.hooks.onFallback?.(updated, { from: current ?? "default", to, category: category! }); }
+			catch { /* A notice failure must not stop the switch. */ }
+			const resumed = await this.send(id, { type: "prompt", message: fallbackContinuePrompt(current, to, category!) });
+			if (resumed.success === false) fail(`could not continue on ${to}: ${String(resumed.error ?? "prompt rejected")}`);
+		})().catch((error) => fail(`could not continue: ${error instanceof Error ? error.message : String(error)}`));
+		return true;
+	}
+
 	private send(id: string, command: Record<string, unknown>): Promise<Record<string, unknown>> {
 		const live = this.live.get(id);
 		if (!live) return Promise.resolve({ success: false, error: "task is not running" });
@@ -747,8 +968,8 @@ export class AgentRunner {
 		}
 		const task = this.store.get(id);
 		if (!task || live.terminal || isFinished(task.status) || task.parentSessionId === "") {
-			if (parsed.frame.kind === "notification") this.acknowledge(live, parsed.frame.id, false, "task is not a live owned recipient");
-			else this.sendQueryError(live, parsed.frame.id, "task is not a live owned recipient");
+			if (parsed.frame.kind === "query") this.sendQueryError(live, parsed.frame.id, "task is not a live owned recipient");
+			else this.acknowledge(live, parsed.frame.id, false, "task is not a live owned recipient");
 			return;
 		}
 		if (parsed.frame.kind === "notification") {
@@ -757,6 +978,18 @@ export class AgentRunner {
 				if (this.hooks.onNotification?.(task, parsed.frame.message) === false) this.acknowledge(live, parsed.frame.id, false, "task parent is not the active host session");
 				else this.acknowledge(live, parsed.frame.id, true);
 			} catch { this.acknowledge(live, parsed.frame.id, false, "parent rejected notification"); }
+			return;
+		}
+		if (parsed.frame.kind === "job") {
+			const state = parseChildJobState(parsed.frame.message);
+			if (!state) {
+				this.acknowledge(live, parsed.frame.id, false, "invalid child job state");
+				return;
+			}
+			// Ack before the report can open a drain that closes IPC.
+			this.acknowledge(live, parsed.frame.id, true);
+			live.childJobState = state;
+			if (live.drain && state.running === 0 && !state.pending) this.beginSettle(id, live);
 			return;
 		}
 		let query: PendingQuery | undefined;
@@ -894,6 +1127,7 @@ export class AgentRunner {
 				continue; // Separate from store persistence, UI totals and notifications.
 			}
 			live.sawRunEvent = true;
+			if (event.type === TASK_EVENT.AGENT_END) live.errorCategory = event.outcome === "error" ? event.errorCategory : undefined;
 			this.store.apply(id, event, this.deps.now());
 			if (event.type === TASK_EVENT.TOOL_START && event.callId) {
 				live.inFlightTools.set(event.callId, event.name);
@@ -920,9 +1154,10 @@ export class AgentRunner {
 			if (event.type === TASK_EVENT.AGENT_SETTLED) {
 				if (live.observations) live.observations.agentSettled = true;
 				const terminal = this.store.get(id);
-				if (terminal?.error) this.settleOrderly(id, TASK_STATUS.FAILED, terminal.error);
-				else if (terminal?.result) this.settleOrderly(id, TASK_STATUS.COMPLETED, null);
-				else this.settleOrderly(id, TASK_STATUS.FAILED, "assistant settled without a final report");
+				if (terminal?.error && this.fallBack(id, request, live)) { /* The child keeps going on its next model. */ }
+				else if (terminal?.error) this.settleOrDrain(id, TASK_STATUS.FAILED, terminal.error, live);
+				else if (terminal?.result) this.settleOrDrain(id, TASK_STATUS.COMPLETED, null, live);
+				else this.settleOrDrain(id, TASK_STATUS.FAILED, "assistant settled without a final report", live);
 			}
 		}
 		if (!live.terminal && progress) this.armStall(id, live);
@@ -964,12 +1199,42 @@ export class AgentRunner {
 	}
 
 	/**
+	 * Settles a task, but when the child still reports running background jobs
+	 * (#2266) it grants one bounded drain window first so the jobs can finish;
+	 * the drain ends early when the child reports nothing left.
+	 */
+	private settleOrDrain(id: string, status: TaskRecord["status"], error: string | null, live: LiveTask): void {
+		if (live.drain || live.terminal) return;
+		const state = live.childJobState;
+		// No child job work, or the child already reports none: settle as before.
+		if (!state || (state.running === 0 && !state.pending)) {
+			this.settleOrderly(id, status, error);
+			return;
+		}
+		// One bounded extension: the child keeps running its jobs, and the drain
+		// ends early on a report with nothing left. A late report cannot re-open it.
+		const cancel = this.deps.schedule(() => this.beginSettle(id, live), this.limits.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS);
+		live.drain = { status, error, cancel };
+		if (this.store.get(id)?.status === TASK_STATUS.RUNNING) this.store.update(id, { lastStep: "draining background jobs" });
+	}
+
+	private beginSettle(id: string, live: LiveTask): void {
+		const drain = live.drain;
+		if (!drain || this.live.get(id) !== live) return;
+		live.drain = undefined;
+		drain.cancel();
+		this.settleOrderly(id, drain.status, drain.error);
+	}
+
+	/**
 	 * Requests orderly child shutdown via stdin upon settlement and schedules
 	 * bounded signal escalation if the child process does not exit within cleanupTimeoutMs.
 	 */
 	private settleOrderly(id: string, status: TaskRecord["status"], error: string | null): void {
 		const live = this.live.get(id);
 		if (!live || live.terminal) return;
+		live.drain?.cancel();
+		live.drain = undefined;
 		live.terminal = { status, error };
 		live.mutationStarts.clear();
 		live.inFlightTools.clear();
@@ -1001,6 +1266,8 @@ export class AgentRunner {
 	private requestStop(id: string, status: TaskRecord["status"], error: string | null, abort = false): void {
 		const live = this.live.get(id);
 		if (!live || live.terminal) return;
+		live.drain?.cancel();
+		live.drain = undefined;
 		live.terminal = { status, error };
 		live.mutationStarts.clear();
 		live.inFlightTools.clear();
@@ -1080,6 +1347,8 @@ export class AgentRunner {
 		this.closeIpc(live);
 		live.cancelStall();
 		live.cancelGrace();
+		live.drain?.cancel();
+		live.drain = undefined;
 		if (live.instructionsTransportDir) {
 			try { rmSync(live.instructionsTransportDir, { recursive: true, force: true }); } catch { /* best effort */ }
 			live.instructionsTransportDir = undefined;
@@ -1112,6 +1381,9 @@ export class AgentRunner {
 		if (!live) return;
 		live.childExit = code;
 		live.childExitSignal = signal ?? null;
+		// A child that exits mid-drain still settles on the run agent_settled already
+		// produced; the ordinary orderly shutdown then owns the exit.
+		if (live.drain) this.beginSettle(id, live);
 		const exitDesc = formatChildExit(code, signal);
 		if (this.groupExists(live)) {
 			if (!live.terminal) this.requestStop(id, TASK_STATUS.FAILED, `pi exited with ${exitDesc} before agent_settled${this.stderrSuffix(live)}`);

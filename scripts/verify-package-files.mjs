@@ -31,6 +31,7 @@ export const requiredPaths = [
   "bin/gentle-shell.mjs",
   ...installerPaths,
   "extensions/gentle-notifications.ts",
+  "extensions/gentle-star-prompt.ts",
   "lib/notification-audio.ts",
   "lib/notification-audio-native.ts",
   "lib/notification-audio-windows.ts",
@@ -41,6 +42,7 @@ export const requiredPaths = [
   "lib/notification-customize.ts",
   "lib/notification-events.ts",
   "lib/notification-policy.ts",
+  "lib/star-prompt.ts",
   "lib/notification-scheduler.ts",
   "lib/notification-service.ts",
   "lib/notification-ui.ts",
@@ -77,6 +79,8 @@ export const requiredPaths = [
   "scripts/npm-pack-result.mjs",
   "assets/orchestrator.md",
   "assets/orchestrator-delegation.md",
+  "assets/orchestrator-full-delegation.md",
+  "assets/orchestrator-full-delegation-card.md",
   "assets/orchestrator-delegation-reference.md",
   "assets/orchestrator-tracking.md",
   "assets/orchestrator-verification.md",
@@ -118,6 +122,9 @@ export const requiredPaths = [
   "lib/gentle-shell-resume-hint.ts",
   "lib/gentle-shell-import-pi.ts",
   "lib/native-review-cli.ts",
+  "lib/review-coordinator.ts",
+  "lib/review-delivery-preflight.ts",
+	"lib/review-candidate-symlink-scan.ts",
   "lib/status-timing-diagnostics.ts",
   "lib/provider-contract-bundle.ts",
   "lib/review-host-relay.ts",
@@ -143,6 +150,7 @@ export const requiredPaths = [
 	"runtime/review-relay-contract.mjs",
 	"runtime/telemetry-trigger.mjs",
   "scripts/check-provider-contract.mjs",
+  "scripts/download-progress.mjs",
   "scripts/gentle-ai-installer.mjs",
   "scripts/install-gentle-ai.mjs",
   "scripts/install-tui-mode-setting.mjs",
@@ -179,6 +187,11 @@ export const requiredPaths = [
   "skills/cognitive-doc-design/SKILL.md",
   "skills/comment-writer/SKILL.md",
   "skills/design/SKILL.md",
+  "skills/gentle-ui-design/SKILL.md",
+  "skills/gentle-ui-design/references/task-and-content.md",
+  "skills/gentle-ui-design/references/browse-and-compare.md",
+  "skills/gentle-ui-design/references/composition-and-feedback.md",
+  "skills/gentle-ui-design/references/adaptive-interfaces.md",
   "skills/gentle-ai/SKILL.md",
   "skills/issue-creation/SKILL.md",
   "skills/judgment-day/SKILL.md",
@@ -426,7 +439,7 @@ async function main() {
   });
 
   if (driftedContracts.length > 0) {
-    console.error("gentle-pi packaged review-integration/v1 and review-integration/v2 contract bytes drifted from the pinned v4.3.1 runtime's vendored Gentle AI contract artifacts:");
+    console.error("gentle-pi packaged review-integration/v1 and review-integration/v2 contract bytes drifted from the pinned v4.4.0 runtime's vendored Gentle AI contract artifacts:");
     for (const drift of driftedContracts) console.error(`- ${drift.relativePath}: expected ${drift.expected}, got ${drift.actual}`);
     process.exit(1);
   }
@@ -471,7 +484,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`gentle-pi package resource check passed (${requiredPaths.length} files; ${Object.keys(contractHashes).length} exact byte-pinned contract artifacts for the v4.3.1 runtime).`);
+  console.log(`gentle-pi package resource check passed (${requiredPaths.length} files; ${Object.keys(contractHashes).length} exact byte-pinned contract artifacts for the v4.4.0 runtime).`);
 }
 
 const isMainModule = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;

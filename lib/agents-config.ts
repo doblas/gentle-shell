@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { THINKING_LEVELS as ROUTING_THINKING_LEVELS, type AgentModelConfig, type ThinkingLevel as RoutingThinkingLevel } from "./model-routing-authority.ts";
+import type { AgentProfilesFile } from "./agent-profiles.ts";
+import { THINKING_LEVELS as ROUTING_THINKING_LEVELS, isServiceTier, type AgentModelConfig, type ServiceTier, type ThinkingLevel as RoutingThinkingLevel } from "./model-routing-authority.ts";
 
 // Gentle Agents configuration. Agent definitions are markdown files with YAML
 // frontmatter (the format gentle-ai installs) and runtime settings come from
@@ -62,6 +63,7 @@ export interface AgentDefinitionError {
 export interface ModelProfile {
 	model: ModelRef | undefined;
 	thinking: ThinkingLevel | undefined;
+	tier?: ServiceTier;
 }
 
 export interface AgentsConfig {
@@ -83,6 +85,7 @@ export interface ProfileSources {
 export interface ResolvedProfile {
 	model: ModelRef | undefined;
 	thinking: ThinkingLevel | undefined;
+	tier?: ServiceTier;
 	source: ProfileSources;
 }
 
@@ -246,7 +249,7 @@ function parseProfiles(value: unknown): Record<string, ModelProfile> {
 		if (!raw || typeof raw !== "object") continue;
 		const entry = raw as Record<string, unknown>;
 		const thinking = parseThinking(entry.effort ?? entry.thinking);
-		profiles[name] = { model: parseModelRef(entry.model), thinking: thinking !== undefined && THINKING_LEVELS.includes(thinking) ? (thinking as ThinkingLevel) : undefined };
+		profiles[name] = { model: parseModelRef(entry.model), thinking: thinking !== undefined && THINKING_LEVELS.includes(thinking) ? (thinking as ThinkingLevel) : undefined, ...(isServiceTier(entry.tier) ? { tier: entry.tier } : {}) };
 	}
 	return profiles;
 }
@@ -327,6 +330,13 @@ export interface UnmatchedProfileKey {
 // profile to a user-owned same-short-name agent is the exact silence the
 // prefix exists to prevent; reporting the unmatched key keeps resolution
 // exact-match and makes the misconfiguration visible instead.
+/**
+ * Provider review roles (gentle-pi#2271): routed by key for the in-process
+ * reviewer, never installed as agent files, so a model_profiles entry for them
+ * is always matched.
+ */
+export const PROVIDER_REVIEW_ROLES = ["review-refuter", "review-validator"] as const;
+
 export function unmatchedProfileKeys(
 	modelProfiles: Record<string, ModelProfile>,
 	agents: ReadonlyArray<{ name: string }>,
@@ -351,6 +361,51 @@ export function unmatchedProfileKeys(
 		.map((key) => ({ key, suggestion: suggestionFor(key) }));
 }
 
+// Live routing targets without agent definition files; keep local to avoid a runtime import cycle.
+const RESERVED_ROUTING_KEYS = new Set([...PROVIDER_REVIEW_ROLES, "orchestrator"]);
+
+/** Removable keys exclude reserved targets, exact matches, and likely typos in the caller's full agent list. */
+export function staleRoutingKeys(
+	config: Record<string, { model?: unknown; thinking?: unknown }>,
+	agents: ReadonlyArray<{ name: string }>,
+): string[] {
+	// Matching uses keys only; adapt the three stores without interpreting their values.
+	const profiles = Object.fromEntries(
+		Object.keys(config).map((key) => [key, { model: undefined, thinking: undefined }]),
+	);
+	return unmatchedProfileKeys(profiles, agents)
+		.filter(({ key, suggestion }) => suggestion === undefined && !RESERVED_ROUTING_KEYS.has(key))
+		.map(({ key }) => key)
+		.sort();
+}
+
+/** Preserve identity on a no-op so callers can skip unnecessary store writes. */
+export function removeRoutingKeys<T extends Record<string, unknown>>(
+	config: T,
+	keys: ReadonlyArray<string>,
+): T {
+	const present = keys.filter((key) => Object.prototype.hasOwnProperty.call(config, key));
+	if (present.length === 0) return config;
+	const updated = { ...config };
+	for (const key of present) delete updated[key];
+	return updated;
+}
+
+/** Remove selected routing keys without cloning unaffected profiles or metadata. */
+export function removeRoutingKeysFromProfilesFile(
+	file: AgentProfilesFile,
+	keys: ReadonlyArray<string>,
+): AgentProfilesFile {
+	let profiles = file.profiles;
+	for (const [name, config] of Object.entries(file.profiles)) {
+		const updated: AgentModelConfig = removeRoutingKeys(config, keys);
+		if (updated === config) continue;
+		if (profiles === file.profiles) profiles = { ...file.profiles };
+		profiles[name] = updated;
+	}
+	return profiles === file.profiles ? file : { ...file, profiles };
+}
+
 export function resolveAgentProfile(agent: AgentDefinition, config: AgentsConfig): ResolvedProfile {
 	const profile = config.modelProfiles[agent.name];
 	const [model, modelSource] = pick<ModelRef>([
@@ -363,7 +418,7 @@ export function resolveAgentProfile(agent: AgentDefinition, config: AgentsConfig
 		[agent.thinking, PROFILE_SOURCE.DEFINITION],
 		[config.defaultThinking, PROFILE_SOURCE.DEFAULT],
 	]);
-	return { model, thinking, source: { model: modelSource, thinking: thinkingSource } };
+	return { model, thinking, ...(profile?.tier === undefined ? {} : { tier: profile.tier }), source: { model: modelSource, thinking: thinkingSource } };
 }
 
 export function formatModelRef(model: ModelRef | undefined): string {

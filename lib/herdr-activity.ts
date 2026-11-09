@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import { HERDR_REPORTER_ENV } from "./gentle-shell-launcher.ts";
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
@@ -65,8 +66,7 @@ function fit(parts: string[], columns: number, bytes: number, characters: number
 	return count;
 }
 
-/** Only the active Todo title is free text. LF is private framing, not a token. */
-export function activitySummary(tasks: unknown, columns = FALLBACK_COLUMNS): string | null {
+function activeTodo(tasks: unknown): { parts: string[]; clipped: boolean } | null {
 	if (!Array.isArray(tasks)) return null;
 	const title: unknown = tasks.find((task) => task?.status === "in_progress")?.title;
 	if (typeof title !== "string") return null;
@@ -81,6 +81,19 @@ export function activitySummary(tasks: unknown, columns = FALLBACK_COLUMNS): str
 	const parts = Array.from(graphemes.segment(clean), ({ segment }) => segment);
 	// The bounded sample may end inside a grapheme; never publish that fragment.
 	if (clipped) parts.pop();
+	return { parts, clipped };
+}
+
+/** Sanitized active title, without Herdr icons, rows or ellipsis layout. */
+export function activeTodoTitle(tasks: unknown): string | null {
+	return activeTodo(tasks)?.parts.join("") || null;
+}
+
+/** Only the active Todo title is free text. LF is private framing, not a token. */
+export function activitySummary(tasks: unknown, columns = FALLBACK_COLUMNS): string | null {
+	const active = activeTodo(tasks);
+	if (!active) return null;
+	const { parts, clipped } = active;
 	columns = Number.isFinite(columns) ? Math.max(1, Math.min(512, Math.floor(columns))) : FALLBACK_COLUMNS;
 	if (columns <= 2) return columns === 1 ? "…" : "◐…";
 	// Herdr caps each token at 80 scalars; count our icon/indent before its trim.
@@ -135,18 +148,23 @@ export function herdrSetupHint(
 	];
 }
 
-export function metadataArgs(pane: string, summary: string | null, seq: number): string[] {
+/** The agent label this pane reports to Herdr: Gentle Shell's own, or Herdr's Pi bridge. */
+export function herdrAgentLabel(env: NodeJS.ProcessEnv): "gentle-shell" | "pi" {
+	return env[HERDR_REPORTER_ENV] === "1" ? "gentle-shell" : "pi";
+}
+
+export function metadataArgs(pane: string, summary: string | null, seq: number, agent = "pi"): string[] {
 	const rows = summary?.split("\n") ?? [];
 	const tokens = ["summary", "summary2"].flatMap((token, index) => rows[index]
 		? ["--token", `${token}=${rows[index]}`] : ["--clear-token", token]);
-	return ["pane", "report-metadata", pane, "--source", "gentle:activity", "--agent", "pi",
+	return ["pane", "report-metadata", pane, "--source", "gentle:activity", "--agent", agent,
 		"--seq", String(seq), "--ttl-ms", "30000", ...tokens];
 }
 
 export function metadataTransport(env: NodeJS.ProcessEnv): (summary: string | null, seq: number) => Promise<void> {
 	return (summary, seq) => new Promise((resolve) => {
 		// No shell, bounded output/time, and failure never blocks Pi's handlers.
-		execFile(env.HERDR_BIN_PATH ?? "herdr", metadataArgs(env.HERDR_PANE_ID!, summary, seq), {
+		execFile(env.HERDR_BIN_PATH ?? "herdr", metadataArgs(env.HERDR_PANE_ID!, summary, seq, herdrAgentLabel(env)), {
 			env, timeout: 1500, maxBuffer: 4096, windowsHide: true,
 		}, () => resolve());
 	});
