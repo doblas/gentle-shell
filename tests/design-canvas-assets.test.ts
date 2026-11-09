@@ -3724,18 +3724,13 @@ test("L10 (A2): moving between tabs with the keyboard scrolls the chosen tab int
 	assert.deepEqual(scrolled, [["gd-tab-checks", { block: "nearest", inline: "nearest" }]]);
 });
 
-// ---- Compare modes (canvas-compare-overlay T1): Side by side, Overlay and Slider over the artboard and the running app
+// ---- Compare side by side (canvas-compare-overlay T1); Overlay and Slider are gone (canvas-consolidated S3, #2740)
 
 const PREVIEW = "http://localhost:5173/login";
 const CMP_REPLIES = { "/t/api/designs/alpha/handoffs": handoffDoc("01-a.html", { "01-a.html": { status: "implemented", previewUrl: PREVIEW } }) };
 const cmpEl = (canvas: Canvas, id: string) => canvas.document.getElementById(`gd-compare-${id}`);
 const cmpPanes = (canvas: Canvas) => cmpEl(canvas, "panes");
 const cmpFrames = (canvas: Canvas) => findAll(cmpPanes(canvas), (element) => element.localName === "iframe");
-const cmpFigures = (canvas: Canvas) => withClass(cmpPanes(canvas), "gd-compare-pane");
-const cmpHandle = (canvas: Canvas) => withClass(cmpPanes(canvas), "gd-split-handle")[0];
-const cmpShield = (canvas: Canvas) => withClass(cmpPanes(canvas), "gd-split-shield")[0];
-const cmpMode = (canvas: Canvas, mode: "side" | "overlay" | "slider") => cmpEl(canvas, `mode-${mode}`);
-const cmpPressed = (canvas: Canvas) => (["side", "overlay", "slider"] as const).filter((mode) => cmpMode(canvas, mode).getAttribute("aria-pressed") === "true");
 const openCompareView = (canvas: Canvas) => withClass(boardsOf(canvas)[0], "gd-compare-start")[0].dispatch("click");
 async function compareView(stageWidth = 2000) {
 	const canvas = await loadCanvas(300, CMP_REPLIES);
@@ -3744,267 +3739,71 @@ async function compareView(stageWidth = 2000) {
 	return canvas;
 }
 
-test("T1/S1: Compare opens in Side by side with a segmented mode control, and Overlay and Slider switch without reloading the frames", async () => {
+test("canvas-consolidated S3: Compare offers no Overlay or Slider mode: no controls, code, styles or strings; side by side still opens", async () => {
+	const html = read("index.html");
+	const bar = html.slice(html.indexOf('<section id="gd-compare"'), html.indexOf("</section>", html.indexOf('<section id="gd-compare"')));
+	assert.ok(bar.includes('id="gd-compare-fit-field"'), "the Compare bar is there");
+	assert.ok(!/overlay|slider|opacity|side by side|gd-compare-mode/i.test(bar), "no mode control and no opacity field in the Compare bar");
+	const js = read("canvas.js");
+	assert.ok(!/overlay|slider|compareMode|compareOpacity|gd-compare-mode|gd-compare-opacity|gd-split-|dataset\.mode/i.test(js), "no code for the modes");
+	const css = read("canvas.css");
+	assert.ok(!/overlay|slider|data-mode|\.gd-compare-mode|\.gd-compare-opacity|\.gd-split-/i.test(css), "no styles only the modes used");
+	const { en, es } = loadCatalog();
+	const kept = ["compare.title", "compare.titleFor", "compare.fit", "compare.open", "compare.designCaption", "compare.appCaption", "compare.appFrame", "compare.hint", "compare.hintIpv6", "compare.errorFrame", "compare.errorTimeout"];
+	for (const dictionary of [en, es]) {
+		assert.deepEqual(Object.keys(dictionary).filter((key) => key.startsWith("compare.")), kept, "only side by side's strings");
+		assert.deepEqual(Object.values(dictionary).filter((text) => /overlay|slider|superpon|deslizador|opacidad de la app|app opacity/i.test(text)), [], "no mode text");
+	}
+
 	const canvas = await compareView();
-	assert.deepEqual(cmpPressed(canvas), ["side"], "Side by side is the default");
-	assert.equal(cmpPanes(canvas).dataset.mode, "side");
-	const frames = cmpFrames(canvas);
-	const srcs = frames.map((frame) => frame.src);
-	assert.equal(cmpHandle(canvas).hidden, true, "no handle in side by side");
-	assert.equal(cmpShield(canvas).hidden, true);
-	assert.equal(cmpEl(canvas, "opacity-field").hidden, true, "the opacity belongs to Overlay");
-	cmpMode(canvas, "overlay").dispatch("click");
-	assert.deepEqual(cmpPressed(canvas), ["overlay"]);
-	assert.equal(cmpPanes(canvas).dataset.mode, "overlay");
-	assert.equal(cmpEl(canvas, "opacity-field").hidden, false);
-	assert.equal(cmpHandle(canvas).hidden, true);
-	assert.equal(cmpShield(canvas).hidden, true);
-	cmpMode(canvas, "slider").dispatch("click");
-	assert.deepEqual(cmpPressed(canvas), ["slider"]);
-	assert.equal(cmpPanes(canvas).dataset.mode, "slider");
-	assert.equal(cmpEl(canvas, "opacity-field").hidden, true);
-	assert.equal(cmpHandle(canvas).hidden, false);
-	assert.equal(cmpShield(canvas).hidden, false);
-	cmpMode(canvas, "side").dispatch("click");
-	assert.deepEqual(cmpPressed(canvas), ["side"]);
-	assert.equal(cmpPanes(canvas).dataset.mode, "side");
-	const after = cmpFrames(canvas);
-	assert.equal(after.length, 2);
-	after.forEach((frame, i) => assert.ok(frame === frames[i], "the same frames: nothing reloads"));
-	assert.deepEqual(after.map((frame) => frame.src), srcs);
+	assert.equal(canvas.document.getElementById("gd-compare").hidden, false, "Compare opens");
+	assert.equal(canvas.document.byId.has("gd-compare-mode-overlay") || canvas.document.byId.has("gd-compare-mode-slider") || canvas.document.byId.has("gd-compare-opacity"), false, "the canvas looks for no mode control");
+	const panes = cmpPanes(canvas);
+	assert.equal(panes.children.length, 2, "the two panes and nothing else: no handle, no shield");
+	assert.ok(panes.children.every((child: { classes: Set<string> }) => child.classes.has("gd-compare-pane")));
+	assert.equal(cmpFrames(canvas).length, 2);
+	assert.equal(panes.dataset.mode, undefined, "no mode on the panes");
+	assert.equal(panes.hasAttribute("role"), false, "side by side is two figures, not a group");
+	assert.equal(panes.hasAttribute("aria-label"), false);
+	assert.deepEqual(texts(panes, "gd-compare-caption"), ["Design: 01-a.html", `Implementation: ${PREVIEW}`]);
 });
 
-test("T1/S1: the last mode is remembered while the canvas runs", async () => {
-	const canvas = await compareView();
-	cmpMode(canvas, "slider").dispatch("click");
-	cmpEl(canvas, "back").dispatch("click");
-	openCompareView(canvas);
-	assert.deepEqual(cmpPressed(canvas), ["slider"], "reopening keeps the last mode");
-	assert.equal(cmpPanes(canvas).dataset.mode, "slider");
-	assert.equal(cmpHandle(canvas).hidden, false);
-	cmpMode(canvas, "overlay").dispatch("click");
-	cmpEl(canvas, "back").dispatch("click");
-	openCompareView(canvas);
-	assert.deepEqual(cmpPressed(canvas), ["overlay"]);
-	assert.equal(cmpEl(canvas, "opacity-field").hidden, false);
-	cmpMode(canvas, "side").dispatch("click");
-	cmpEl(canvas, "back").dispatch("click");
-	openCompareView(canvas);
-	assert.deepEqual(cmpPressed(canvas), ["side"]);
-	const fresh = await compareView();
-	assert.deepEqual(cmpPressed(fresh), ["side"], "a new canvas starts in Side by side");
-});
-
-test("T1/S1: side by side keeps today's captions; the stacked modes label the sides Design and App", async () => {
-	const canvas = await compareView();
-	const captions = () => texts(cmpPanes(canvas), "gd-compare-caption");
-	assert.deepEqual(captions(), ["Design: 01-a.html", `Implementation: ${PREVIEW}`]);
-	cmpMode(canvas, "slider").dispatch("click");
-	assert.deepEqual(captions(), ["Design", "App"]);
-	cmpMode(canvas, "overlay").dispatch("click");
-	assert.deepEqual(captions(), ["Design", "App"]);
-	cmpMode(canvas, "side").dispatch("click");
-	assert.deepEqual(captions(), ["Design: 01-a.html", `Implementation: ${PREVIEW}`]);
-});
-
-test("T1/S2: Overlay starts at 50% App opacity and follows the input, clamped to 0-100%", async () => {
-	const canvas = await compareView();
-	cmpMode(canvas, "overlay").dispatch("click");
-	const input = cmpEl(canvas, "opacity");
-	const output = cmpEl(canvas, "opacity-value");
-	const [design, app] = cmpFrames(canvas);
-	assert.equal(input.value, "50");
-	assert.equal(output.textContent, "50%");
-	assert.equal(input.getAttribute("aria-valuetext"), "50%");
-	assert.equal(app.style.opacity, "0.5");
-	assert.equal(design.style.opacity ?? "", "", "the design stays opaque");
-	const set = (value: string) => { input.value = value; input.dispatch("input"); };
-	set("30");
-	assert.deepEqual([app.style.opacity, output.textContent, input.getAttribute("aria-valuetext")], ["0.3", "30%", "30%"]);
-	set("0");
-	assert.deepEqual([app.style.opacity, output.textContent], ["0", "0%"]);
-	set("100");
-	assert.deepEqual([app.style.opacity, output.textContent], ["1", "100%"]);
-	set("250");
-	assert.deepEqual([app.style.opacity, output.textContent, input.value], ["1", "100%", "100"], "clamped to 100");
-	set("-4");
-	assert.deepEqual([app.style.opacity, output.textContent, input.value], ["0", "0%", "0"], "clamped to 0");
-	set("42");
-	set("not a number");
-	assert.deepEqual([app.style.opacity, output.textContent, input.value], ["0.42", "42%", "42"], "garbage leaves the opacity alone");
-	cmpMode(canvas, "slider").dispatch("click");
-	assert.equal(app.style.opacity, "", "the app is opaque outside Overlay");
-	cmpMode(canvas, "side").dispatch("click");
-	assert.equal(app.style.opacity, "");
-	cmpMode(canvas, "overlay").dispatch("click");
-	assert.equal(app.style.opacity, "0.42", "Overlay returns to the opacity it had");
-});
-
-test("T1/S2: a new Compare starts at 50% App opacity again, and the input is a range from 0 to 100", async () => {
-	const canvas = await compareView();
-	cmpMode(canvas, "overlay").dispatch("click");
-	const input = cmpEl(canvas, "opacity");
-	input.value = "10";
-	input.dispatch("input");
-	cmpEl(canvas, "back").dispatch("click");
-	openCompareView(canvas);
-	assert.equal(input.value, "50");
-	assert.equal(cmpEl(canvas, "opacity-value").textContent, "50%");
-	assert.equal(cmpFrames(canvas)[1].style.opacity, "0.5");
-	assert.match(read("index.html"), /<input type="range" id="gd-compare-opacity" min="0" max="100" step="1" value="50"/);
-});
-
-test("T1/S2-S3: the stacked modes size the pair as one artboard, and Scale to fit shrinks the stack", async () => {
+test("Compare side by side: Scale to fit shrinks the pair and the sizer measures the panes", async () => {
 	const canvas = await compareView(600);
 	const panes = cmpPanes(canvas);
-	const fit = cmpEl(canvas, "fit");
 	const field = cmpEl(canvas, "fit-field");
 	assert.equal(field.hidden, false, "two 400 px boards do not fit in 552 px");
-	assert.deepEqual([panes.style.width ?? "", panes.style.height ?? ""], ["", ""], "side by side lets the panes set the size");
-	for (const mode of ["overlay", "slider"] as const) {
-		cmpMode(canvas, mode).dispatch("click");
-		assert.deepEqual([panes.style.width, panes.style.height], ["400px", "300px"], `${mode}: one board's size`);
-		assert.equal(field.hidden, true, `${mode}: a 400 px stack fits in 552 px`);
-		assert.equal(panes.style.transform, "none");
-	}
+	assert.deepEqual([panes.style.width ?? "", panes.style.height ?? ""], ["", ""], "the panes set the size");
 	cmpEl(canvas, "stage").rect = { left: 0, top: 0, width: 300, height: 600 };
 	canvas.windowEvent("resize");
-	assert.equal(field.hidden, false, "a 300 px window cannot show 400 px");
-	// Scale to fit starts on (polish F5): 300 - 2 * 24 = 252 px for a 400 px stack.
-	assert.equal(panes.style.transform, "scale(0.630)");
-	assert.equal(cmpEl(canvas, "sizer").style.width, `${Math.ceil(400 * (252 / 400))}px`);
-	assert.equal(cmpEl(canvas, "sizer").style.height, `${Math.ceil(300 * (252 / 400))}px`);
-	cmpMode(canvas, "overlay").dispatch("click");
-	assert.equal(panes.style.transform, "scale(0.630)", "the same stack in Overlay");
-	cmpMode(canvas, "side").dispatch("click");
-	assert.equal(panes.style.transform, `scale(${(252 / 824).toFixed(3)})`, "the pair side by side needs 824 px");
-	assert.notEqual(cmpEl(canvas, "sizer").style.height, `${Math.ceil(300 * (252 / 824))}px`, "side by side measures the panes, not the artboard");
+	// Scale to fit starts on (polish F5): 300 - 2 * 24 = 252 px for the 824 px pair.
+	const scale = 252 / 824;
+	assert.equal(panes.style.transform, `scale(${scale.toFixed(3)})`, "the pair side by side needs 824 px");
+	assert.equal(cmpEl(canvas, "sizer").style.width, `${Math.ceil(824 * scale)}px`);
+	assert.notEqual(cmpEl(canvas, "sizer").style.height, `${Math.ceil(300 * scale)}px`, "side by side measures the panes, not the artboard");
 });
 
-test("T1/S3: the Slider handle is a named slider with a value, starting in the middle, revealing Design on the left and App on the right", async () => {
-	const canvas = await compareView();
-	cmpMode(canvas, "slider").dispatch("click");
-	const handle = cmpHandle(canvas);
-	assert.equal(handle.getAttribute("role"), "slider");
-	assert.equal(handle.getAttribute("tabindex"), "0");
-	assert.equal(handle.getAttribute("aria-label"), "Comparison position");
-	assert.equal(handle.getAttribute("aria-orientation"), "horizontal");
-	assert.deepEqual([handle.getAttribute("aria-valuemin"), handle.getAttribute("aria-valuemax"), handle.getAttribute("aria-valuenow")], ["0", "100", "50"]);
-	assert.equal(handle.getAttribute("aria-valuetext"), "50%: Design on the left, App on the right");
-	assert.equal(handle.style.left, "50%");
-	const [design, app] = cmpFigures(canvas);
-	assert.equal(app.style.clipPath, "inset(0 0 0 50%)", "the app shows right of the line");
-	assert.equal(design.style.clipPath ?? "", "", "the design is whole underneath");
-	assert.equal(cmpPanes(canvas).getAttribute("role"), "group");
-	assert.equal(cmpPanes(canvas).getAttribute("aria-label"), "Design and running app, split at 50%");
-	cmpMode(canvas, "overlay").dispatch("click");
-	assert.equal(app.style.clipPath, "", "Overlay does not clip");
-	cmpMode(canvas, "side").dispatch("click");
-	assert.equal(app.style.clipPath, "");
-	assert.equal(cmpPanes(canvas).hasAttribute("role"), false, "side by side is not a group");
-	assert.equal(cmpPanes(canvas).hasAttribute("aria-label"), false);
-});
-
-test("T1/S3: dragging the shield moves the Slider with the pointer, clamped to the frame, and puts the keyboard on the handle", async () => {
-	const canvas = await compareView();
-	cmpMode(canvas, "slider").dispatch("click");
-	const handle = cmpHandle(canvas);
-	const shield = cmpShield(canvas);
-	const [, app] = cmpFigures(canvas);
-	cmpPanes(canvas).rect = { left: 100, top: 150, width: 400, height: 300 };
-	shield.dispatch("pointerdown", { button: 0, pointerId: 1, clientX: 200 });
-	assert.equal(handle.getAttribute("aria-valuenow"), "25");
-	assert.equal(handle.getAttribute("aria-valuetext"), "25%: Design on the left, App on the right");
-	assert.equal(app.style.clipPath, "inset(0 0 0 25%)");
-	assert.equal(handle.style.left, "25%");
-	shield.dispatch("pointermove", { pointerId: 1, clientX: 450 });
-	assert.equal(handle.getAttribute("aria-valuenow"), "87.5");
-	shield.dispatch("pointermove", { pointerId: 2, clientX: 120 });
-	assert.equal(handle.getAttribute("aria-valuenow"), "87.5", "another pointer is not this drag");
-	shield.dispatch("pointerup", { button: 0, pointerId: 1, clientX: 450 });
-	shield.dispatch("pointermove", { pointerId: 1, clientX: 120 });
-	assert.equal(handle.getAttribute("aria-valuenow"), "87.5", "moves after the drag are ignored");
-	shield.dispatch("pointerdown", { button: 0, pointerId: 3, clientX: 900 });
-	assert.equal(handle.getAttribute("aria-valuenow"), "100");
-	shield.dispatch("pointermove", { pointerId: 3, clientX: -50 });
-	assert.equal(handle.getAttribute("aria-valuenow"), "0");
-	shield.dispatch("pointerdown", { button: 2, pointerId: 4, clientX: 300 });
-	assert.equal(handle.getAttribute("aria-valuenow"), "0", "only the main button drags");
-	assert.ok(canvas.document.activeElement === handle, "dragging puts the keyboard on the slider");
-});
-
-test("T1/S3: arrow keys move the Slider 2%, Shift+arrows 10%, Home and End jump, and it stops at the ends", async () => {
-	const canvas = await compareView();
-	cmpMode(canvas, "slider").dispatch("click");
-	const handle = cmpHandle(canvas);
-	const [, app] = cmpFigures(canvas);
-	const value = () => handle.getAttribute("aria-valuenow");
-	const key = (name: string, shiftKey = false) => handle.dispatch("keydown", { key: name, shiftKey });
-	key("ArrowRight");
-	assert.equal(value(), "52");
-	assert.equal(app.style.clipPath, "inset(0 0 0 52%)");
-	key("ArrowRight", true);
-	assert.equal(value(), "62");
-	key("ArrowLeft");
-	assert.equal(value(), "60");
-	key("ArrowLeft", true);
-	assert.equal(value(), "50");
-	key("ArrowUp");
-	assert.equal(value(), "52");
-	key("ArrowDown", true);
-	assert.equal(value(), "42");
-	key("End");
-	assert.equal(value(), "100");
-	key("ArrowRight", true);
-	assert.equal(value(), "100");
-	key("Home");
-	assert.equal(value(), "0");
-	key("ArrowLeft");
-	assert.equal(value(), "0");
-	key("ArrowRight");
-	assert.equal(handle.getAttribute("aria-valuetext"), "2%: Design on the left, App on the right");
-	const other = key("a");
-	assert.equal(other.defaultPrevented, false, "other keys are left alone");
-	assert.equal(key("ArrowRight").defaultPrevented, true);
-	assert.equal(value(), "4");
-	cmpMode(canvas, "overlay").dispatch("click");
-	cmpMode(canvas, "slider").dispatch("click");
-	assert.equal(value(), "4", "the position survives a mode change");
-});
-
-test("T1/S4: both frames keep their sandbox, referrer policy and source in every mode", async () => {
+test("T1/S4: both Compare frames keep their sandbox, referrer policy and source", async () => {
 	const canvas = await compareView();
 	const [design, app] = cmpFrames(canvas);
-	for (const mode of ["overlay", "slider", "side", "slider", "overlay"] as const) {
-		cmpMode(canvas, mode).dispatch("click");
-		assert.equal(cmpPanes(canvas).dataset.mode, mode, "the mode is on");
-		assert.equal(cmpFrames(canvas).length, 2, mode);
-		assert.ok(cmpFrames(canvas)[0] === design && cmpFrames(canvas)[1] === app, `${mode}: same frames`);
-		assert.equal(design.getAttribute("sandbox"), "allow-scripts", mode);
-		assert.equal(app.getAttribute("sandbox"), "allow-scripts allow-same-origin allow-forms allow-popups", mode);
-		for (const frame of [design, app]) {
-			assert.equal(frame.getAttribute("referrerpolicy"), "no-referrer", mode);
-			assert.deepEqual([frame.style.width, frame.style.height], ["400px", "300px"], mode);
-		}
-		assert.equal(design.src, "/t/files/alpha/01-a.html", mode);
-		assert.equal(app.src, PREVIEW, mode);
+	assert.equal(design.getAttribute("sandbox"), "allow-scripts");
+	assert.equal(app.getAttribute("sandbox"), "allow-scripts allow-same-origin allow-forms allow-popups");
+	for (const frame of [design, app]) {
+		assert.equal(frame.getAttribute("referrerpolicy"), "no-referrer");
+		assert.deepEqual([frame.style.width, frame.style.height], ["400px", "300px"]);
 	}
+	assert.equal(design.src, "/t/files/alpha/01-a.html");
+	assert.equal(app.src, PREVIEW);
 	cmpEl(canvas, "back").dispatch("click");
-	assert.deepEqual(cmpPanes(canvas).children, [], "leaving removes the frames, the handle and the shield");
+	assert.deepEqual(cmpPanes(canvas).children, [], "leaving removes the frames");
 });
 
-test("T1/S4: the loopback hints and the Open in new tab link do not change with the mode", async () => {
+test("T1/S4: the loopback hints and the Open in new tab link", async () => {
 	const canvas = await loadCanvas(300, { "/t/api/designs/alpha/handoffs": handoffDoc("01-a.html", { "01-a.html": { status: "implemented", previewUrl: "http://[::1]:3000/" } }) });
 	openCompareView(canvas);
-	const message = cmpEl(canvas, "message").textContent;
-	assert.match(message, /\[::1\]/);
-	for (const mode of ["overlay", "slider", "side"] as const) {
-		cmpMode(canvas, mode).dispatch("click");
-		assert.equal(cmpPanes(canvas).dataset.mode, mode, "the mode is on");
-		assert.equal(cmpEl(canvas, "message").textContent, message, mode);
-		assert.equal(cmpEl(canvas, "open").href, "http://[::1]:3000/", mode);
-		assert.equal(cmpEl(canvas, "open").getAttribute("rel"), "noopener noreferrer", mode);
-	}
+	assert.match(cmpEl(canvas, "message").textContent, /\[::1\]/);
+	assert.equal(cmpEl(canvas, "open").href, "http://[::1]:3000/");
+	assert.equal(cmpEl(canvas, "open").getAttribute("rel"), "noopener noreferrer");
 });
 
 test("T1/S4: the canvas never reads either Compare frame's pixels or document", () => {
@@ -4013,51 +3812,19 @@ test("T1/S4: the canvas never reads either Compare frame's pixels or document", 
 	assert.ok(!/contentDocument|getImageData|toDataURL|toBlob|drawImage|createImageBitmap|captureStream/.test(compare), "no pixel or DOM access to a frame");
 });
 
-test("T1/S1-S3: index.html has the mode control and the opacity field in the Compare bar, with no Difference mode", () => {
+test("T1/S5: index.html's Compare bar has no Difference mode", () => {
 	const html = read("index.html");
 	const bar = html.slice(html.indexOf('<section id="gd-compare"'), html.indexOf('<p id="gd-compare-message"'));
-	assert.match(bar, /<div id="gd-compare-mode" class="gd-devices gd-compare-mode" role="group" aria-label="Compare mode" data-i18n-aria-label="compare.modeGroup">/);
-	assert.match(bar, /<button type="button" id="gd-compare-mode-side" class="gd-size-button" aria-pressed="true" data-i18n="compare.side">Side by side<\/button>/);
-	assert.match(bar, /<button type="button" id="gd-compare-mode-overlay" class="gd-size-button" aria-pressed="false" data-i18n="compare.overlay">Overlay<\/button>/);
-	assert.match(bar, /<button type="button" id="gd-compare-mode-slider" class="gd-size-button" aria-pressed="false" data-i18n="compare.slider">Slider<\/button>/);
-	assert.match(bar, /<label id="gd-compare-opacity-field" class="gd-compare-opacity" hidden><span data-i18n="compare.opacity">App opacity<\/span><input type="range" id="gd-compare-opacity" min="0" max="100" step="1" value="50" aria-valuetext="50%"><output id="gd-compare-opacity-value" for="gd-compare-opacity">50%<\/output><\/label>/);
-	assert.ok(bar.indexOf("gd-compare-mode") < bar.indexOf("gd-compare-opacity-field") && bar.indexOf("gd-compare-opacity-field") < bar.indexOf("gd-compare-fit-field"));
 	assert.ok(!/difference/i.test(bar), "no Difference mode (L2)");
 	assert.ok(!/areas differ/i.test(html));
 });
 
-test("T1/S5: canvas.css styles the Compare modes with tokens only, a visible focus ring and no animation", () => {
-	const css = read("canvas.css");
-	const block = (selector: string) => {
-		const start = css.indexOf(`${selector} {`);
-		assert.ok(start >= 0, `${selector} is styled`);
-		return css.slice(start, css.indexOf("}", start) + 1);
-	};
-	const selectors = [
-		".gd-compare-panes[data-mode=\"overlay\"], .gd-compare-panes[data-mode=\"slider\"]",
-		".gd-compare-panes[data-mode=\"overlay\"] .gd-compare-pane, .gd-compare-panes[data-mode=\"slider\"] .gd-compare-pane",
-		".gd-compare-panes[data-mode=\"overlay\"] .gd-compare-caption, .gd-compare-panes[data-mode=\"slider\"] .gd-compare-caption",
-		".gd-compare-opacity",
-		".gd-compare-opacity input",
-	];
-	for (const selector of selectors) {
-		const text = block(selector);
-		assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(text), `${selector}: tokens only`);
-		assert.ok(!/transition|animation/.test(text), `${selector}: no motion`);
-	}
-	assert.match(block(selectors[0]), /position:\s*relative/);
-	assert.match(block(selectors[1]), /position:\s*absolute[^}]*inset:\s*0/);
-	assert.match(block(selectors[2]), /position:\s*absolute/);
-	assert.match(css, /\.gd-compare-opacity input:focus-visible\s*{[^}]*outline:\s*2px solid var\(--accent\)/);
-	assert.match(css, /\.gd-compare-mode\s*{/);
-	assert.match(css, /\.gd-compare-opacity\[hidden\]\s*{[^}]*display:\s*none/);
-});
-
-test("T1/S5: docs/gentle-shell.md describes the Compare modes and says the canvas cannot detect differences", () => {
+test("T1/S5: docs/gentle-shell.md describes Compare side by side, with no Overlay or Slider, and says the canvas cannot detect differences", () => {
 	const docs = readFileSync(join(ASSET_DIR, "..", "..", "docs", "gentle-shell.md"), "utf8");
-	const line = docs.split("\n").find((candidate) => candidate.includes("**Compare** shows the artboard and the app"))!;
+	const line = docs.split("\n").find((candidate) => candidate.includes("**Compare** shows the artboard and the app side by side"))!;
 	assert.ok(line, "the Compare paragraph is there");
-	for (const needle of ["**Side by side**", "**Overlay**", "**App opacity**", "**Slider**", "**Design**", "**App**", "`Shift`", "remembers"]) assert.ok(line.includes(needle), needle);
+	assert.ok(line.includes("**Scale to fit**"), "Scale to fit");
+	for (const needle of ["**Overlay**", "**App opacity**", "**Slider**", "**Side by side**", "segmented control"]) assert.ok(!line.includes(needle), needle);
 	assert.match(line, /cannot detect differences[^.]*each frame is its own origin/);
 });
 
@@ -5503,13 +5270,9 @@ test("S2: Compare is Spanish and follows a switch while it is open", async () =>
 	const captions = () => texts(canvas.document.getElementById("gd-compare-panes"), "gd-compare-caption");
 	assert.deepEqual(captions(), ["Diseño: 01-a.html", "Implementación: http://localhost:3000/"]);
 	assert.equal(canvas.document.getElementById("gd-compare-message").textContent, "Si el panel de la app se queda vacío, puede que la app no esté en marcha en http://localhost:3000 o que no permita mostrarse en un marco: arráncala o usa Abrir en una pestaña nueva.");
-	canvas.document.getElementById("gd-compare-mode-slider").dispatch("click");
-	assert.deepEqual(captions(), ["Diseño", "App"]);
-	assert.equal(canvas.document.getElementById("gd-compare-panes").getAttribute("aria-label"), "Diseño y app en ejecución, divididos al 50%");
 	chooseLang(canvas, "en");
 	assert.equal(canvas.document.getElementById("gd-compare-title").textContent, "Compare: First");
-	assert.deepEqual(captions(), ["Design", "App"]);
-	assert.equal(canvas.document.getElementById("gd-compare-panes").getAttribute("aria-label"), "Design and running app, split at 50%");
+	assert.deepEqual(captions(), ["Design: 01-a.html", "Implementation: http://localhost:3000/"]);
 	assert.equal(canvas.document.getElementById("gd-compare-message").textContent, "If the app pane stays empty, the app may not be running at http://localhost:3000 or may refuse to be framed: start it, or use Open in new tab.");
 });
 
@@ -5784,8 +5547,8 @@ test("S4: canvas.js shows no text of its own: every visible string comes from th
 /** Literals that read like words but are not canvas text: browser values, protocol names and the agent-bound messages. */
 const ALLOWED_LITERALS = new Set([
 	"px", "HTTP", "Gentle Design", "use strict", "noopener noreferrer", "The image", "text area", "Escape", "Enter", "Tab", "Home", "End", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Shift", "send", "collect", "open", "resolved", "readonly", "browser", "monitor",
-	"normal", "none", "desktop", "tablet", "phone", "custom", "all", "side", "overlay", "slider", "Files", "image", "allow-scripts", "no-referrer", "lazy", "button", "menu", "group", "status", "alert", "tab",
-	"slider", "step", "img", "text", "numeric", "horizontal", "true", "false", "iframe", "textarea", "input", "select", "section", "div", "span", "article", "figure", "figcaption", "label", "code", "small",
+	"normal", "none", "desktop", "tablet", "phone", "custom", "all", "Files", "image", "allow-scripts", "no-referrer", "lazy", "button", "menu", "group", "status", "alert", "tab",
+	"step", "img", "text", "numeric", "true", "false", "iframe", "textarea", "input", "select", "section", "div", "span", "article", "figure", "figcaption", "label", "code", "small",
 	"video", "canvas", "a", "p", "li", "h2", "h3", "h4", "b", "i", "dt", "dd", "dl", "svg", "use", "output", "http", "https",
 ]);
 
@@ -6003,7 +5766,6 @@ test("S2: after a switch nothing of the old language is left in Compare or a pla
 	for (const [from, to] of [["en", "es"], ["es", "en"]] as const) {
 		const compare = await loadLang({ browser: from, replies: { "/t/api/designs/alpha/handoffs": implementedDoc("01-a.html") } });
 		withClass(boardsOf(compare)[0], "gd-compare-start")[0].dispatch("click");
-		compare.document.getElementById("gd-compare-mode-overlay").dispatch("click");
 		chooseLang(compare, to);
 		assert.deepEqual(leftovers(compare, from), [], `${from} -> ${to} in Compare`);
 		chooseLang(compare, from);

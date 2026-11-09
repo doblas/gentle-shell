@@ -13,8 +13,8 @@ Branch feat/canvas-consolidated (from feat/canvas-layout). Upstream: Gentleman-P
 
 ## Tasks
 
-- T1 [S5] Merge upstream/main into feat/canvas-consolidated and resolve conflicts; design suites and typecheck. Route: inline.
-- T2 [S3] Remove the Compare overlay and slider (canvas, strings, styles, tests, docs). Route: gentle-ai-worker.
+- T1 [S5] Merge upstream/main into feat/canvas-consolidated and resolve conflicts; design suites and typecheck. Route: inline. Done: 67aeb6419 (635/635 in the design suites, typecheck clean; upstream #2871 pan tests split into pan on the background and move on an artboard; agent-home.test.ts equals upstream, so no fourth PR).
+- T2 [S3] Remove the Compare overlay and slider (canvas, strings, styles, tests, docs). Route: gentle-ai-worker. Done: see commit below (619/619 design suites without agent-home, typecheck clean; 9 mode-only tests removed, 1 S3 test added).
 - T3 [S1, S4, S5] Build the PR branches from upstream/main (server and data; canvas frontend on top of #2793; design artifacts and ODD records) and run each one's suites. Route: inline.
 - T4 [S1, S2, S4] Push the branches to the fork, open the PRs naming @egdev6, comment on #2740. Route: inline.
 

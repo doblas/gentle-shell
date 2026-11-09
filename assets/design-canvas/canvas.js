@@ -370,22 +370,11 @@
 			"time.today": "Today {clock}",
 			"compare.title": "Compare",
 			"compare.titleFor": "Compare: {title}",
-			"compare.modeGroup": "Compare mode",
-			"compare.side": "Side by side",
-			"compare.overlay": "Overlay",
-			"compare.slider": "Slider",
-			"compare.opacity": "App opacity",
 			"compare.fit": "Scale to fit",
 			"compare.open": "Open in new tab",
-			"compare.design": "Design",
-			"compare.app": "App",
 			"compare.designCaption": "Design: {file}",
 			"compare.appCaption": "Implementation: {url}",
 			"compare.appFrame": "Running app at {url}",
-			"compare.position": "Comparison position",
-			"compare.overlayAria": "Design and running app overlaid, app at {opacity}% opacity",
-			"compare.sliderAria": "Design and running app, split at {pos}%",
-			"compare.valueText": "{pos}%: Design on the left, App on the right",
 			"compare.hint": "If the app pane stays empty, the app may not be running at {url} or may refuse to be framed: start it, or use Open in new tab.",
 			"compare.hintIpv6": "Browsers do not frame [::1] under the canvas policy (CSP has no IPv6 sources): use Open in new tab, or report the preview on localhost.",
 			"compare.errorFrame": "The app at {url} could not be loaded in the frame. Use Open in new tab.",
@@ -794,22 +783,11 @@
 			"time.today": "Hoy {clock}",
 			"compare.title": "Comparar",
 			"compare.titleFor": "Comparar: {title}",
-			"compare.modeGroup": "Modo de comparación",
-			"compare.side": "Lado a lado",
-			"compare.overlay": "Superponer",
-			"compare.slider": "Deslizador",
-			"compare.opacity": "Opacidad de la app",
 			"compare.fit": "Ajustar a la ventana",
 			"compare.open": "Abrir en una pestaña nueva",
-			"compare.design": "Diseño",
-			"compare.app": "App",
 			"compare.designCaption": "Diseño: {file}",
 			"compare.appCaption": "Implementación: {url}",
 			"compare.appFrame": "App en ejecución en {url}",
-			"compare.position": "Posición de la comparación",
-			"compare.overlayAria": "Diseño y app en ejecución superpuestos, app al {opacity}% de opacidad",
-			"compare.sliderAria": "Diseño y app en ejecución, divididos al {pos}%",
-			"compare.valueText": "{pos}%: Diseño a la izquierda, App a la derecha",
 			"compare.hint": "Si el panel de la app se queda vacío, puede que la app no esté en marcha en {url} o que no permita mostrarse en un marco: arráncala o usa Abrir en una pestaña nueva.",
 			"compare.hintIpv6": "Los navegadores no muestran [::1] en un marco con la política del canvas (CSP no admite fuentes IPv6): usa Abrir en una pestaña nueva, o indica la vista previa en localhost.",
 			"compare.errorFrame": "No se pudo cargar la app de {url} en el marco. Usa Abrir en una pestaña nueva.",
@@ -1165,10 +1143,6 @@
 		compare: $("gd-compare"),
 		compareTitle: $("gd-compare-title"),
 		compareFit: $("gd-compare-fit"),
-		compareModes: { side: $("gd-compare-mode-side"), overlay: $("gd-compare-mode-overlay"), slider: $("gd-compare-mode-slider") },
-		compareOpacityField: $("gd-compare-opacity-field"),
-		compareOpacity: $("gd-compare-opacity"),
-		compareOpacityValue: $("gd-compare-opacity-value"),
 		compareFitField: $("gd-compare-fit-field"),
 		compareOpen: $("gd-compare-open"),
 		compareBack: $("gd-compare-back"),
@@ -1282,10 +1256,8 @@
 		inspectorHover: false,
 		// The handoffs.json of design `slug`; boards of another design ignore it.
 		handoffs: { slug: null, chosen: null, handoffs: {} },
-		// The open Compare view: { board, preview, artboardFrame, appFrame, design, app, handle, shield, pos, opacity, timer, loaded }.
+		// The open Compare view: { board, preview, artboardFrame, appFrame, timer, loaded }.
 		compare: null,
-		// "side", "overlay" or "slider": the last Compare mode, kept while the canvas runs.
-		compareMode: "side",
 		toastTimer: 0,
 		// Failed resolve or reopen replies by comment id, shown in that comment's card.
 		cardErrors: new Map(),
@@ -2930,14 +2902,12 @@
 		applyLanguage();
 	}
 
-	/** The compare view's frame titles, captions and texts in the current language. */
+	/** The compare view's frame titles in the current language; loc keeps its captions and texts. */
 	function renderCompareText() {
 		const compare = state.compare;
 		if (!compare) return;
 		compare.artboardFrame.title = t("board.frameTitle", { title: compare.board.artboard.title });
 		compare.appFrame.title = t("compare.appFrame", { url: compare.preview });
-		compare.handle.setAttribute("aria-label", t("compare.position"));
-		setCompareView(state.compareMode);
 	}
 
 	/**
@@ -3630,13 +3600,14 @@
 
 	// ---- compare -------------------------------------------------------------
 
-	function comparePane(frame) {
+	function comparePane(frame, key, params) {
 		const figure = document.createElement("figure");
 		figure.className = "gd-compare-pane";
 		const label = document.createElement("figcaption");
 		label.className = "gd-compare-caption";
+		loc(label, "text", key, params);
 		figure.append(label, frame);
-		return { figure, label };
+		return figure;
 	}
 
 	function compareFrame(width, height, title) {
@@ -3654,18 +3625,12 @@
 		els.compareMessage.classList.toggle("gd-error", Boolean(isError));
 	}
 
-	/**
-	 * 100% by default; past the window width, "Scale to fit" shrinks the pair to fit.
-	 * Overlay and Slider stack the pair at one artboard's size, so they are as wide as one frame.
-	 */
+	/** 100% by default; past the window width, "Scale to fit" shrinks the pair to fit. */
 	function layoutCompare() {
 		const compare = state.compare;
 		if (!compare) return;
-		const { width, height } = compare.board.artboard;
-		const stacked = state.compareMode !== "side";
-		const needed = stacked ? width : width * 2 + COMPARE_GAP;
-		els.comparePanes.style.width = stacked ? `${width}px` : "";
-		els.comparePanes.style.height = stacked ? `${height}px` : "";
+		const { width } = compare.board.artboard;
+		const needed = width * 2 + COMPARE_GAP;
 		const available = els.compareStage.getBoundingClientRect().width - COMPARE_PADDING * 2;
 		const wide = needed > available;
 		els.compareFitField.hidden = !wide;
@@ -3673,62 +3638,7 @@
 		els.comparePanes.style.transform = scale === 1 ? "none" : `scale(${scale.toFixed(3)})`;
 		// The sizer keeps the scroll area at the scaled size.
 		els.compareSizer.style.width = scale === 1 ? "" : `${Math.ceil(needed * scale)}px`;
-		els.compareSizer.style.height = scale === 1 ? "" : `${Math.ceil((stacked ? height : els.comparePanes.offsetHeight) * scale)}px`;
-	}
-
-	/** Side by side, Overlay or Slider: the same two frames restyled, so nothing reloads. */
-	function setCompareView(mode) {
-		const compare = state.compare;
-		if (!compare) return;
-		state.compareMode = mode;
-		els.comparePanes.dataset.mode = mode;
-		for (const [name, button] of Object.entries(els.compareModes)) button.setAttribute("aria-pressed", String(name === mode));
-		const stacked = mode !== "side";
-		compare.design.label.textContent = stacked ? t("compare.design") : t("compare.designCaption", { file: compare.board.artboard.file });
-		compare.app.label.textContent = stacked ? t("compare.app") : t("compare.appCaption", { url: compare.preview });
-		compare.handle.hidden = mode !== "slider";
-		compare.shield.hidden = mode !== "slider";
-		els.compareOpacityField.hidden = mode !== "overlay";
-		if (stacked) els.comparePanes.setAttribute("role", "group");
-		else els.comparePanes.removeAttribute("role");
-		setCompareOpacity(compare.opacity);
-		setCompareSplit(compare.pos);
-		layoutCompare();
-	}
-
-	/** App opacity, 0 to 100: how much of the app shows over the design in Overlay. */
-	function setCompareOpacity(value) {
-		const compare = state.compare;
-		if (!compare) return;
-		compare.opacity = Math.min(100, Math.max(0, Math.round(value)));
-		const text = `${compare.opacity}%`;
-		els.compareOpacity.value = String(compare.opacity);
-		els.compareOpacity.setAttribute("aria-valuetext", text);
-		els.compareOpacityValue.textContent = text;
-		compare.appFrame.style.opacity = state.compareMode === "overlay" ? String(compare.opacity / 100) : "";
-		describeCompare();
-	}
-
-	/** The Slider position, 0 to 100: the design shows left of the line, the app right of it. */
-	function setCompareSplit(value) {
-		const compare = state.compare;
-		if (!compare) return;
-		compare.pos = clampSlider(value);
-		compare.app.figure.style.clipPath = state.compareMode === "slider" ? `inset(0 0 0 ${compare.pos}%)` : "";
-		compare.handle.style.left = `${compare.pos}%`;
-		compare.handle.setAttribute("aria-valuenow", String(compare.pos));
-		compare.handle.setAttribute("aria-valuetext", t("compare.valueText", { pos: compare.pos }));
-		describeCompare();
-	}
-
-	/** The stacked pair is one group named for what it shows; side by side is two figures. */
-	function describeCompare() {
-		const compare = state.compare;
-		if (!compare) return;
-		const mode = state.compareMode;
-		if (mode === "overlay") els.comparePanes.setAttribute("aria-label", t("compare.overlayAria", { opacity: compare.opacity }));
-		else if (mode === "slider") els.comparePanes.setAttribute("aria-label", t("compare.sliderAria", { pos: compare.pos }));
-		else els.comparePanes.removeAttribute("aria-label");
+		els.compareSizer.style.height = scale === 1 ? "" : `${Math.ceil(els.comparePanes.offsetHeight * scale)}px`;
 	}
 
 	/** The artboard (sandboxed as on the canvas) next to the running app, both at the artboard's size. */
@@ -3744,12 +3654,7 @@
 		artboardFrame.src = boardUrl(board);
 		const app = compareFrame(width, height, t("compare.appFrame", { url: preview }));
 		app.setAttribute("sandbox", PREVIEW_SANDBOX);
-		const design = comparePane(artboardFrame);
-		const running = comparePane(app);
-		const handle = splitHandle(t("compare.position"));
-		const shield = splitShield();
-		const compare = { board, preview, artboardFrame, appFrame: app, design, app: running, handle, shield, pos: 50, opacity: 50, timer: 0, loaded: false };
-		bindSplitInput({ shield, handle, box: els.comparePanes, position: () => compare.pos, move: setCompareSplit });
+		const compare = { board, preview, artboardFrame, appFrame: app, timer: 0, loaded: false };
 		const failed = (key) => {
 			if (state.compare === compare) setCompareMessage(key, { url: preview }, true);
 		};
@@ -3769,7 +3674,7 @@
 		els.compareOpen.setAttribute("rel", "noopener noreferrer");
 		els.compareOpen.href = preview;
 		setCompareMessage(new URL(preview).hostname === "[::1]" ? "compare.hintIpv6" : "compare.hint", { url: new URL(preview).origin }, false);
-		els.comparePanes.replaceChildren(design.figure, running.figure, handle, shield);
+		els.comparePanes.replaceChildren(comparePane(artboardFrame, "compare.designCaption", { file: board.artboard.file }), comparePane(app, "compare.appCaption", { url: preview }));
 		// On by default (polish F5): it only applies when the pair is wider than the window, and can be unchecked.
 		els.compareFit.checked = true;
 		els.compare.hidden = false;
@@ -3777,7 +3682,7 @@
 		els.viewport.inert = true;
 		els.panel.inert = true;
 		for (const control of [els.zoomOut, els.zoomIn, els.fit, els.railFit, els.design, els.compareApp]) control.disabled = true;
-		setCompareView(state.compareMode);
+		layoutCompare();
 		els.compareBack.focus();
 	}
 
@@ -3800,14 +3705,6 @@
 
 	els.compareBack.addEventListener("click", () => exitCompare(true));
 	els.compareFit.addEventListener("change", layoutCompare);
-	for (const [mode, button] of Object.entries(els.compareModes)) button.addEventListener("click", () => setCompareView(mode));
-	els.compareOpacity.addEventListener("input", () => {
-		const compare = state.compare;
-		if (!compare) return;
-		const text = String(els.compareOpacity.value).trim();
-		// Anything that is not a number leaves the opacity as it was.
-		setCompareOpacity(text !== "" && Number.isFinite(Number(text)) ? Number(text) : compare.opacity);
-	});
 
 	function showFeature(manifest) {
 		const feature = manifest && typeof manifest.feature === "string" ? manifest.feature : "";
@@ -4944,73 +4841,6 @@
 		// In All sizes the artboard's own frame is hidden: ask on the Desktop frame, the manifest size.
 		openPopover(board.sizeFrames.length > 0 ? board.sizeFrames[board.sizeFrames.length - 1] : board, { selector: issue.selector, excerpt: issue.label, rect: issue.rect });
 		els.text.value = text.slice(0, LIMITS.comment);
-	}
-
-	// ---- the split line of Compare's Slider mode
-
-	const SLIDER_STEP = 2;
-	const SLIDER_BIG_STEP = 10;
-
-	/** A slider position, 0 to 100, to one decimal. */
-	function clampSlider(value) {
-		return Math.min(100, Math.max(0, Math.round(value * 10) / 10));
-	}
-
-	/** The vertical line with its knob: a named, focusable slider whose value the caller keeps (aria-valuenow and -valuetext). */
-	function splitHandle(label) {
-		const handle = document.createElement("div");
-		handle.className = "gd-split-handle";
-		handle.setAttribute("role", "slider");
-		handle.setAttribute("tabindex", "0");
-		handle.setAttribute("aria-label", label);
-		handle.setAttribute("aria-orientation", "horizontal");
-		handle.setAttribute("aria-valuemin", "0");
-		handle.setAttribute("aria-valuemax", "100");
-		const knob = document.createElement("span");
-		knob.className = "gd-split-knob";
-		knob.setAttribute("aria-hidden", "true");
-		knob.textContent = "↔";
-		handle.append(knob);
-		return handle;
-	}
-
-	/** Frames take pointer events themselves, so a transparent shield over them carries the drag. */
-	function splitShield() {
-		const shield = document.createElement("div");
-		shield.className = "gd-split-shield";
-		shield.setAttribute("aria-hidden", "true");
-		return shield;
-	}
-
-	/** Pointer drag on the shield and arrows (Shift for a bigger step), Home and End on the handle; `move` gets the new position. */
-	function bindSplitInput({ shield, handle, box, position, move }) {
-		let dragging = null;
-		const fromPointer = (clientX) => {
-			const rect = box.getBoundingClientRect();
-			return rect.width > 0 ? ((clientX - rect.left) / rect.width) * 100 : position();
-		};
-		shield.addEventListener("pointerdown", (event) => {
-			if (event.button !== 0) return;
-			dragging = event.pointerId;
-			shield.setPointerCapture?.(event.pointerId);
-			move(fromPointer(event.clientX));
-			handle.focus();
-		});
-		shield.addEventListener("pointermove", (event) => {
-			if (dragging === event.pointerId) move(fromPointer(event.clientX));
-		});
-		const endDrag = (event) => {
-			if (dragging === event.pointerId) dragging = null;
-		};
-		shield.addEventListener("pointerup", endDrag);
-		shield.addEventListener("pointercancel", endDrag);
-		handle.addEventListener("keydown", (event) => {
-			const step = event.shiftKey ? SLIDER_BIG_STEP : SLIDER_STEP;
-			const next = { ArrowLeft: position() - step, ArrowDown: position() - step, ArrowRight: position() + step, ArrowUp: position() + step, Home: 0, End: 100 }[event.key];
-			if (next === undefined) return;
-			event.preventDefault();
-			move(next);
-		});
 	}
 
 	// ---- comments ----------------------------------------------------------
