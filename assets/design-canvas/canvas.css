@@ -783,17 +783,6 @@ select {
 
 .gd-choice-chosen { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 700; }
 .gd-handoff-badge { font-weight: 600; }
-/* A dot leads Implementing… and In progress; it pulses only without reduced motion (see the motion block). */
-.gd-handoff-badge[data-status="sent"]::before, .gd-handoff-badge[data-status="in_progress"]::before {
-	content: "";
-	display: inline-block;
-	width: 6px;
-	height: 6px;
-	margin-right: 6px;
-	vertical-align: middle;
-	border-radius: 50%;
-	background: var(--info);
-}
 .gd-handoff-badge[data-status="queued"] { color: var(--warning); border-color: var(--warning); }
 .gd-handoff-badge[data-status="sent"], .gd-handoff-badge[data-status="in_progress"] { color: var(--info); border-color: var(--info); }
 .gd-handoff-badge[data-status="implemented"] { color: var(--success); border-color: var(--success); }
@@ -816,10 +805,10 @@ select {
 }
 .gd-ministep-step { display: inline-flex; align-items: center; gap: 4px; }
 .gd-ministep-step + .gd-ministep-step::before { content: ""; width: 10px; height: 1px; margin-right: 2px; background: var(--text-faint); }
-.gd-ministep-dot { flex: none; width: 8px; height: 8px; border: 1.5px solid var(--text-faint); border-radius: 50%; }
-.gd-ministep-step[data-state="done"] .gd-ministep-dot { background: var(--success); border-color: var(--success); }
-.gd-ministep-step[data-state="current"] .gd-ministep-dot { background: var(--info); border-color: var(--info); box-shadow: 0 0 0 3px var(--info-halo); }
+/* No dots: the label's color and weight say done, current or pending. */
+.gd-ministep-step[data-state="done"] .gd-ministep-label { color: var(--success); }
 .gd-ministep-step[data-state="current"] .gd-ministep-label { color: var(--text); font-weight: 600; }
+.gd-ministep-step[data-state="pending"] .gd-ministep-label { color: var(--text-faint); }
 .gd-compare-start { min-height: 24px; padding: 0 10px; font-size: 12px; }
 
 /* The chosen artboard keeps an accent frame at every zoom level. */
@@ -1478,22 +1467,13 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 
 .gd-step {
-	display: grid;
-	grid-template-columns: 14px minmax(0, 1fr);
-	gap: 10px;
+	display: block;
 	font-size: 13px;
 }
 
-.gd-step-dot {
-	width: 10px;
-	height: 10px;
-	margin-top: 5px;
-	border-radius: 50%;
-	border: 2px solid var(--text-faint);
-}
-
-.gd-step-done .gd-step-dot { background: var(--success); border-color: var(--success); }
-.gd-step-current .gd-step-dot { background: var(--info); border-color: var(--info); box-shadow: 0 0 0 3px var(--info-halo); }
+/* No dots: the label's color and weight say done, current or pending. */
+.gd-step-done .gd-step-label { color: var(--success); }
+.gd-step-current .gd-step-label { color: var(--text); font-weight: 600; }
 .gd-step-pending .gd-step-label { color: var(--text-muted); }
 .gd-step-body { display: flex; flex-direction: column; min-width: 0; }
 .gd-step-detail { color: var(--text-muted); overflow-wrap: anywhere; }
@@ -2124,7 +2104,6 @@ kbd {
 	.gd-shield-hint { transition: opacity 120ms ease; }
 	.gd-artboard { transition: opacity 160ms ease; }
 	.gd-discarded .gd-frame-box { transition: opacity 160ms ease, filter 160ms ease; }
-	.gd-handoff-badge[data-status="sent"]::before, .gd-handoff-badge[data-status="in_progress"]::before { animation: gd-pulse 1.6s var(--ease) infinite; }
 	.gd-check-mark { animation: gd-mark-pulse 0.9s var(--ease) 2; }
 	.gd-placeholder-status { animation: gd-breathe 2s var(--ease) infinite; }
 }
@@ -2141,11 +2120,6 @@ kbd {
 	50% { opacity: .6; }
 }
 
-/* The pulse of the dot that says work is under way. */
-@keyframes gd-pulse {
-	0%, 100% { box-shadow: 0 0 0 0 var(--info-halo); }
-	50% { box-shadow: 0 0 0 4px var(--info-halo); }
-}
 
 /* ---- technical details (canvas-ux-quick-wins S2) ---- */
 

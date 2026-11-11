@@ -5973,27 +5973,35 @@ test("chosen-direction S3: the chosen artboard's handoff row has a 4-step mini s
 	assert.deepEqual(boardsOf(canvas).map(ministep), [null, null], "gone again when nothing is chosen");
 });
 
-test("chosen-direction S3: canvas.css pulses the sent and in-progress dot only without reduced motion, and the note reads in one plain line", () => {
+test("chosen-direction S3: the handoff steps and badges have no dots, the state is in the text, and the note reads in one plain line", async () => {
 	const css = read("canvas.css");
+	const js = read("canvas.js");
 	// The rule of the selector alone, not a list that names it.
 	const rule = (selector: string) => {
 		const start = css.indexOf(`\n${selector} {`);
 		assert.ok(start >= 0, `${selector} is styled`);
 		return css.slice(start, css.indexOf("}", start) + 1);
 	};
-	assert.match(css, /\.gd-handoff-badge\[data-status="sent"\]::before,\s*\.gd-handoff-badge\[data-status="in_progress"\]::before \{[^}]*border-radius:\s*50%[^}]*background:\s*var\(--info\)/, "a dot leads the sent and in-progress badge");
-	assert.match(css, /@keyframes gd-pulse \{/);
-	const motion = css.slice(css.indexOf("@media (prefers-reduced-motion: no-preference) {"));
-	assert.match(motion.slice(0, motion.indexOf("\n}\n")), /\.gd-handoff-badge\[data-status="sent"\]::before,\s*\.gd-handoff-badge\[data-status="in_progress"\]::before \{ animation: gd-pulse/, "the pulse runs only without reduced motion");
-	const outsideMotion = css.replace(/@media \(prefers-reduced-motion: no-preference\) \{[^]*?\n\}\n/g, "");
-	assert.ok(!/animation:\s*gd-pulse/.test(outsideMotion), "nothing pulses under reduced motion");
+	for (const dot of ["gd-ministep-dot", "gd-step-dot"]) {
+		assert.ok(!css.includes(dot), `canvas.css styles no ${dot}`);
+		assert.ok(!js.includes(dot), `canvas.js renders no ${dot}`);
+	}
+	assert.ok(!/\.gd-handoff-badge[^{]*::before/.test(css), "no dot leads a handoff badge");
+	assert.ok(!/gd-pulse\b/.test(css), "nothing pulses");
+	const canvas = await loadLang({ browser: "es", replies: { "/t/api/designs/alpha/handoffs": handoffDoc("02-b.html", { "02-b.html": { status: "in_progress" } }) } });
+	const steps = withClass(boardsOf(canvas as unknown as Canvas)[1], "gd-ministep-step");
+	assert.equal(steps.length, 4);
+	for (const step of steps) assert.deepEqual(step.children.map((child) => child.className), ["gd-ministep-label"], "a step is its label alone");
+	// The step's state shows in its text, with tokens only.
+	assert.match(css, /\.gd-ministep-step\[data-state="done"\] \.gd-ministep-label \{[^}]*var\(--success\)/);
+	assert.match(css, /\.gd-ministep-step\[data-state="current"\] \.gd-ministep-label \{[^}]*font-weight:\s*600/);
+	assert.match(css, /\.gd-step-done \.gd-step-label \{[^}]*var\(--success\)/);
+	assert.match(css, /\.gd-step-current \.gd-step-label \{[^}]*font-weight:\s*600/);
 	const note = rule(".gd-handoff-note");
 	assert.ok(!/italic/.test(note), "the note is not italic");
 	assert.match(note, /max-width:\s*(\d+)ch/);
 	assert.ok(Number(/max-width:\s*(\d+)ch/.exec(note)![1]) >= 48, "the note is wider than before");
-	for (const selector of [".gd-handoff-note", ".gd-ministep", ".gd-ministep-list", ".gd-ministep-step", ".gd-ministep-dot"]) assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule(selector)), `${selector}: tokens only`);
-	assert.match(css, /\.gd-ministep-step\[data-state="done"\] \.gd-ministep-dot \{[^}]*var\(--success\)/);
-	assert.match(css, /\.gd-ministep-step\[data-state="current"\] \.gd-ministep-dot \{[^}]*var\(--info\)/);
+	for (const selector of [".gd-handoff-note", ".gd-ministep", ".gd-ministep-list", ".gd-ministep-step"]) assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(rule(selector)), `${selector}: tokens only`);
 });
 
 test("chosen-direction S3: the stepper speaks Spanish", async () => {
@@ -6004,13 +6012,12 @@ test("chosen-direction S3: the stepper speaks Spanish", async () => {
 	assert.deepEqual(ministep(boardsOf(c)[1])!.words, ["Step 3 of 4: In progress"], "a switch of language rewrites it");
 });
 
-test("chosen-direction S5: the docs describe the stepper, the pulsing dot and the readable note", () => {
+test("chosen-direction S5: the docs describe the stepper without dots and the readable note", () => {
 	const docs = readFileSync(fileURLToPath(new URL("../docs/gentle-shell.md", import.meta.url)), "utf8");
 	const section = docs.slice(docs.indexOf("### Gentle Design"));
 	assert.match(section, /mini stepper/i);
 	assert.match(section, /\*\*Chosen\*\* → \*\*Sent\*\* → \*\*In progress\*\* → \*\*Implemented\*\*/);
-	assert.match(section, /puls/i);
-	assert.match(section, /reduced motion/i);
+	assert.ok(!/dot that pulses|pulsing dot/i.test(section), "no pulsing dot is described");
 });
 
 // ---- canvas-check-highlight: Show marks the element of a check on the canvas, zooms, and links the card ----

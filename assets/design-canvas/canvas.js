@@ -3163,7 +3163,7 @@
 		const current = steps.indexOf("current");
 		const at = current >= 0 ? current : steps.lastIndexOf("done");
 		const root = chip("gd-ministep", "");
-		// Never color alone: the position is in words for assistive technology, the dots are decoration.
+		// Never color alone: the position is in words for assistive technology; the labels carry the state in their color and weight.
 		const words = chip("gd-visually-hidden gd-ministep-words", t("stepper.position", { n: at + 1, total: steps.length, step: t(STEPPER_KEYS[at]) }));
 		const list = document.createElement("ol");
 		list.className = "gd-ministep-list";
@@ -3172,7 +3172,7 @@
 			const item = document.createElement("li");
 			item.className = "gd-ministep-step";
 			item.dataset.state = status;
-			item.append(chip("gd-ministep-dot", ""), chip("gd-ministep-label", t(STEPPER_KEYS[index])));
+			item.append(chip("gd-ministep-label", t(STEPPER_KEYS[index])));
 			return item;
 		}));
 		root.append(words, list);
@@ -3492,15 +3492,12 @@
 			item.className = `gd-step gd-step-${status}`;
 			item.dataset.state = status;
 			if (status === "current") item.setAttribute("aria-current", "step");
-			const dot = document.createElement("span");
-			dot.className = "gd-step-dot";
-			dot.setAttribute("aria-hidden", "true");
 			const body = document.createElement("span");
 			body.className = "gd-step-body";
 			// Never color alone: the state is also in words for assistive technology.
 			const words = chip("gd-visually-hidden gd-step-state", ` ${t(status === "done" ? "timeline.done" : status === "current" ? "timeline.current" : "timeline.pending")}`);
 			body.append(chip("gd-step-label", label), words, ...details.filter(Boolean).map((text) => chip("gd-step-detail", text)));
-			item.append(dot, body);
+			item.append(body);
 			return item;
 		}));
 	}
